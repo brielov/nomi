@@ -27,7 +27,7 @@ use crate::graph::{Env, RootMain};
 use crate::names::{Building, ModuleInterface, Packages};
 use crate::objects::{Dependencies, Memo, PackageBuild};
 use crate::packages::Resolve;
-use crate::paths::{Cache, Root};
+use crate::paths::{Cache, Root, relative};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report::{self, one_line};
 use crate::timings::{self, Phase};
@@ -52,12 +52,33 @@ pub struct Make {
     /// Which packages the dependencies resolve to: nomi's commands, `nomi
     /// test` among them, know more than upstream's.
     pub resolve: Resolve,
-    /// The ES module whose functions `Nomi.Ffi` calls, from the directory.
-    pub ffi: Option<PathBuf>,
+    /// The ES module whose functions `Nomi.Ffi` calls.
+    pub ffi: Option<FfiModule>,
+    /// The project whose workspace's member packages the dependencies
+    /// may name, where the project built is none of its members, as the
+    /// project generated for a member's tests is.
+    pub members_of: Option<PathBuf>,
     /// `--output`, if given.
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
     pub docs: Option<PathBuf>,
+}
+
+/// An FFI module, and where it was named.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FfiModule {
+    /// Its path, from the directory.
+    pub path: PathBuf,
+    pub named_in: NamedIn,
+}
+
+/// Where an FFI module was named, which its reports point to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NamedIn {
+    /// `--ffi`.
+    Flag,
+    /// The entry of `nomi.toml` whose `main` is this.
+    Entry(String),
 }
 
 /// That `--debug` and `--optimize` were both given.
@@ -128,6 +149,7 @@ impl Make {
             platform_by_main: false,
             resolve: Resolve::Nomi,
             ffi: None,
+            members_of: None,
             output: Some(Output::DevNull),
             docs: None,
         }
@@ -166,6 +188,7 @@ impl Make {
             platform_by_main: platform.is_none(),
             resolve: Resolve::Nomi,
             ffi: None,
+            members_of: None,
             output,
             docs: None,
         })
@@ -217,7 +240,7 @@ pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: 
     // The packages' builds are freed before the code is generated, which
     // then takes their graphs rather than copying them.
     let built = build(cx, console, make, make.goal(), &Shared::new(cx.cache, None));
-    let ok = built.is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean));
+    let ok = built.is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean, None));
     trim(cx.cache);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
@@ -236,7 +259,7 @@ pub(crate) fn made(
 ) -> Option<Vec<PathBuf>> {
     let mut clean = build(cx, console, make, make.goal(), shared)?;
     let ran = std::mem::take(&mut clean.built.ran);
-    write(cx.vfs, console, cx.dir, make, clean).then_some(ran)
+    write(cx.vfs, console, cx.dir, make, clean, shared.root).then_some(ran)
 }
 
 /// The interfaces of the modules of a project around the directory,
@@ -259,7 +282,7 @@ pub fn interfaces(
         Some(Made::Optimized(optimized)) => optimized.interfaces.clone(),
         _ => Vec::new(),
     };
-    write(cx.vfs, console, cx.dir, make, clean).then_some(interfaces)
+    write(cx.vfs, console, cx.dir, make, clean, None).then_some(interfaces)
 }
 
 /// What the builds of one command share: the artifact cache, each
@@ -345,14 +368,12 @@ fn build(
     let Ok(kind) = make.kind else {
         return fail(console, dir, cannot_optimize_and_debug(), Compat::LATEST);
     };
-    let Loaded {
-        compat,
-        outline,
-        sources,
-    } = match load(cx, &root, personality, make.resolve) {
+    let members_of = make.members_of.as_deref();
+    let loaded = match load(cx, &root, personality, make.resolve, members_of) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return unready(console, dir, Checked::Project(report), compat),
     };
+    let (compat, outline, sources) = (loaded.compat, loaded.outline, loaded.sources);
     let env = match env_of(root.dir(), &outline, compat, sources.foreigns.clone()) {
         Ok(env) => env.with_cwd(dir),
         Err(report) => return unready(console, dir, Checked::Project(report), compat),
@@ -470,20 +491,22 @@ fn shown(
 }
 
 /// The project at `root`, and what it builds with, every release
-/// downloaded; or the report on why not, in the words of the release it
+/// downloaded, the member packages of `members_of`'s workspace among them
+/// where given; or the report on why not, in the words of the release it
 /// names, where it names one.
 pub(crate) fn load(
     cx: &Context<'_, impl Http + Sync>,
     root: &Root,
     personality: Personality,
     resolve: Resolve,
+    members_of: Option<&Path>,
 ) -> Result<Loaded, (Report, Compat)> {
     let project = timings::time(Phase::Load, || Project::read(cx.vfs, root, personality))
         .map_err(|report| (report, Compat::LATEST))?;
     let compat = project.compat;
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
-    let sources = check::sources(cx, &project, personality, resolve).map_err(fail)?;
+    let sources = check::sources(cx, &project, personality, resolve, members_of).map_err(fail)?;
     Ok(Loaded {
         compat,
         outline: project.outline,
@@ -492,9 +515,16 @@ pub(crate) fn load(
 }
 
 /// Writes what the clean build made, as `make` asks: the documentation,
-/// or the code and, in the terminal style, a diagram of where it went.
-/// Whether nothing was wrong.
-fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: Clean) -> bool {
+/// or the code and, in the terminal style, a diagram of where it went,
+/// naming the output from `from` where given. Whether nothing was wrong.
+fn write(
+    vfs: &Vfs,
+    console: &mut dyn Console,
+    dir: &Path,
+    make: &Make,
+    clean: Clean,
+    from: Option<&Path>,
+) -> bool {
     let Clean {
         root,
         compat,
@@ -576,7 +606,8 @@ fn write(vfs: &Vfs, console: &mut dyn Console, dir: &Path, make: &Make, clean: C
                 );
                 return fail(console, report);
             }
-            diagram = Some(gen_diagram(&target.names, &target.path.to_string_lossy()));
+            let shown = from.map_or_else(|| target.path.clone(), |from| relative(&path, from));
+            diagram = Some(gen_diagram(&target.names, &shown.to_string_lossy()));
         }
     }
     // What the build checked is freed while it reports, or not at all
@@ -759,7 +790,7 @@ fn target(output: Option<&Output>, roots: &[RootMain]) -> Result<Option<Target>,
 fn ffi_module(
     vfs: &Vfs,
     dir: &Path,
-    path: &Path,
+    ffi: &FfiModule,
     made_for: &javascript::Target,
     target: &Target,
 ) -> Result<Ffi, Report> {
@@ -769,8 +800,8 @@ fn ffi_module(
     if made_for.format != javascript::Format::EsModule || target.html.is_some() {
         return Err(ffi_outside_module());
     }
-    let module = dir.join(path);
-    let source = vfs.read(&module).map_err(|e| ffi_unreadable(path, &e))?;
+    let module = dir.join(&ffi.path);
+    let source = vfs.read(&module).map_err(|e| ffi_unreadable(ffi, &e))?;
     Ok(Ffi {
         specifier: ffi_specifier(&dir.join(&target.path), &module),
         exports: ffi::exports(&source),
@@ -790,25 +821,33 @@ fn ffi_off_node() -> Report {
     )
 }
 
-/// That the FFI module at `path` could not be read.
-fn ffi_unreadable(path: &Path, error: &std::io::Error) -> Report {
+/// That `ffi` could not be read.
+fn ffi_unreadable(ffi: &FfiModule, error: &std::io::Error) -> Report {
+    let path = ffi.path.display();
     if error.kind() != std::io::ErrorKind::NotFound {
         return one_line(
             "PROBLEM READING FFI MODULE",
-            &format!("I could not read {}: {error}", path.display()),
+            &format!("I could not read {path}: {error}"),
         );
     }
+    let (named, from) = match &ffi.named_in {
+        NamedIn::Flag => (
+            format!("The FFI module given with --ffi, {path}, does not exist."),
+            "from the directory nomi runs in",
+        ),
+        NamedIn::Entry(main) => (
+            format!("The FFI module nomi.toml gives the entry {main}, {path}, does not exist."),
+            "from the directory of nomi.toml",
+        ),
+    };
     Report::doc(
         "FFI MODULE NOT FOUND",
         None,
-        reflow(&format!(
-            "The FFI module given with --ffi, {}, does not exist.",
-            path.display()
-        )),
-        [reflow(
+        reflow(&named),
+        [reflow(&format!(
             "Give the path of the ES module that exports the functions Nomi.Ffi.task calls, \
-             from the directory nomi runs in.",
-        )],
+             {from}."
+        ))],
     )
 }
 
@@ -957,7 +996,7 @@ fn no_outline() -> Report {
 }
 
 /// `MakeCannotOptimizeAndDebug`.
-fn cannot_optimize_and_debug() -> Report {
+pub(crate) fn cannot_optimize_and_debug() -> Report {
     let flags = [
         text("--optimize").color(Color::Red),
         text("and"),

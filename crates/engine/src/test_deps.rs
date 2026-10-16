@@ -10,9 +10,11 @@ use std::io;
 use std::path::Path;
 
 use nomi_base::{Compat, Report};
+use nomi_project::workspace::Workspace;
 use nomi_project::{Constraint, Name, Outline, Version};
 pub use nomi_registry::solver::Order;
 use nomi_registry::solver::{self, Details};
+use nomi_registry::workspace::Members;
 use nomi_registry::{Http, Known, Packages, Release, Store};
 
 use crate::artifacts::Hash;
@@ -42,19 +44,33 @@ pub struct Solve {
     pub resolve: Resolve,
 }
 
-/// The generated dependencies of the project whose `elm.json` is
-/// `elm_json`, decoded as `outline`, kept in `dir` by a hash of it as
-/// elm-test keeps them by its dependencies; `solving` is called before a
-/// solve, which a kept solution saves.
+/// The project whose tests run.
+#[derive(Clone, Copy, Debug)]
+pub struct Tested<'a> {
+    pub elm_json: &'a [u8],
+    /// `elm_json`, decoded.
+    pub outline: &'a Outline,
+    /// The workspace it is a member of, whose member packages are each
+    /// the one release of its name.
+    pub workspace: Option<&'a Workspace>,
+}
+
+/// The generated dependencies of `tested`, kept in `dir` by a hash of
+/// its `elm.json` as elm-test keeps them by its dependencies; `solving`
+/// is called before a solve, which a kept solution saves.
 pub fn dependencies(
-    elm_json: &[u8],
-    outline: &Outline,
+    tested: Tested<'_>,
     dir: &Path,
     cache: &Cache,
     http: &impl Http,
     how: Solve,
     solving: &mut dyn FnMut(),
 ) -> Result<Dependencies, Report> {
+    let Tested {
+        elm_json,
+        outline,
+        workspace,
+    } = tested;
     let order = match outline {
         Outline::App(_) => Order::NewestFirst,
         Outline::Pkg(_) => how.order,
@@ -66,6 +82,12 @@ pub fn dependencies(
     if how.resolve == Resolve::Nomi {
         key.extend_from_slice(b"\0bundled");
     }
+    for member in workspace.iter().flat_map(|w| w.members()) {
+        key.push(0);
+        key.extend_from_slice(member.dir.as_os_str().as_encoded_bytes());
+        key.push(0);
+        key.extend_from_slice(&member.outline.write());
+    }
     let kept = dir.join(format!("dependencies.{}", Hash::of(&key)));
     if let Some(dependencies) =
         (fs::read_to_string(&kept).ok()).and_then(|t| Dependencies::decode(&t))
@@ -73,7 +95,7 @@ pub fn dependencies(
         return Ok(dependencies);
     }
     solving();
-    let dependencies = solve(outline, cache, http, Solve { order, ..how })?;
+    let dependencies = solve(outline, workspace, cache, http, Solve { order, ..how })?;
     // A solution that can't be kept is solved again next time.
     let _ = fs::write(&kept, dependencies.encode());
     Ok(dependencies)
@@ -109,6 +131,7 @@ fn constraints(outline: &Outline) -> Result<BTreeMap<Name, Constraint>, Report> 
 
 fn solve(
     outline: &Outline,
+    workspace: Option<&Workspace>,
     cache: &Cache,
     http: &impl Http,
     how: Solve,
@@ -122,7 +145,14 @@ fn solve(
         Dependencies { direct, indirect }
     };
     let mut local = Local::new(&store).map_err(|e| io_problem(&e))?;
-    if let Ok(Some(solution)) = solver::verify_in(&mut local, COMPAT, &constraints, how.order) {
+    let found = match workspace {
+        None => solver::verify_in(&mut local, COMPAT, &constraints, how.order),
+        Some(workspace) => {
+            let mut local = Members::new(workspace, &mut local);
+            solver::verify_in(&mut local, COMPAT, &constraints, how.order)
+        }
+    };
+    if let Ok(Some(solution)) = found {
         return Ok(split(solution));
     }
     if how.offline {
@@ -137,7 +167,14 @@ fn solve(
         COMPAT,
         "I need the list of published packages to find the tests' dependencies",
     )?;
-    match solver::verify_in(&mut registry, COMPAT, &constraints, how.order) {
+    let found = match workspace {
+        None => solver::verify_in(&mut registry, COMPAT, &constraints, how.order),
+        Some(workspace) => {
+            let mut registry = Members::new(workspace, &mut registry);
+            solver::verify_in(&mut registry, COMPAT, &constraints, how.order)
+        }
+    };
+    match found {
         Ok(Some(solution)) => Ok(split(solution)),
         Ok(None) => Err(no_solution(
             "I could not find versions of the project's dependencies and the test runner's that work together.",

@@ -4,33 +4,129 @@
 //! releases. Their messages follow `install`'s.
 
 use std::fmt::Display;
+use std::path::PathBuf;
 
 use nomi_base::{Compat, Report};
+use nomi_project::outline::AppOutline;
+use nomi_project::workspace::Workspace;
 use nomi_project::{Name, Outline, Version};
 use nomi_registry::update::DepKind;
+use nomi_registry::workspace::{self as registry_workspace, Members};
 use nomi_registry::{Http, Outdated, Registry, SolverProblem, UpdateProblem, report, update};
 
 use crate::console::{self, Console, Personality};
 use crate::install::{parse_name, plan_question};
-use crate::project::Project;
+use crate::packages::{self, Resolve};
+use crate::paths::Root;
+use crate::project::{Project, write_elm_json};
 use crate::report::one_line;
-use crate::{Context, env};
+use crate::scope::{self, Scope};
+use crate::{Context, env, workspace};
 
-/// Updates the dependencies of the project around the directory, or
-/// only `package` and those that need it, once the user agrees. Whether
+/// Why `update` and `outdated` need the package list.
+const NEWER: &str = "I need the list of published packages to find newer releases";
+
+/// What `update` says of packages, whose ranges it leaves.
+const RANGES_STAY: &str = "Packages keep ranges in elm.json, and builds take the newest releases \
+                           they allow, so there is nothing to update!\n";
+
+/// Updates the dependencies of the projects `specs` names, or only
+/// `package` and those that need it, once the user agrees: the project
+/// around the directory, or members of the workspace around it, whose
+/// applications move together and keep agreeing with the others. Whether
 /// it succeeded; a decline is a success.
-pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: Option<&str>) -> bool {
+pub fn run(
+    cx: &Context<'_, impl Http>,
+    console: &mut dyn Console,
+    package: Option<&str>,
+    specs: &[String],
+) -> bool {
     let package = match package.map(parse_name).transpose() {
         Ok(package) => package,
         Err(problem) => return console::reported(console, Err(problem), Compat::LATEST),
     };
+    let members = match scope::find(cx, specs) {
+        Ok(Scope::Project) => Root::find(cx.vfs, cx.dir).and_then(|root| {
+            let workspace = workspace::discover(&cx.vfs.snapshot(), root.dir())?;
+            Some(workspace.map(|workspace| {
+                let dir = workspace::member_dir(&workspace, root.dir());
+                (workspace, vec![dir])
+            }))
+        }),
+        Ok(Scope::Named(workspace, dirs)) => Some(Ok((workspace, dirs))),
+        Ok(Scope::Every(workspace)) => {
+            let dirs = (workspace.members().iter())
+                .map(|m| m.dir.clone())
+                .collect();
+            Some(Ok((workspace, dirs)))
+        }
+        Err(report) => Some(Err(report)),
+    };
+    match members {
+        None => alone(cx, console, package.as_ref()),
+        Some(Ok((workspace, dirs))) => together(cx, console, package.as_ref(), &workspace, &dirs),
+        Some(Err(report)) => console::reported(console, Err(report), Compat::LATEST),
+    }
+}
+
+/// [`run`] in a project in no workspace.
+fn alone(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: Option<&Name>) -> bool {
     env::with_registry(
         cx,
         console,
         "to update",
-        "I need the list of published packages to find newer releases",
-        |console, project, registry| update(cx, console, package.as_ref(), project, registry),
+        NEWER,
+        |console, project, registry| update(cx, console, package, project, registry),
     )
+}
+
+/// [`run`] for the members of `workspace` in `dirs`: their applications
+/// updated as one, holding what the others pin.
+fn together(
+    cx: &Context<'_, impl Http>,
+    console: &mut dyn Console,
+    package: Option<&Name>,
+    workspace: &Workspace,
+    dirs: &[PathBuf],
+) -> bool {
+    let apps: Vec<(PathBuf, &AppOutline)> = (workspace.members().iter())
+        .filter(|member| dirs.contains(&member.dir))
+        .filter_map(|member| match &member.outline {
+            Outline::App(app) => Some((member.dir.clone(), app)),
+            Outline::Pkg(_) => None,
+        })
+        .collect();
+    let compat = (apps.first())
+        .and_then(|(_, app)| (Compat::ALL.into_iter()).find(|&c| Version::compiler(c) == app.elm))
+        .unwrap_or(Compat::LATEST);
+    let plan = |console: &mut dyn Console| -> Result<bool, Report> {
+        if apps.is_empty() {
+            console.out(RANGES_STAY);
+            return Ok(true);
+        }
+        registry_workspace::agree(workspace).map_err(|problem| {
+            workspace::resolution_problem(&problem, compat, Personality::Nomi)
+        })?;
+        let store = packages::store_for(cx.cache, Resolve::Nomi)?;
+        let mut registry = env::registry(cx.cache, &store, cx.http, compat, NEWER)?;
+        let mut held = Members::new(workspace, &mut registry).holding_all_but(workspace, dirs);
+        let together = update::plan_together(&mut held, compat, package, &apps)
+            .map_err(|problem| update_problem(package, problem))?;
+        if together.changes.is_empty() {
+            console.out("Everything is up to date!\n");
+            return Ok(true);
+        }
+        let question = plan_question(&together.changes);
+        console::confirm(console, &question, compat, Personality::Nomi, || {
+            for (dir, app) in &together.apps {
+                let root = Root::new(workspace.root().join(dir));
+                write_elm_json(cx.vfs, &root, Outline::App(app.clone()).write())?;
+            }
+            Ok(())
+        })
+    };
+    let result = plan(console);
+    console::reported(console, result, compat)
 }
 
 fn update<H: Http>(
@@ -44,10 +140,7 @@ fn update<H: Http>(
         .map_err(|problem| update_problem(package, problem))?;
     let (changes, outline) = match plan {
         update::Plan::Pkg => {
-            console.out(
-                "Packages keep ranges in elm.json, and builds take the newest releases \
-                 they allow, so there is nothing to update!\n",
-            );
+            console.out(RANGES_STAY);
             return Ok(true);
         }
         update::Plan::App { changes, .. } if changes.is_empty() => {
@@ -102,7 +195,7 @@ pub fn outdated(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool 
         cx,
         console,
         "to check",
-        "I need the list of published packages to find newer releases",
+        NEWER,
         |console, project, registry| {
             console.out(&match &project.outline {
                 Outline::App(app) => table(&update::outdated_app(registry, app)),

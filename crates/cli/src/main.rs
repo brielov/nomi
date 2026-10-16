@@ -8,13 +8,14 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use nomi_base::Platform;
-use nomi_engine::check::{self, Style};
+use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
+use nomi_engine::make::{FfiModule, Make, NamedIn};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::{
-    Context, Vfs, Web, bump, diff, init, install, make, publish, remove, run, tree, update,
+    Context, Vfs, Web, bump, diff, init, install, make, publish, remove, run, scope, tree, update,
 };
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
@@ -52,6 +53,10 @@ enum Command {
     Add {
         /// The package, e.g. elm/http.
         package: String,
+        /// The member of the workspace to add it to, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
     },
     /// Remove a package from the project's dependencies, with what only
     /// it needed.
@@ -65,6 +70,10 @@ enum Command {
     Update {
         /// Only this package, e.g. elm/http, and those that need it.
         package: Option<String>,
+        /// Members of the workspace to update together, by directory or
+        /// package name; at its root, every member.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        members: Vec<String>,
     },
     /// List the dependencies that have newer releases.
     Outdated,
@@ -86,6 +95,10 @@ enum Command {
         /// The entry to run, by its `main`, where nomi.toml has several.
         #[arg(conflicts_with = "elm")]
         entry: Option<PathBuf>,
+        /// Run the one entry of this member of the workspace, by its
+        /// directory or package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER", conflicts_with_all = ["entry", "elm"])]
+        member: Option<String>,
         /// Run this module's `main` instead, without nomi.toml.
         #[arg(short, long, value_name = "FILE")]
         elm: Option<PathBuf>,
@@ -113,6 +126,10 @@ enum Command {
     /// Run the tests, as elm-test does, with its options.
     #[command(disable_help_flag = true)]
     Test {
+        /// Members of the workspace to test, by directory or package
+        /// name; at its root, every member with tests.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        members: Vec<String>,
         /// elm-test's options and globs; `nomi test --help` lists them.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
@@ -120,9 +137,18 @@ enum Command {
     /// Check modules as `elm make --output=/dev/null` does, generating no
     /// code.
     Check {
-        /// The modules to start from; a package's exposed modules if
-        /// none.
+        /// The modules to start from; without them, each entry of
+        /// nomi.toml's, or a package's exposed modules.
         paths: Vec<PathBuf>,
+        /// Members of the workspace to check, by directory or package
+        /// name; at its root, every member.
+        #[arg(
+            short = 'p',
+            long = "package",
+            value_name = "MEMBER",
+            conflicts_with = "paths"
+        )]
+        members: Vec<String>,
         /// Report problems as JSON on standard error, as `elm make
         /// --report=json` does.
         #[arg(long, value_name = "FORMAT")]
@@ -133,9 +159,18 @@ enum Command {
 /// `nomi build`'s arguments.
 #[derive(Debug, clap::Args)]
 struct Build {
-    /// The modules with the `main`s to build; a package's exposed
-    /// modules, checked, if none.
+    /// The modules with the `main`s to build; without them, each entry
+    /// of nomi.toml, or a package's exposed modules, checked.
     paths: Vec<PathBuf>,
+    /// Members of the workspace to build, by directory or package name;
+    /// at its root, every member.
+    #[arg(
+        short = 'p',
+        long = "package",
+        value_name = "MEMBER",
+        conflicts_with = "paths"
+    )]
+    members: Vec<String>,
     /// Where to write the code: a `.js` or `.html` file, an `.mjs` ES
     /// module, or `/dev/null` for none. `index.html` for one `main` and `elm.js`
     /// for more by default.
@@ -195,7 +230,7 @@ fn main() -> ExitCode {
     match Path::new(&name).file_stem().and_then(|stem| stem.to_str()) {
         Some("elm-format") => return elm_format::main(args),
         Some("elm") => return elm::main(args),
-        Some("elm-test") => return elm_test(args, Resolve::Upstream),
+        Some("elm-test") => return elm_test(args, Personality::Elm, &[]),
         _ => {}
     }
     let cli = Cli::parse();
@@ -214,12 +249,21 @@ fn main() -> ExitCode {
             }
         }
         Some(Command::New { dir }) => new(Personality::Nomi, dir),
-        Some(Command::Add { package }) => add(Personality::Nomi, Some(&package)),
+        Some(Command::Add { package, member }) => in_project(|cx, console| {
+            scope::in_one(
+                cx,
+                console,
+                member.as_deref(),
+                "add",
+                false,
+                |cx, console| install::run(cx, console, Personality::Nomi, Some(&package)),
+            )
+        }),
         Some(Command::Rm { package }) => {
             in_project(|cx, console| remove::run(cx, console, &package))
         }
-        Some(Command::Update { package }) => {
-            in_project(|cx, console| update::run(cx, console, package.as_deref()))
+        Some(Command::Update { package, members }) => {
+            in_project(|cx, console| update::run(cx, console, package.as_deref(), &members))
         }
         Some(Command::Outdated) => in_project(update::outdated),
         Some(Command::Tree) => in_project(tree::run),
@@ -233,6 +277,7 @@ fn main() -> ExitCode {
         Some(Command::Build(args)) => build(args),
         Some(Command::Run {
             entry,
+            member,
             elm,
             watch,
             args,
@@ -241,7 +286,7 @@ fn main() -> ExitCode {
                 Some(module) => run::Program::Module(module),
                 None => run::Program::Entry(entry),
             };
-            return nomi_run(&program, watch, &args);
+            return nomi_run(&program, member.as_deref(), watch, &args);
         }
         Some(Command::Diff { args }) => diff(
             &args.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -249,10 +294,16 @@ fn main() -> ExitCode {
         ),
         Some(Command::Publish) => in_project(publish::run),
         Some(Command::Bump) => in_project(bump::run),
-        Some(Command::Test { args }) => return elm_test(args.into_iter(), Resolve::Nomi),
-        Some(Command::Check { paths, report }) => {
-            in_project(|cx, console| check::run(cx, console, paths, style(report)))
+        Some(Command::Test { members, args }) => {
+            return elm_test(args.into_iter(), Personality::Nomi, &members);
         }
+        Some(Command::Check {
+            paths,
+            members,
+            report,
+        }) => in_project(|cx, console| {
+            scope::make(cx, console, &members, &Make::check(paths, style(report)))
+        }),
     };
     exit(succeeded)
 }
@@ -269,6 +320,7 @@ fn style(report: Option<ReportFormat>) -> Style {
 fn build(args: Build) -> bool {
     let Build {
         paths,
+        members,
         output,
         debug,
         optimize,
@@ -281,44 +333,59 @@ fn build(args: Build) -> bool {
         PlatformName::Browser => Platform::Browser,
         PlatformName::Node => Platform::Node,
     });
-    let Some(make) = make::Make::build(paths, output.as_deref(), platform) else {
+    let Some(make) = Make::build(paths, output.as_deref(), platform) else {
         eprintln!("error: --output takes a file ending in .js, .mjs or .html, or /dev/null");
         return false;
     };
-    let make = make::Make {
+    let make = Make {
         style: style(report),
         kind: make::kind(debug, optimize),
-        ffi,
+        ffi: ffi.map(|path| FfiModule {
+            path,
+            named_in: NamedIn::Flag,
+        }),
         docs,
         ..make
     };
-    in_project(|cx, console| make::run(cx, console, &make))
+    in_project(|cx, console| scope::make(cx, console, &members, &make))
 }
 
-/// `nomi run`, in the current directory.
-fn nomi_run(program: &run::Program, watch: bool, args: &[OsString]) -> ExitCode {
+/// `nomi run`, in the current directory or the member it names.
+fn nomi_run(
+    program: &run::Program,
+    member: Option<&str>,
+    watch: bool,
+    args: &[OsString],
+) -> ExitCode {
     let (Some(cache), Some(dir)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
     ExitCode::from(run_in(&dir, &cache, |cx, console| {
-        if watch {
-            run::watch(cx, console, program, args)
-        } else {
-            run::run(cx, console, program, args)
-        }
+        scope::in_one(cx, console, member, "run", 1, |cx, console| {
+            if watch {
+                run::watch(cx, console, program, args)
+            } else {
+                run::run(cx, console, program, args)
+            }
+        })
     }))
 }
 
-/// elm-test's command line, as `elm-test` or, resolving dependencies as
-/// nomi does, `nomi test`.
-fn elm_test(args: impl Iterator<Item = OsString>, resolve: Resolve) -> ExitCode {
+/// elm-test's command line, as `elm-test`, or as `nomi test` of the
+/// members `members` names, resolving dependencies as nomi does.
+fn elm_test(
+    args: impl Iterator<Item = OsString>,
+    personality: Personality,
+    members: &[String],
+) -> ExitCode {
     let args: Vec<String> = args.map(|a| a.to_string_lossy().into_owned()).collect();
     let (Some(cache), Some(cwd)) = (cache(), current_dir()) else {
         return ExitCode::FAILURE;
     };
     let var = |name: &str| std::env::var(name).ok();
-    let code = run_in(&cwd, &cache, |cx, console| {
-        nomi_test::main(cx, console, &args, &var, resolve)
+    let code = run_in(&cwd, &cache, |cx, console| match personality {
+        Personality::Elm => nomi_test::main(cx, console, &args, &var, Resolve::Upstream),
+        Personality::Nomi => nomi_test::members(cx, console, &args, &var, members),
     });
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
@@ -340,10 +407,9 @@ fn new(personality: Personality, dir: Option<PathBuf>) -> bool {
     })
 }
 
-/// `nomi add` and `elm install`, for the project around the current
-/// directory.
-fn add(personality: Personality, package: Option<&str>) -> bool {
-    in_project(|cx, console| install::run(cx, console, personality, package))
+/// `elm install`, for the project around the current directory.
+fn elm_install(package: Option<&str>) -> bool {
+    in_project(|cx, console| install::run(cx, console, Personality::Elm, package))
 }
 
 /// `nomi diff` and `elm diff`, for the project around the current

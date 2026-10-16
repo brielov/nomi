@@ -1,0 +1,6 @@
+=== note
+the package alone, by its name
+=== args
+build
+-p
+acme/shared

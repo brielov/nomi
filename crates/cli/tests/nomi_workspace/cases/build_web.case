@@ -1,0 +1,6 @@
+=== note
+one application by its directory's name, with the package it uses
+=== args
+build
+-p
+web

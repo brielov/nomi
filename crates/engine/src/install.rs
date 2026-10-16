@@ -14,7 +14,8 @@ use nomi_base::diagnostic::doc::{
 };
 use nomi_base::{Compat, Report};
 use nomi_project::report::{ElmCommand, elm_json_path};
-use nomi_project::{Name, Outline};
+use nomi_project::{Name, Outline, Version};
+use nomi_registry::workspace::{self as registry_workspace, Members};
 use nomi_registry::{
     Change, Connection, DetailsProblem, Http, InstallProblem, Plan, Registry, SolverProblem, Store,
     details, install, report,
@@ -25,7 +26,7 @@ use crate::packages::{self, Resolve};
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project};
 use crate::report::one_line;
-use crate::{Context, Pool, env};
+use crate::{Context, Pool, env, workspace};
 
 /// Adds `package` to the project around the directory, once the user
 /// agrees; with no package, says what `install` is for. Whether it
@@ -66,8 +67,22 @@ pub fn run(
         let project = project?;
         let old = &project.outline;
         project::check_source_dirs(root.dir(), old)?;
-        let plan = install::plan(&mut registry, compat, package, old)
-            .map_err(|problem| install_problem(&registry, package, old, problem))?;
+        let workspace = match personality {
+            Personality::Elm => None,
+            Personality::Nomi => workspace::discover(&cx.vfs.snapshot(), root.dir()).transpose()?,
+        };
+        let plan = match &workspace {
+            None => install::plan(&mut registry, compat, package, old),
+            // What the other applications pin is held, so they keep
+            // agreeing.
+            Some(workspace) => {
+                let dir = workspace::member_dir(workspace, root.dir());
+                let mut held =
+                    Members::new(workspace, &mut registry).holding_all_but(workspace, &[dir]);
+                install::plan(&mut held, compat, package, old)
+            }
+        }
+        .map_err(|problem| install_problem(&registry, package, old, problem))?;
         let (question, new) = match plan {
             Plan::AlreadyInstalled => {
                 console.out("It is already installed!\n");
@@ -82,7 +97,10 @@ pub fn run(
         };
         console::confirm(console, &question, compat, personality, || {
             project.write(cx.vfs, new.write())?;
-            let verified = verify(&mut registry, &store, cx.http, compat, personality, &new);
+            let verified = match &workspace {
+                None => verify(&mut registry, &store, cx.http, compat, personality, &new),
+                Some(_) => verify_member(cx, &mut registry, &store, compat, &root, &new),
+            };
             if verified.is_err() {
                 project.write(cx.vfs, &src)?;
             }
@@ -186,12 +204,44 @@ fn verify(
     let releases: Vec<_> = (solution.into_iter())
         .map(|(name, details)| (name, details.version))
         .collect();
-    let fetched = packages::fetch(Pool::global(), store, http, compat, &releases);
+    download(store, http, compat, &releases)
+}
+
+/// Downloads each of `releases` the store lacks.
+fn download(
+    store: &Store,
+    http: &(impl Http + Sync),
+    compat: Compat,
+    releases: &[(Name, Version)],
+) -> Result<(), Report> {
+    let fetched = packages::fetch(Pool::global(), store, http, compat, releases);
     // Upstream reports the first of the releases it couldn't download.
     for ((name, version), fetched) in releases.iter().zip(fetched) {
         fetched.map_err(|problem| report::package_problem(name, *version, &problem))?;
     }
     Ok(())
+}
+
+/// [`verify`] of the workspace member at `root`, its `elm.json` now
+/// `outline`: the workspace's dependencies check out together, and those
+/// from the registry are downloaded.
+fn verify_member(
+    cx: &Context<'_, impl Http + Sync>,
+    registry: &mut Registry<'_, impl Http + Sync>,
+    store: &Store,
+    compat: Compat,
+    root: &Root,
+    outline: &Outline,
+) -> Result<(), Report> {
+    let workspace = workspace::discover(&cx.vfs.snapshot(), root.dir())
+        .expect("a member stays one when its dependencies change")?;
+    let solution = registry_workspace::verify(registry, compat, &workspace, outline)
+        .map_err(|problem| workspace::resolution_problem(&problem, compat, Personality::Nomi))?;
+    let releases: Vec<_> = (solution.into_iter())
+        .filter(|(name, _)| workspace.package(name).is_none())
+        .map(|(name, details)| (name, details.version))
+        .collect();
+    download(store, cx.http, compat, &releases)
 }
 
 /// `toDetailsReport`, in `personality`'s words.

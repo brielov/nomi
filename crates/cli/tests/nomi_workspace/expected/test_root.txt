@@ -1,0 +1,45 @@
+=== exit 2
+=== stdout
+|Testing apps/api
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 1 test. To reproduce these results, run: elm-test --fuzz 100 --seed 1
+|
+|↓ ApiTest
+|✗ shouts
+|
+|     ▼▼▼▼▼ 
+|    "hello"
+|    ╷
+|    │ Expect.equal
+|    ╵
+|    "HELLO"
+|     ▲▲▲▲▲ 
+|
+|
+|
+|TEST RUN FAILED
+|
+|Duration: 0 ms
+|Passed:   0
+|Failed:   1
+|
+|Testing apps/web
+|Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
+|
+|elm-test 0.19.3-0
+|-----------------
+|
+|Running 1 test. To reproduce these results, run: elm-test --fuzz 100 --seed 1
+|
+|
+|TEST RUN PASSED
+|
+|Duration: 0 ms
+|Passed:   1
+|Failed:   0
+|
+=== stderr

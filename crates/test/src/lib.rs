@@ -15,7 +15,7 @@ mod supervise;
 mod watch;
 
 pub use build::{Env, Failure, Runner, Step, build};
-pub use command::{Flags, Parsed, ReportName, Run, Setup, main, parse};
+pub use command::{Flags, Parsed, ReportName, Run, Setup, main, members, parse};
 pub use discover::{TestModule, modules};
 pub use files::{Project, resolve};
 pub use generate::{Options, Report};

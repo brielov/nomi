@@ -17,7 +17,7 @@ use nomi_registry::Http;
 
 use crate::check::Style;
 use crate::console::{self, Console, Personality};
-use crate::make::{self, Make, Output};
+use crate::make::{self, FfiModule, Make, NamedIn, Output};
 use crate::packages::Resolve;
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
@@ -41,8 +41,8 @@ struct Built {
     main: PathBuf,
     /// The ES module to write, absolute.
     output: PathBuf,
-    /// The FFI module's path, from `dir`.
-    ffi: Option<PathBuf>,
+    /// The FFI module, its path from `dir`.
+    ffi: Option<FfiModule>,
     /// What `main` and `ffi` are relative to.
     dir: PathBuf,
 }
@@ -161,7 +161,7 @@ fn watched(cx: &Context<'_, impl Http + Sync>, root: &Root, program: &Program) -
         .collect();
     if let Ok(built) = chosen(cx, program) {
         paths.push(built.dir.join(&built.main));
-        paths.extend(built.ffi.map(|ffi| built.dir.join(ffi)));
+        paths.extend(built.ffi.map(|ffi| built.dir.join(ffi.path)));
     }
     paths
 }
@@ -189,6 +189,7 @@ fn build(
         platform_by_main: false,
         resolve: Resolve::Nomi,
         ffi: built.ffi.clone(),
+        members_of: None,
         output: Some(Output::Js(built.output.clone())),
         docs: None,
     };
@@ -223,9 +224,12 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 None => output_of(&root.dir().join(&entry.main)),
             };
             Built {
+                ffi: entry.ffi.map(|path| FfiModule {
+                    path: path.into(),
+                    named_in: NamedIn::Entry(entry.main.clone()),
+                }),
                 main: entry.main.into(),
                 output,
-                ffi: entry.ffi.map(PathBuf::from),
                 dir: root.dir().to_owned(),
             }
         }

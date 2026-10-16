@@ -14,8 +14,8 @@ use nomi_engine::javascript::{Dom, Format, Kind, Target};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
-use nomi_engine::test_deps::{self, Dependencies, Solve};
-use nomi_engine::{Context, Http, Vfs};
+use nomi_engine::test_deps::{self, Dependencies, Solve, Tested};
+use nomi_engine::{Context, Http, Vfs, workspace};
 use nomi_project::outline::{AppOutline, SrcDir};
 use nomi_project::{ModuleName, Name, Outline, Version};
 
@@ -87,9 +87,19 @@ fn prepare<H: Http + Sync>(
         fs::create_dir_all(src.join(generated)).map_err(|e| io(&dir, &e))?;
     }
     let runner = runner::sources(&env.cx.cache.dir().join("tests")).map_err(|e| io(&dir, &e))?;
+    let workspace = match env.solve.resolve {
+        Resolve::Upstream => None,
+        Resolve::Nomi => (workspace::discover(&env.cx.vfs.snapshot(), &project.root))
+            .transpose()
+            .map_err(Failure::Project)?,
+    };
+    let tested = Tested {
+        elm_json: &project.elm_json,
+        outline: &project.outline,
+        workspace: workspace.as_ref(),
+    };
     let Dependencies { direct, indirect } = test_deps::dependencies(
-        &project.elm_json,
-        &project.outline,
+        tested,
         &dir,
         env.cx.cache,
         env.cx.http,
@@ -139,9 +149,15 @@ fn io(dir: &Path, e: &io::Error) -> Failure {
     ))
 }
 
-/// `elm make` as elm-test runs it in the generated project, resolving
-/// dependencies as `resolve` says.
-fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, resolve: Resolve) -> Make {
+/// `elm make` as elm-test runs it in the generated project of `project`,
+/// resolving dependencies as `resolve` says.
+fn elm_make(
+    project: &Project,
+    paths: Vec<PathBuf>,
+    style: Style,
+    output: Output,
+    resolve: Resolve,
+) -> Make {
     Make {
         paths,
         personality: Personality::Elm,
@@ -151,6 +167,7 @@ fn elm_make(paths: Vec<PathBuf>, style: Style, output: Output, resolve: Resolve)
         platform_by_main: false,
         resolve,
         ffi: None,
+        members_of: Some(project.root.clone()),
         output: Some(output),
         docs: None,
     }
@@ -177,6 +194,7 @@ pub fn build<H: Http + Sync>(
         &env.at(&dir),
         &mut quiet,
         &elm_make(
+            project,
             files.to_vec(),
             Style::Terminal,
             Output::DevNull,
@@ -203,6 +221,7 @@ pub fn build<H: Http + Sync>(
     let js = dir.join("elmTestOutput.js");
     let mut quiet = Quiet::new(terminal);
     let mut make = elm_make(
+        project,
         vec![main],
         Style::Terminal,
         Output::Js(js.clone()),
@@ -247,7 +266,13 @@ pub(crate) fn make<H: Http + Sync>(
     style: Style,
 ) -> Result<(), Failure> {
     let dir = prepare(env, console, project, &mut |_, _| {})?;
-    let make = elm_make(files.to_vec(), style, Output::DevNull, env.solve.resolve);
+    let make = elm_make(
+        project,
+        files.to_vec(),
+        style,
+        Output::DevNull,
+        env.solve.resolve,
+    );
     if make::run(&env.at(&dir), console, &make) {
         Ok(())
     } else {

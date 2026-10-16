@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use nomi_engine::console::Captured;
 use nomi_engine::javascript::Kind;
 use nomi_engine::paths::Cache;
-use nomi_engine::workspace::{self, Outcome};
+use nomi_engine::workspace::{self, Making, Outcome};
 use nomi_engine::{Context, Vfs};
 use nomi_registry::{Http, HttpError};
 use nomi_testkit::{packages, write_file};
@@ -194,8 +194,17 @@ impl Fixture {
             .unwrap()
             .unwrap();
         let mut console = Captured::default();
-        let outcomes = workspace::build(&cx, &mut console, &workspace, Kind::Dev);
-        let outcomes = (workspace.members().iter().zip(outcomes))
+        let every: Vec<PathBuf> = (workspace.members().iter())
+            .map(|member| member.dir.clone())
+            .collect();
+        let outcomes = workspace::build(
+            &cx,
+            &mut console,
+            &workspace,
+            &every,
+            Making::Code(Kind::Dev),
+        );
+        let outcomes = (outcomes.into_iter())
             .map(|(member, outcome)| {
                 let outcome = match outcome {
                     Outcome::Built(ran) => Outcome::Built(self.relative(&ran)),

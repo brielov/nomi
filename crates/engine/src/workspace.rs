@@ -21,7 +21,7 @@ use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_pro
 use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
-use crate::make::{self, Make, Shared};
+use crate::make::{self, FfiModule, Make, NamedIn, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
@@ -61,6 +61,26 @@ pub fn discover(snapshot: &Snapshot, dir: &Path) -> Option<Result<Workspace, Rep
         return Some(load(snapshot, root, manifest));
     }
     None
+}
+
+/// The project at `root`, standing alone, as a workspace of its one
+/// member, where its `nomi.toml` has entries for a build to make.
+pub(crate) fn alone(snapshot: &Snapshot, root: &Path) -> Option<Result<Workspace, Report>> {
+    let path = root.join(NOMI_TOML);
+    if !snapshot.is_file(&path) {
+        return None;
+    }
+    let manifest = match manifest(snapshot, &path, NOMI_TOML) {
+        Ok(manifest) if manifest.entries.is_empty() => return None,
+        Ok(manifest) => manifest,
+        Err(report) => return Some(Err(report)),
+    };
+    Some(load(snapshot, root, manifest))
+}
+
+/// The directory of the member in `dir`, from the root of `workspace`.
+pub(crate) fn member_dir(workspace: &Workspace, dir: &Path) -> PathBuf {
+    dir.strip_prefix(workspace.root()).unwrap_or(dir).to_owned()
 }
 
 /// The workspace whose root `nomi.toml`, in `root`, holds `manifest`.
@@ -528,34 +548,55 @@ pub enum Outcome {
     Blocked,
 }
 
-/// Builds every member of `workspace` in order, a package's exposed
-/// modules and then each entry of a member's `nomi.toml`, as `kind` asks,
-/// with one artifact cache and one build of each package; shows what was
-/// wrong, naming paths from the root, and how each member went, in the
-/// members' order. A member is blocked when a member package it depends
-/// on fails, and says nothing, as a module whose import failed doesn't.
-/// With `NOMI_TIMINGS`, where the time went follows on standard error.
-pub fn build(
+/// What a workspace's build makes of its members.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Making {
+    /// Their modules checked, as `nomi check` checks them.
+    Check,
+    /// Their entries' code, of this kind, as `nomi build` writes it.
+    Code(javascript::Kind),
+}
+
+/// Builds the members of `workspace` whose directories `dirs` gives, and
+/// the member packages they depend on, in order, as `making` asks: a
+/// package's exposed modules and then each entry of a member's
+/// `nomi.toml`, with one artifact cache and one build of each package;
+/// shows what was wrong, naming paths from the root; and gives how each
+/// member built went, in the members' order. A member is blocked when a
+/// member package it depends on fails, and says nothing, as a module whose
+/// import failed doesn't. With `NOMI_TIMINGS`, where the time went
+/// follows on standard error.
+pub fn build<'w>(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
-    workspace: &Workspace,
-    kind: javascript::Kind,
-) -> Vec<Outcome> {
+    workspace: &'w Workspace,
+    dirs: &[PathBuf],
+    making: Making,
+) -> Vec<(&'w Member, Outcome)> {
     let started = Instant::now();
     let shared = Shared::new(cx.cache, Some(workspace.root()));
     let members = workspace.members();
-    let mut outcomes: Vec<Outcome> = Vec::with_capacity(members.len());
-    for member in members {
+    let mut wanted: BTreeSet<&Path> = dirs.iter().map(PathBuf::as_path).collect();
+    // Each member after those it depends on: backwards, a dependent
+    // comes first.
+    for member in members.iter().rev() {
+        if wanted.contains(member.dir.as_path()) {
+            wanted.extend(workspace.deps(member).map(|dep| dep.dir.as_path()));
+        }
+    }
+    let mut outcomes: Vec<(&Member, Outcome)> = Vec::with_capacity(wanted.len());
+    for member in members.iter().filter(|m| wanted.contains(m.dir.as_path())) {
         let blocked = workspace.deps(member).any(|dep| {
-            let place = (members.iter().position(|m| m.dir == dep.dir))
-                .expect("a member's dependency is a member");
-            !matches!(outcomes[place], Outcome::Built(_))
+            let (_, outcome) = (outcomes.iter().find(|(m, _)| m.dir == dep.dir))
+                .expect("a member's dependency builds before it");
+            !matches!(outcome, Outcome::Built(_))
         });
-        outcomes.push(if blocked {
+        let outcome = if blocked {
             Outcome::Blocked
         } else {
-            built(cx, console, &shared, workspace, member, kind)
-        });
+            built(cx, console, &shared, workspace, member, making)
+        };
+        outcomes.push((member, outcome));
     }
     make::trim(cx.cache);
     if timings::on() {
@@ -572,19 +613,27 @@ fn built(
     shared: &Shared,
     workspace: &Workspace,
     member: &Member,
-    kind: javascript::Kind,
+    making: Making,
 ) -> Outcome {
     let dir = workspace.root().join(&member.dir);
     let cx = Context { dir: &dir, ..*cx };
+    let (goal, verb) = match making {
+        Making::Check => (Goal::Check, "Checking"),
+        Making::Code(_) => (Goal::Optimize, "Building"),
+    };
+    // A project alone is the one member, at the root, and needs no name.
+    if !member.dir.as_os_str().is_empty() {
+        console.out(&format!("{verb} {}\n", member.dir.display()));
+    }
     let mut ran = match &member.outline {
-        Outline::Pkg(pkg) => match package(&cx, console, shared, workspace.root(), pkg) {
+        Outline::Pkg(pkg) => match package(&cx, console, shared, workspace.root(), pkg, goal) {
             Some(ran) => ran,
             None => return Outcome::Failed,
         },
         Outline::App(_) => Vec::new(),
     };
     for entry in member.manifest.iter().flat_map(|m| &m.entries) {
-        let made = match entry_make(&dir, entry, kind) {
+        let made = match entry_make(&dir, entry, making) {
             Ok(make) => make::made(&cx, console, &make, shared),
             Err(report) => {
                 console::report(console, &report, Compat::LATEST);
@@ -599,22 +648,23 @@ fn built(
     Outcome::Built(ran)
 }
 
-/// The member package `pkg`, in the directory, built into `shared` as
-/// its dependents see it; the modules checked, or `None` once what was
-/// wrong is shown, its paths named from `root`.
+/// The member package `pkg`, in the directory, built into `shared` for
+/// `goal` as its dependents see it; the modules checked, or `None` once
+/// what was wrong is shown, its paths named from `root`.
 fn package(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     shared: &Shared,
     root: &Path,
     pkg: &PkgOutline,
+    goal: Goal,
 ) -> Option<Vec<PathBuf>> {
     let mut fail = |checked, compat| {
         check::show(console, root, &checked, compat, Style::Terminal);
         None
     };
     let project = Root::new(cx.dir.to_owned());
-    let loaded = match make::load(cx, &project, Personality::Nomi, Resolve::Nomi) {
+    let loaded = match make::load(cx, &project, Personality::Nomi, Resolve::Nomi, None) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return fail(Checked::Project(report), compat),
     };
@@ -633,18 +683,37 @@ fn package(
         packages: &loaded.sources.packages,
         artifacts: Some(&shared.artifacts),
         memo: &shared.memo,
-        goal: Goal::Optimize,
+        goal,
     };
     match build.in_command(&members, shared) {
-        Ok(built) => Some(built.ran),
+        Ok(built) => {
+            check::show(
+                console,
+                root,
+                &Checked::Fine,
+                loaded.compat,
+                Style::Terminal,
+            );
+            Some(built.ran)
+        }
         Err(checked) => fail(checked, loaded.compat),
     }
 }
 
-/// What building `entry` of the member in `dir` asks for, as `kind` asks:
-/// what `nomi build` makes of its `main`, platform and FFI module, written
-/// to its `output` or, without one, to a file of its own in `elm-stuff`.
-fn entry_make(dir: &Path, entry: &Entry, kind: javascript::Kind) -> Result<Make, Report> {
+/// What building `entry` of the member in `dir` asks for, as `making`
+/// asks: `nomi check` of its `main`, or what `nomi build` makes of its
+/// `main`, platform and FFI module, written to its `output` or, without
+/// one, to a file of its own in `elm-stuff`.
+fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report> {
+    let kind = match making {
+        Making::Check => {
+            return Ok(Make::check(
+                vec![entry.main.clone().into()],
+                Style::Terminal,
+            ));
+        }
+        Making::Code(kind) => kind,
+    };
     let output = entry.output.clone().unwrap_or_else(|| {
         let extension = match entry.platform {
             Some(Platform::Browser) => "js",
@@ -661,7 +730,10 @@ fn entry_make(dir: &Path, entry: &Entry, kind: javascript::Kind) -> Result<Make,
     .ok_or_else(|| bad_output(&entry.main, &output))?;
     Ok(Make {
         kind: Ok(kind),
-        ffi: entry.ffi.as_ref().map(PathBuf::from),
+        ffi: (entry.ffi.as_ref()).map(|path| FfiModule {
+            path: path.into(),
+            named_in: NamedIn::Entry(entry.main.clone()),
+        }),
         ..make
     })
 }

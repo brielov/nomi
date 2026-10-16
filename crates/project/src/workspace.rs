@@ -151,6 +151,15 @@ pub enum WorkspaceError {
     Cycle(Vec<Name>),
 }
 
+/// Why a name picks no one member.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unmatched<'w> {
+    /// No member has it.
+    Unknown,
+    /// These members' directories all end in it.
+    Ambiguous(Vec<&'w Member>),
+}
+
 impl Member {
     /// The project in `dir`, relative to the root, as its files say.
     pub fn new(dir: PathBuf, outline: Outline, manifest: Option<Manifest>) -> Member {
@@ -164,7 +173,7 @@ impl Member {
     }
 
     /// The package name, for a package.
-    fn name(&self) -> Option<&Name> {
+    pub fn name(&self) -> Option<&Name> {
         match &self.outline {
             Outline::Pkg(pkg) => Some(&pkg.name),
             Outline::App(_) => None,
@@ -274,6 +283,29 @@ impl Workspace {
         self.members
             .iter()
             .find(|member| member.name() == Some(name))
+    }
+
+    /// The member `spec` names: by its directory, the root's as `.`; by
+    /// its package's name; or by its directory's last component, where
+    /// only one member's is that.
+    pub fn find(&self, spec: &str) -> Result<&Member, Unmatched<'_>> {
+        let dir: PathBuf = (Path::new(spec).components())
+            .filter(|c| *c != Component::CurDir)
+            .collect();
+        let name = spec.parse::<Name>().ok();
+        let exact =
+            (self.members.iter().find(|m| m.dir == dir)).or_else(|| self.package(name.as_ref()?));
+        if let Some(member) = exact {
+            return Ok(member);
+        }
+        let last: Vec<&Member> = (self.members.iter())
+            .filter(|m| m.dir.file_name() == Some(OsStr::new(spec)))
+            .collect();
+        match last[..] {
+            [member] => Ok(member),
+            [] => Err(Unmatched::Unknown),
+            _ => Err(Unmatched::Ambiguous(last)),
+        }
     }
 
     /// The member packages `member`'s modules depend on, directly.
@@ -482,6 +514,50 @@ mod tests {
         assert_eq!(dirs(workspace.dependents(check)), Vec::<String>::new());
         assert_eq!(dirs(workspace.dependents(web)), Vec::<String>::new());
         assert!(workspace.package(&Name::core()).is_none());
+    }
+
+    #[test]
+    fn a_member_is_found_by_directory_name_or_last_component() {
+        use nomi_testkit::workspace::{app, package};
+        let workspace = Workspace::new(
+            PathBuf::from("/ws"),
+            vec![
+                member("", &app(&[], &[])),
+                member("apps/api", &app(&[], &[])),
+                member("apps/web", &app(&[], &[])),
+                member("tools/web", &app(&[], &[])),
+                member("packages/shared", &package("acme/shared", &[], &[])),
+                member("acme/shared", &app(&[], &[])),
+            ],
+        )
+        .expect("a workspace");
+        let found = |spec: &str| -> Result<String, Vec<String>> {
+            match workspace.find(spec) {
+                Ok(member) => Ok(member.dir.display().to_string()),
+                Err(Unmatched::Unknown) => Err(Vec::new()),
+                Err(Unmatched::Ambiguous(members)) => Err(members
+                    .iter()
+                    .map(|m| m.dir.display().to_string())
+                    .collect()),
+            }
+        };
+        let cases: &[(&str, Result<&str, &[&str]>)] = &[
+            ("apps/web", Ok("apps/web")),
+            ("./apps/web/", Ok("apps/web")),
+            (".", Ok("")),
+            ("api", Ok("apps/api")),
+            // A directory before a package's name.
+            ("acme/shared", Ok("acme/shared")),
+            ("shared", Err(&["acme/shared", "packages/shared"])),
+            ("web", Err(&["apps/web", "tools/web"])),
+            ("mobile", Err(&[])),
+        ];
+        for &(spec, expected) in cases {
+            let expected = expected
+                .map(str::to_owned)
+                .map_err(|dirs| dirs.iter().map(|d| (*d).to_owned()).collect());
+            assert_eq!(found(spec), expected, "{spec}");
+        }
     }
 
     #[test]

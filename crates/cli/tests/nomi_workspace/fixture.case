@@ -1,0 +1,110 @@
+=== note
+The workspace every case starts from: acme/shared, a package; web, an
+application for the browser; and api, one for Node; both applications
+use acme/shared, in their code and their tests, and api's tests fail.
+=== file nomi.toml
+[workspace]
+members = ["apps/*", "packages/*"]
+=== file packages/shared/elm.json
+{
+    "type": "package",
+    "name": "acme/shared",
+    "summary": "shared",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": ["Shared"],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0"},
+    "test-dependencies": {}
+}
+=== file packages/shared/src/Shared.elm
+module Shared exposing (greeting)
+
+
+greeting : String
+greeting =
+    "hello"
+=== file apps/web/elm.json
+{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4"},
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {"elm-explorations/test": "2.2.1"},
+        "indirect": {"elm/bytes": "1.0.8", "elm/html": "1.0.1", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
+    }
+}
+=== file apps/web/nomi.toml
+[[entry]]
+main = "src/Main.elm"
+output = "dist/web.js"
+=== file apps/web/src/Main.elm
+module Main exposing (main)
+
+import Shared
+
+
+main : Program () Int ()
+main =
+    Platform.worker
+        { init = \() -> ( String.length Shared.greeting, Cmd.none )
+        , update = \() n -> ( n, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+=== file apps/web/tests/WebTest.elm
+module WebTest exposing (greets)
+
+import Expect
+import Shared
+import Test exposing (Test, test)
+
+
+greets : Test
+greets =
+    test "greets" <|
+        \() -> Expect.equal "hello" Shared.greeting
+=== file apps/api/elm.json
+{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"},
+        "indirect": {"elm/bytes": "1.0.8"}
+    },
+    "test-dependencies": {
+        "direct": {"elm-explorations/test": "2.2.1"},
+        "indirect": {"elm/html": "1.0.1", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
+    }
+}
+=== file apps/api/nomi.toml
+[[entry]]
+main = "src/Main.elm"
+=== file apps/api/src/Main.elm
+module Main exposing (main)
+
+import Nomi
+import Shared
+import Task
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \_ -> Task.succeed () |> Task.map (\_ -> Debug.log Shared.greeting ())
+=== file apps/api/tests/ApiTest.elm
+module ApiTest exposing (shouts)
+
+import Expect
+import Shared
+import Test exposing (Test, test)
+
+
+shouts : Test
+shouts =
+    test "shouts" <|
+        \() -> Expect.equal "HELLO" Shared.greeting

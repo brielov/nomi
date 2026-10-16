@@ -1,6 +1,10 @@
 //! A workspace resolves its members' dependencies together, its member
 //! packages taken from the workspace; upstream's commands, run in a
-//! member, know nothing of that, nor of what nomi solved.
+//! member, know nothing of that, nor of what nomi solved. nomi's commands
+//! work on the members `-p` names, or every member at the root: each case
+//! under `nomi_workspace/cases/`, run in `nomi_workspace/fixture.case`'s
+//! workspace, must reproduce the transcript of the same name under
+//! `expected/`, which `NOMI_BLESS=1` writes anew.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -11,8 +15,40 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use nomi_testkit::packages;
+use nomi_testkit::transcript::{Case, check_transcripts, normalize_elm_test};
 use serde_json::json;
 use website::offline;
+
+#[test]
+fn nomi_workspace_transcripts() {
+    nomi_testkit::require_node();
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nomi_workspace");
+    let fixture = Case::parse(&fs::read_to_string(dir.join("fixture.case")).unwrap()).unwrap();
+    let cache = website::fixture_cache();
+    let bless = std::env::var_os("NOMI_BLESS").is_some();
+    let ran = check_transcripts(&dir.join("cases"), &dir.join("expected"), |name, case| {
+        let (_work, root) = temp();
+        fixture.create_files(&root).unwrap();
+        case.create_files(&root).unwrap();
+        let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+        let mut transcript = case.run(offline(nomi, cache.path()), &root).unwrap();
+        // What builds leave, and the fixture's files as it wrote them.
+        transcript.files.retain(|(path, bytes)| {
+            !path.contains("elm-stuff/")
+                && !(fixture.files.iter()).any(|(p, text)| p == path && text.as_bytes() == bytes)
+        });
+        let home = cache.path().display().to_string();
+        let shown = root.display().to_string();
+        transcript.stdout = normalize_elm_test(&transcript.stdout, &shown, &home);
+        transcript.stderr = normalize_elm_test(&transcript.stderr, &shown, &home);
+        let actual = transcript.compared(case, &root);
+        if bless {
+            fs::write(dir.join("expected").join(format!("{name}.txt")), &actual).unwrap();
+        }
+        Some(actual)
+    });
+    assert_eq!(ran, 12);
+}
 
 /// An application's `elm.json`, depending on elm/core and elm/json and
 /// on each of `more` at its version.

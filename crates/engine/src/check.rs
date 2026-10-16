@@ -21,7 +21,6 @@ use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner, RootMain};
 use crate::install::details_problem;
-use crate::make::{self, Make};
 use crate::names::{ModuleInterface, Packages};
 use crate::packages::Resolve;
 use crate::project::{self, Project};
@@ -48,19 +47,6 @@ pub enum Style {
     Terminal,
     /// `--report=json`.
     Json,
-}
-
-/// Checks the project around the directory, building from `paths`, or a
-/// package's exposed modules when there are none, and shows what it
-/// found: `elm make --output=/dev/null`, as [`make::run`] runs it.
-/// Whether nothing was wrong.
-pub fn run(
-    cx: &Context<'_, impl Http + Sync>,
-    console: &mut dyn Console,
-    paths: Vec<PathBuf>,
-    style: Style,
-) -> bool {
-    make::run(cx, console, &Make::check(paths, style))
 }
 
 /// What to build: the modules of the project `env` describes, as `elm
@@ -298,18 +284,23 @@ pub(crate) struct Sources {
 }
 
 /// What the project builds with, every release downloaded first, its
-/// dependencies resolved as `resolve` says.
+/// dependencies resolved as `resolve` says: with the member packages of
+/// its workspace, or of `members_of`'s where it is in none.
 pub(crate) fn sources(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
     personality: Personality,
     resolve: Resolve,
+    members_of: Option<&Path>,
 ) -> Result<Sources, Report> {
     let compat = project.compat;
     let store = packages::store_for(cx.cache, resolve)?;
     let workspace = match resolve {
         Resolve::Upstream => None,
-        Resolve::Nomi => workspace::discover(&cx.vfs.snapshot(), project.root.dir()).transpose()?,
+        Resolve::Nomi => {
+            let dir = members_of.unwrap_or_else(|| project.root.dir());
+            workspace::discover(&cx.vfs.snapshot(), dir).transpose()?
+        }
     };
     // elm keeps a project's dependencies as solved until its elm.json
     // changes (`Details.load`), asking the website nothing; nomi keeps
@@ -319,7 +310,8 @@ pub(crate) fn sources(
     let mut key = Key::new("details")
         .part("compat", compat.as_str().as_bytes())
         .part("outline", &project.outline.write())
-        .part("resolve", resolve.as_str().as_bytes());
+        .part("resolve", resolve.as_str().as_bytes())
+        .part("outside", &[u8::from(members_of.is_some())]);
     for member in workspace.iter().flat_map(Workspace::members) {
         key = (key.part("member", member.dir.as_os_str().as_encoded_bytes()))
             .part("outline", &member.outline.write());
@@ -338,12 +330,17 @@ pub(crate) fn sources(
             compat,
             "I need the list of published packages to check your dependencies",
         )?;
-        let solution = match &workspace {
-            None => details::verify(&mut registry, compat, &project.outline)
+        let solution = match (&workspace, members_of) {
+            (None, _) => details::verify(&mut registry, compat, &project.outline)
                 .map_err(|problem| details_problem(&problem, compat, personality)),
-            Some(workspace) => {
+            (Some(workspace), None) => {
                 registry_workspace::verify(&mut registry, compat, workspace, &project.outline)
                     .map_err(|problem| workspace::resolution_problem(&problem, compat, personality))
+            }
+            (Some(workspace), Some(_)) => {
+                let mut members = registry_workspace::Members::new(workspace, &mut registry);
+                details::verify(&mut members, compat, &project.outline)
+                    .map_err(|problem| details_problem(&problem, compat, personality))
             }
         }?;
         let releases: Vec<(Name, Version)> = solution
@@ -417,7 +414,7 @@ pub(crate) fn foreigns(
     project: &Project,
     personality: Personality,
 ) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
-    let sources = sources(cx, project, personality, Resolve::of(personality))?;
+    let sources = sources(cx, project, personality, Resolve::of(personality), None)?;
     let artifacts = Artifacts::new(cx.cache);
     let built = objects::build(
         project.compat,

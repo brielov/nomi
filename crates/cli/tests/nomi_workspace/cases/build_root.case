@@ -1,0 +1,4 @@
+=== note
+every member built from the root: each entry written, the package checked
+=== args
+build

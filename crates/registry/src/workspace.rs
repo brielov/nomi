@@ -85,7 +85,7 @@ pub fn verify<P: Packages>(
 /// That the applications are for one elm, that every member asks for
 /// each member package at the workspace's release of it, and that the
 /// applications pin one release of each package.
-fn agree<E>(workspace: &Workspace) -> Result<(), WorkspaceProblem<E>> {
+pub fn agree<E>(workspace: &Workspace) -> Result<(), WorkspaceProblem<E>> {
     let pin = |member: &Member, version| Pin {
         dir: member.dir.clone(),
         version,
@@ -194,15 +194,20 @@ fn asks(member: &Member) -> Vec<(Name, Constraint)> {
     }
 }
 
-/// The releases `packages` has, with each member package the one release
-/// of its name.
-struct Members<'p, P> {
+/// The releases `packages` has, with each member package of a workspace
+/// the one release of its name, and each package another application
+/// pins, where some are held, only at that pin.
+#[derive(Debug)]
+pub struct Members<'p, P> {
     members: BTreeMap<Name, (Known, Release)>,
+    held: BTreeMap<Name, Known>,
     packages: &'p mut P,
 }
 
 impl<'p, P: Packages> Members<'p, P> {
-    fn new(workspace: &Workspace, packages: &'p mut P) -> Members<'p, P> {
+    /// The releases of `packages`, with the member packages of
+    /// `workspace`.
+    pub fn new(workspace: &Workspace, packages: &'p mut P) -> Members<'p, P> {
         let members = (workspace.members().iter())
             .filter_map(|member| match &member.outline {
                 Outline::Pkg(pkg) => {
@@ -219,7 +224,32 @@ impl<'p, P: Packages> Members<'p, P> {
                 Outline::App(_) => None,
             })
             .collect();
-        Members { members, packages }
+        Members {
+            members,
+            held: BTreeMap::new(),
+            packages,
+        }
+    }
+
+    /// The releases with each package an application of `workspace` pins,
+    /// other than those in `dirs`, held at its pin, so that what those
+    /// move to keeps agreeing with the rest.
+    pub fn holding_all_but(mut self, workspace: &Workspace, dirs: &[PathBuf]) -> Members<'p, P> {
+        for member in workspace.members() {
+            if let Outline::App(app) = &member.outline
+                && !dirs.contains(&member.dir)
+            {
+                let held = (app.all_deps().into_iter()).map(|(name, version)| {
+                    let known = Known {
+                        newest: version,
+                        previous: Vec::new(),
+                    };
+                    (name, known)
+                });
+                self.held.extend(held);
+            }
+        }
+        self
     }
 }
 
@@ -229,7 +259,7 @@ impl<P: Packages> Packages for Members<'_, P> {
     fn versions(&self, name: &Name) -> Option<&Known> {
         match self.members.get(name) {
             Some((known, _)) => Some(known),
-            None => self.packages.versions(name),
+            None => self.held.get(name).or_else(|| self.packages.versions(name)),
         }
     }
 
@@ -278,6 +308,8 @@ mod tests {
 
     use super::*;
     use crate::fixture::{Fixture, name, version as v};
+    use crate::install::{self, Change, Plan};
+    use crate::update;
 
     const COMPAT: Compat = Compat::V0_19_1;
 
@@ -301,9 +333,9 @@ mod tests {
         }
     }
 
-    /// elm/core 1.0.5 and newer, elm/json 1.1.3 and older, elm/html, and
-    /// a published acme/shared, newer than the member and needing
-    /// elm/html.
+    /// elm/core 1.0.5 and newer, elm/json 1.1.3 and older, elm/html,
+    /// elm/url 1.0.0 and newer, and a published acme/shared, newer than
+    /// the member and needing elm/html.
     fn index() -> Asked {
         let known = |all: &[&str]| Known {
             newest: v(all[0]),
@@ -315,12 +347,14 @@ mod tests {
                 (name("elm/core"), known(&["1.0.6", "1.0.5"])),
                 (name("elm/json"), known(&["1.1.3", "1.1.2"])),
                 (name("elm/html"), known(&["1.0.0"])),
+                (name("elm/url"), known(&["1.0.1", "1.0.0"])),
                 (name("acme/shared"), known(&["2.0.0", "1.0.0"])),
             ]),
             needs: BTreeMap::from([
                 (name("elm/core"), needs(&[])),
                 (name("elm/json"), needs(&["elm/core"])),
                 (name("elm/html"), needs(&["elm/core"])),
+                (name("elm/url"), needs(&["elm/core"])),
                 (name("acme/shared"), needs(&["elm/html"])),
             ]),
         };
@@ -512,5 +546,91 @@ mod tests {
             },
         ];
         cases.into_iter().for_each(Case::check);
+    }
+
+    /// A workspace at `/ws` of `members`, each by its directory and
+    /// `elm.json`.
+    fn workspace(members: &[(&str, String)]) -> Workspace {
+        let members = (members.iter())
+            .map(|(dir, elm_json)| {
+                let (outline, _) = Outline::detect(elm_json.as_bytes()).expect("an elm.json");
+                Member::new(PathBuf::from(dir), outline, None)
+            })
+            .collect();
+        Workspace::new(PathBuf::from("/ws"), members).expect("a workspace")
+    }
+
+    fn app_of<'w>(workspace: &'w Workspace, dir: &str) -> &'w AppOutline {
+        let member = (workspace.members().iter()).find(|m| m.dir == Path::new(dir));
+        match &member.expect("a member").outline {
+            Outline::App(app) => app,
+            Outline::Pkg(_) => panic!("{dir} is a package"),
+        }
+    }
+
+    #[test]
+    fn an_application_adding_a_package_takes_what_the_others_pin() {
+        let workspace = workspace(&[("apps/api", api()), ("apps/web", app(&["elm/url"], &[]))]);
+        let outline = Outline::App(app_of(&workspace, "apps/api").clone());
+        let added = |held: bool| {
+            let mut index = index();
+            let mut members = Members::new(&workspace, &mut index);
+            if held {
+                members = members.holding_all_but(&workspace, &[PathBuf::from("apps/api")]);
+            }
+            match install::plan(&mut members, COMPAT, &name("elm/url"), &outline) {
+                Ok(Plan::App { outline, .. }) => outline.direct[&name("elm/url")],
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(added(false), v("1.0.1"));
+        assert_eq!(added(true), v("1.0.0"));
+    }
+
+    #[test]
+    fn applications_updated_together_move_together_and_hold_the_rest() {
+        let workspace = workspace(&[
+            ("apps/api", api()),
+            ("apps/web", web()),
+            ("packages/shared", shared()),
+        ]);
+        let apps = |dirs: &[&str]| -> Vec<(PathBuf, &AppOutline)> {
+            (dirs.iter())
+                .map(|&dir| (PathBuf::from(dir), app_of(&workspace, dir)))
+                .collect()
+        };
+        let both = ["apps/api", "apps/web"].map(PathBuf::from);
+        let mut releases = index();
+        let mut members =
+            Members::new(&workspace, &mut releases).holding_all_but(&workspace, &both);
+        let together =
+            update::plan_together(&mut members, COMPAT, None, &apps(&["apps/api", "apps/web"]))
+                .expect("a plan");
+        assert_eq!(
+            together.changes,
+            BTreeMap::from([(
+                name("elm/core"),
+                Change::Change {
+                    old: v("1.0.5"),
+                    new: v("1.0.6")
+                }
+            )])
+        );
+        let cores: Vec<Version> = (together.apps.iter())
+            .map(|(_, app)| app.direct[&name("elm/core")])
+            .collect();
+        assert_eq!(cores, [v("1.0.6"), v("1.0.6")]);
+        // web keeps acme/shared, the member, which api never had.
+        let (_, web) = &together.apps[1];
+        assert_eq!(web.direct.get(&name("acme/shared")), Some(&v("1.0.0")));
+        assert!(!together.apps[0].1.direct.contains_key(&name("acme/shared")));
+        // web alone holds what api pins.
+        let mut releases = index();
+        let web_only = [PathBuf::from("apps/web")];
+        let mut members =
+            Members::new(&workspace, &mut releases).holding_all_but(&workspace, &web_only);
+        let alone = update::plan_together(&mut members, COMPAT, None, &apps(&["apps/web"]))
+            .expect("a plan");
+        assert!(alone.changes.is_empty(), "{:?}", alone.changes);
     }
 }

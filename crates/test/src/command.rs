@@ -8,6 +8,7 @@ use nomi_base::Compat;
 use nomi_engine::check::Style;
 use nomi_engine::console::Console;
 use nomi_engine::packages::Resolve;
+use nomi_engine::scope::{self, Scope};
 use nomi_engine::test_deps::{Order, Solve};
 use nomi_engine::{Context, Http};
 use nomi_project::{Name, Outline};
@@ -546,6 +547,76 @@ pub fn main<H: Http + Sync>(
         Parsed::Make(flags, globs) => make(cx, console, &flags, &globs, color),
         Parsed::Setup(setup) => install(cx, console, &setup),
     }
+}
+
+/// `nomi test` with `args` for the projects `specs`, the values of `-p`,
+/// name: [`main`] in the project around the directory, or in each member
+/// named, or, outside every member of the workspace around it, in each
+/// one with a `tests` directory, each after a line naming it. Its exit
+/// code: the first that isn't 0. A report for machines, `--watch` and
+/// elm-test's other commands need one member.
+pub fn members<H: Http + Sync>(
+    cx: &Context<'_, H>,
+    console: &mut dyn Console,
+    args: &[String],
+    var: &dyn Fn(&str) -> Option<String>,
+    specs: &[String],
+) -> i32 {
+    let (workspace, dirs) = match scope::find(cx, specs) {
+        Ok(Scope::Project) => return main(cx, console, args, var, Resolve::Nomi),
+        Ok(Scope::Named(workspace, dirs)) => (workspace, dirs),
+        Ok(Scope::Every(workspace)) => {
+            let root = workspace.root();
+            let dirs = (workspace.members().iter())
+                .map(|member| member.dir.clone())
+                .filter(|dir| root.join(dir).join("tests").is_dir())
+                .collect();
+            (workspace, dirs)
+        }
+        Err(report) => {
+            nomi_engine::console::report(console, &report, Compat::LATEST);
+            return 1;
+        }
+    };
+    if dirs.is_empty() {
+        console.err("No member of the workspace has a tests directory.\n");
+        return 1;
+    }
+    if dirs.len() > 1 {
+        let one = match parse(args, supervise::default_workers()) {
+            Parsed::Run(flags, _) => flags.watch || flags.report.machine_readable(),
+            Parsed::Make(..) | Parsed::Setup(_) => true,
+            Parsed::Out(_) | Parsed::Err(_) => false,
+        };
+        if one {
+            console.err(
+                "--watch, a --report for machines, and elm-test's commands work on one \
+                 member: name it with -p.\n",
+            );
+            return 1;
+        }
+    }
+    let mut code = 0;
+    for dir in dirs {
+        let shown = if dir.as_os_str().is_empty() {
+            ".".into()
+        } else {
+            dir.display().to_string()
+        };
+        console.out(&format!("Testing {shown}\n"));
+        let dir = workspace.root().join(dir);
+        let ran = main(
+            &Context { dir: &dir, ..*cx },
+            console,
+            args,
+            var,
+            Resolve::Nomi,
+        );
+        if code == 0 {
+            code = ran;
+        }
+    }
+    code
 }
 
 /// `supports-color`: whether elm-test colors its output.

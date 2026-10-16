@@ -1,0 +1,15 @@
+=== exit 0
+=== stdout
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> dist/main.js
+|
+|No problems in syntax, module names, imports, names or types.
+|
+|    Admin ───> dist/admin.js
+|
+=== stderr
+=== file dist/admin.js
+|61463 bytes, SHA-256 127661b1d54fcd7261a711337ce5ca65b19afd90a9fe5b11394a2e554c5d4fc2
+=== file dist/main.js
+|61472 bytes, SHA-256 2da00360b232825420f857acadd90507214965e76f2766f6fa67f305fa82b021

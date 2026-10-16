@@ -1,0 +1,9 @@
+=== note
+one member's tests, by its name, before elm-test's options
+=== args
+test
+-p
+web
+--seed
+1
+--no-color

@@ -1,0 +1,9 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- WHICH MEMBER? ---------------------------------------------------------------
+|
+|nomi add works on one project, and here there is the whole workspace. Name a
+|member with -p, or run it in the member's directory: packages/shared
+|(acme/shared), apps/api and apps/web.
+|

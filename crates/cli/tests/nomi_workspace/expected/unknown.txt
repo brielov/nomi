@@ -1,0 +1,8 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- UNKNOWN MEMBER --------------------------------------------------------------
+|
+|No member of the workspace is mobile. Name one by its directory or its package's
+|name: packages/shared (acme/shared), apps/api and apps/web.
+|

@@ -1,0 +1,17 @@
+=== exit 0
+=== stdout
+|Building packages/shared
+|No problems in syntax, module names, imports, names or types.
+|Building apps/api
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> apps/api/elm-stuff/nomi/run/src/Main.mjs
+|
+|Building apps/web
+|No problems in syntax, module names, imports, names or types.
+|
+|    Main ───> apps/web/dist/web.js
+|
+=== stderr
+=== file apps/web/dist/web.js
+|61603 bytes, SHA-256 93361fb6a48685be49dcb56da8132ffee32363c38233badae752ec35fbe9207a

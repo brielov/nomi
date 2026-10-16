@@ -6,6 +6,7 @@
 //! allow whenever it builds, so there is nothing to write.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use nomi_base::Compat;
 use nomi_project::outline::{AppOutline, PkgOutline};
@@ -13,7 +14,7 @@ use nomi_project::{Constraint, Name, Outline, Version};
 
 use crate::index::Known;
 use crate::install::{Change, changes};
-use crate::solver::{self, Packages, ReleaseError, release_deps};
+use crate::solver::{self, Packages, ReleaseError, reachable, release_deps};
 
 /// What updating does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +86,106 @@ pub fn plan<P: Packages>(
             })
         }
     }
+}
+
+/// What updating several applications together does: the changes to
+/// their dependencies, taken as one application's, and each one's new
+/// dependencies, by its directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Together {
+    pub changes: BTreeMap<Name, Change<Version>>,
+    pub apps: Vec<(PathBuf, AppOutline)>,
+}
+
+/// What updating `apps`, each by its directory, would do: all their
+/// dependencies, or only `pkg` and those that need it, solved as one
+/// application's, so that they keep agreeing; then each application's
+/// own, the indirect ones those it names need.
+pub fn plan_together<P: Packages>(
+    packages: &mut P,
+    compat: Compat,
+    pkg: Option<&Name>,
+    apps: &[(PathBuf, &AppOutline)],
+) -> Result<Together, UpdateProblem<P::Error>> {
+    let all = union_of(apps.iter().map(|(_, app)| *app));
+    let Plan::App { changes, outline } = plan(packages, compat, pkg, &Outline::App(all))? else {
+        unreachable!("an application's plan is an application's")
+    };
+    let new = outline.all_deps();
+    let mut each = Vec::with_capacity(apps.len());
+    for (dir, app) in apps {
+        each.push((dir.clone(), slice(packages, &new, app)?));
+    }
+    Ok(Together {
+        changes,
+        apps: each,
+    })
+}
+
+/// The applications' dependencies as one application's: a name direct in
+/// any is direct, else indirect in any, else a direct test one in any.
+fn union_of<'a>(mut apps: impl Iterator<Item = &'a AppOutline>) -> AppOutline {
+    let first = apps.next().expect("applications to update");
+    let mut all = first.clone();
+    for app in apps {
+        all.direct
+            .extend(app.direct.iter().map(|(n, &v)| (n.clone(), v)));
+        all.indirect
+            .extend(app.indirect.iter().map(|(n, &v)| (n.clone(), v)));
+        all.test_direct
+            .extend(app.test_direct.iter().map(|(n, &v)| (n.clone(), v)));
+        all.test_indirect
+            .extend(app.test_indirect.iter().map(|(n, &v)| (n.clone(), v)));
+    }
+    let direct = all.direct.clone();
+    all.indirect.retain(|name, _| !direct.contains_key(name));
+    let indirect = all.indirect.clone();
+    all.test_direct
+        .retain(|name, _| !direct.contains_key(name) && !indirect.contains_key(name));
+    let test_direct = all.test_direct.clone();
+    all.test_indirect.retain(|name, _| {
+        !direct.contains_key(name)
+            && !indirect.contains_key(name)
+            && !test_direct.contains_key(name)
+    });
+    all
+}
+
+/// `app` with the releases of `new` its own dependencies name, and the
+/// indirect ones they need.
+fn slice<P: Packages>(
+    packages: &mut P,
+    new: &BTreeMap<Name, Version>,
+    app: &AppOutline,
+) -> Result<AppOutline, UpdateProblem<P::Error>> {
+    let pick = |names: &BTreeMap<Name, Version>| -> BTreeMap<Name, Version> {
+        (names.keys())
+            .filter_map(|name| Some((name.clone(), *new.get(name)?)))
+            .collect()
+    };
+    let direct = pick(&app.direct);
+    let test_direct = pick(&app.test_direct);
+    let mut deps = |name: &Name, version| release_deps(packages, name, version);
+    let needed = reachable(new, &direct, &mut deps)?;
+    let mut roots = direct.clone();
+    roots.extend(test_direct.clone());
+    let tests_need = reachable(new, &roots, &mut deps)?;
+    let indirect: BTreeMap<Name, Version> = (needed.into_iter())
+        .filter(|name| !direct.contains_key(name))
+        .map(|name| (name.clone(), new[&name]))
+        .collect();
+    let test_indirect = (tests_need.into_iter())
+        .filter(|name| !roots.contains_key(name) && !indirect.contains_key(name))
+        .map(|name| (name.clone(), new[&name]))
+        .collect();
+    Ok(AppOutline {
+        elm: app.elm,
+        source_dirs: app.source_dirs.clone(),
+        direct,
+        indirect,
+        test_direct,
+        test_indirect,
+    })
 }
 
 /// Which of a project's fields a dependency is in.

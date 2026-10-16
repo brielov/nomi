@@ -60,13 +60,22 @@ impl Project {
 
     /// Writes `bytes` over the project's `elm.json`.
     pub(crate) fn write(&self, vfs: &Vfs, bytes: impl AsRef<[u8]>) -> Result<(), Report> {
-        vfs.write(&self.root.elm_json(), bytes).map_err(|e| {
-            one_line(
-                "PROBLEM WRITING ELM.JSON",
-                &format!("I could not write elm.json: {e}"),
-            )
-        })
+        write_elm_json(vfs, &self.root, bytes)
     }
+}
+
+/// Writes `bytes` over the `elm.json` at `root`.
+pub(crate) fn write_elm_json(
+    vfs: &Vfs,
+    root: &Root,
+    bytes: impl AsRef<[u8]>,
+) -> Result<(), Report> {
+    vfs.write(&root.elm_json(), bytes).map_err(|e| {
+        one_line(
+            "PROBLEM WRITING ELM.JSON",
+            &format!("I could not write elm.json: {e}"),
+        )
+    })
 }
 
 /// What the `elm.json` at `root` holds.

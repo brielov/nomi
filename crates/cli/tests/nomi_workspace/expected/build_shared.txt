@@ -1,0 +1,5 @@
+=== exit 0
+=== stdout
+|Building packages/shared
+|No problems in syntax, module names, imports, names or types.
+=== stderr

@@ -22,8 +22,8 @@ pub(crate) fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let succeeded = match args[..] {
         ["init"] => crate::new(Personality::Elm, None),
-        ["install"] => crate::add(Personality::Elm, None),
-        ["install", package] => crate::add(Personality::Elm, Some(package)),
+        ["install"] => crate::elm_install(None),
+        ["install", package] => crate::elm_install(Some(package)),
         ["make", ref rest @ ..] => make(rest),
         ["diff", ref rest @ ..] => crate::diff(
             rest,
@@ -111,6 +111,7 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         platform_by_main: false,
         resolve: Resolve::Upstream,
         ffi: None,
+        members_of: None,
         output,
         docs,
     })

@@ -1,0 +1,36 @@
+=== note
+no paths in a project whose nomi.toml has entries: each entry built
+=== args
+build
+=== file elm.json
+{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}
+=== file nomi.toml
+[[entry]]
+main = "src/Main.elm"
+output = "dist/main.js"
+
+[[entry]]
+main = "src/Admin.elm"
+output = "dist/admin.js"
+=== file src/Main.elm
+module Main exposing (main)
+
+
+main : Program () () ()
+main =
+    Platform.worker
+        { init = \_ -> ( (), Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+=== file src/Admin.elm
+module Admin exposing (main)
+
+
+main : Program () Int ()
+main =
+    Platform.worker
+        { init = \_ -> ( 1, Cmd.none )
+        , update = \_ model -> ( model, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
