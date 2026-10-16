@@ -128,6 +128,19 @@ function _NomiStdio_captured(writer)
 
 // Waits until the stream has taken the text. Output a reader closed, as a
 // pipe into `head`, is dropped: printing can't fail.
+// The writer `Nomi.log` writes to on a runtime other than the process's
+// stderr, which is a test's captured stderr on that test's runtime.
+var _NomiStdio_logs = new WeakMap();
+
+// A line to the stderr of whatever runs the task: the process's, or the
+// test's.
+function _NomiStdio_log(text)
+{
+	return _Runtime.withRuntime(function(runtime) {
+		return A2(_NomiStdio_print, text + '\n', _NomiStdio_logs.get(runtime) || _NomiStdio_stderr);
+	});
+}
+
 var _NomiStdio_print = F2(function(text, writer)
 {
 	var stream = writer.stream;

@@ -271,8 +271,6 @@ function _NomiFs_disk(base)
 		makeDirectory: function(root, names) {
 			return resolve(root, names, true).then(function(path) {
 				return _NomiFs_promises.mkdir(path, { recursive: true });
-			}).then(function(made) {
-				if (made === undefined) throw _NomiFs_code('EEXIST');
 			});
 		},
 		exists: function(root, names) {
@@ -407,15 +405,13 @@ function _NomiFs_inMemory()
 		},
 		makeDirectory: function(root, names) {
 			return at(root, names, function(names) {
-				var made = false;
 				for (var i = 1; i <= names.length; i++)
 				{
 					var key = _NomiFs_key(names.slice(0, i));
 					var entry = entries.get(key);
-					if (entry === undefined) { entries.set(key, _NomiFs_directory); made = true; }
+					if (entry === undefined) entries.set(key, _NomiFs_directory);
 					else if (entry !== _NomiFs_directory) throw _NomiFs_code(i === names.length ? 'EEXIST' : 'ENOTDIR');
 				}
-				if (!made) throw _NomiFs_code('EEXIST');
 			});
 		},
 		exists: function(root, names) {

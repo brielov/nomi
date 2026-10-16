@@ -84,8 +84,9 @@ pure =
 /// Effectful tests of the virtual clock and the fakes: an hour's sleep
 /// and three ticks of a second, with `advance`; two tests each sleeping a
 /// second from 0; one that leaves a ticking daemon behind, logging each
-/// tick; and a program given files and arguments, whose output is read.
-const CLOCK: &str = r#"module Clock exposing (aFreshCopy, aLeftover, anHourAndThreeTicks, anotherFreshCopy, filesAndArgs, oneClock, otherClock)
+/// tick; a program given files and arguments, whose output is read; and
+/// one whose stderr has what it printed there and logged.
+const CLOCK: &str = r#"module Clock exposing (aFreshCopy, aLeftover, anHourAndThreeTicks, anotherFreshCopy, filesAndArgs, logged, oneClock, otherClock)
 
 import Expect exposing (Expectation)
 import Nomi exposing (Env)
@@ -93,7 +94,7 @@ import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs
 import Nomi.Stdio as Stdio
 import Nomi.Task
-import Nomi.Test exposing (advance, effect, effectWith, stdout, withArgs, withFiles)
+import Nomi.Test exposing (advance, effect, effectWith, stderr, stdout, withArgs, withFiles)
 import Process
 import Task exposing (Task)
 import Test exposing (Test)
@@ -192,6 +193,16 @@ greet env =
 
         _ ->
             Task.fail "no path"
+
+
+logged : Test
+logged =
+    effect "stderr has what was printed to it and logged" <|
+        \env ->
+            Stdio.printLine "printed" env.stderr
+                |> Task.andThen (\_ -> Fiber.fork (Nomi.log "logged in a fiber") |> Task.andThen Fiber.join)
+                |> Task.andThen (\_ -> Task.map2 Tuple.pair (stdout env) (stderr env))
+                |> Task.map (Expect.equal ( "", "printed\nlogged in a fiber\n" ))
 
 
 aFreshCopy : Test
@@ -517,7 +528,7 @@ fn each_effectful_test_has_a_virtual_clock_and_fakes_of_its_own() {
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
     let completed = completed(&out);
-    assert_eq!(completed.len(), 7, "{out}");
+    assert_eq!(completed.len(), 8, "{out}");
     for (label, status, duration) in &completed {
         assert_eq!(status, "pass", "{label}: {out}");
         // An hour and three seconds of the test's clock take no real time.
@@ -526,6 +537,8 @@ fn each_effectful_test_has_a_virtual_clock_and_fakes_of_its_own() {
     // The daemon a test left behind ticked twice, then was interrupted.
     assert_eq!(out.matches("leftover tick").count(), 2, "{out}");
     assert_eq!(out.matches("leftover interrupted").count(), 1, "{out}");
+    // What a test logs is its own, not the runner's.
+    assert!(!err.contains("logged in a fiber"), "{err}");
 }
 
 #[test]

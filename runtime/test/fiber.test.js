@@ -29,6 +29,7 @@ import {
   succeed,
   sync,
   uninterruptible,
+  withRuntime,
   yieldNow,
 } from "../src/fiber.js";
 
@@ -495,6 +496,18 @@ test("a joiner ends as the joined fiber did", () => {
   const fiber = runtime.fork(andThen(fork(fail("no")), join));
   flush();
   assert.deepEqual(fiber.exit, Exit.fail("no"));
+});
+
+test("withRuntime gives each fiber the runtime running it", () => {
+  const one = manual();
+  const other = manual();
+  const asked = andThen(fork(withRuntime(succeed)), join);
+  const a = one.runtime.fork(asked);
+  const b = other.runtime.fork(asked);
+  one.flush();
+  other.flush();
+  assert.equal(a.exit.value, one.runtime);
+  assert.equal(b.exit.value, other.runtime);
 });
 
 test("long chains run in constant stack", () => {

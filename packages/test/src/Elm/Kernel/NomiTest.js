@@ -2,7 +2,7 @@
 
 import Elm.Kernel.List exposing (Nil)
 import Elm.Kernel.NomiFs exposing (memory, copy)
-import Elm.Kernel.NomiStdio exposing (script, capture, captured)
+import Elm.Kernel.NomiStdio exposing (script, capture, captured, logs)
 import Elm.Kernel.Utils exposing (Tuple0)
 import Maybe exposing (Just, Nothing)
 import Nomi exposing (Net)
@@ -88,11 +88,14 @@ function _NomiTest_env(make)
 
 // `make` applied to a copy of `fs`, an input that has ended and two new
 // captured outputs, made when the task runs, so each run of a test has
-// its own.
+// its own. The test's runtime is its own, and `Nomi.log` on it writes to
+// the captured stderr.
 var _NomiTest_fresh = F2(function(make, fs)
 {
-	return _Runtime.sync(function() {
-		return A4(make, A2(__NomiFs_copy, __List_Nil, fs), __NomiStdio_script(''), __NomiStdio_capture(), __NomiStdio_capture());
+	return _Runtime.withRuntime(function(runtime) {
+		var stderr = __NomiStdio_capture();
+		__NomiStdio_logs.set(runtime, stderr);
+		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), __NomiStdio_script(''), __NomiStdio_capture(), stderr));
 	});
 });
 

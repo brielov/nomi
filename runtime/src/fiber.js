@@ -19,6 +19,7 @@
 //   scoped    run a task in a new scope, closed when it ends
 //   interrupt ask a fiber to stop and wait for its exit, or not
 //   receive   continue with `f(message)` once the fiber's mailbox has one
+//   runtime   continue with `f(runtime)`, the runtime running the fiber
 //
 // Structured concurrency: every fiber belongs to a scope. A fiber has its
 // own scope for its whole life, and `scoped` opens narrower ones. A scope
@@ -66,12 +67,13 @@ const INTERRUPT = "interruptFiber";
 const SLEEP = "sleep";
 const NOW = "now";
 const RECEIVE = "receive";
+const RUNTIME = "runtime";
 // Internal: only this module builds these.
 const WITH_FIBER = "withFiber";
 const REAP = "reap";
 const GATHER = "gather";
 
-const TAGS = new Set([EXIT, SYNC, ASYNC, WAIT, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE]);
+const TAGS = new Set([EXIT, SYNC, ASYNC, WAIT, AND_THEN, ON_ERROR, FORK, AWAIT, YIELD, MASK, SCOPED, INTERRUPT, SLEEP, NOW, RECEIVE, RUNTIME]);
 const INTERNAL = new Set([WITH_FIBER, REAP, GATHER]);
 
 // Frames that only the unwinding loop sees.
@@ -214,6 +216,12 @@ export const interruptFork = (fiber) => ({ $: INTERRUPT, fiber, wait: false });
 
 /** Continues with `f(message)`, the oldest message in the fiber's mailbox, waiting for one if there is none. */
 export const receive = (f) => ({ $: RECEIVE, f });
+
+/**
+ * Continues with `f(runtime)`, the runtime running the fiber, so a kernel
+ * reaches what belongs to that runtime rather than to the program's.
+ */
+export const withRuntime = (f) => ({ $: RUNTIME, f });
 
 // Internal: runs `f(fiber)` and continues with the task it returns.
 const withFiber = (f) => ({ $: WITH_FIBER, f });
@@ -648,6 +656,9 @@ export class Runtime {
           break;
         case WITH_FIBER:
           task = call(task.f, fiber);
+          break;
+        case RUNTIME:
+          task = call(task.f, this);
           break;
         default:
           task = die(notATask(task));

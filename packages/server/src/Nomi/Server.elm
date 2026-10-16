@@ -71,24 +71,44 @@ listen config handle net =
     Elm.Kernel.NomiServer.listen config (\request -> Task.map (\(Response response) -> response) (handle request)) net
 
 
-{-| Where to listen, and how long requests in flight may run on once the
-program is asked to stop. A `host` of `"0.0.0.0"` listens on every
-interface.
+{-| Where to listen, how long requests in flight may run on once the
+program is asked to stop, and what to do once the server listens. A
+`host` of `"0.0.0.0"` listens on every interface, and a `port_` of 0 on a
+port the system picks.
+
+`onListen` runs with the port the server took, once it is bound and
+before it answers a request:
+
+    let
+        defaults =
+            Nomi.Server.defaults
+    in
+    Nomi.Server.listen
+        { defaults
+            | port_ = 0
+            , onListen = \port_ -> Nomi.log ("listening on " ++ String.fromInt port_)
+        }
+        handle
+        env.net
+
 -}
 type alias Config =
     { port_ : Int
     , host : String
     , drainMilliseconds : Int
+    , onListen : Int -> Task Never ()
     }
 
 
-{-| Port 8080 on `127.0.0.1`, draining for 5 seconds.
+{-| Port 8080 on `127.0.0.1`, draining for 5 seconds, doing nothing once it
+listens.
 -}
 defaults : Config
 defaults =
     { port_ = 8080
     , host = "127.0.0.1"
     , drainMilliseconds = 5000
+    , onListen = \_ -> Task.succeed ()
     }
 
 

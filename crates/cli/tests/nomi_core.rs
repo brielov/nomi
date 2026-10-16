@@ -3,8 +3,9 @@
 //! its task as the process, which exits with how the task ended, or at
 //! once, naming it, when Node lacks something it needs; joining a fiber that dies is the joiner's defect, and its fibers share refs
 //! and queues (`nomi_test.rs` runs its concurrent tasks, which take hours,
-//! on nomi/test's virtual clock). nomi/server, bundled beside it, serves
-//! HTTP to a loopback client, a request per fiber, and drains on SIGTERM.
+//! on nomi/test's virtual clock); `Nomi.log` writes to stderr. nomi/server,
+//! bundled beside it, serves HTTP to a loopback client on the port it says
+//! it took, a request per fiber, and drains on SIGTERM.
 #![cfg(unix)]
 
 #[path = "support/website.rs"]
@@ -21,12 +22,14 @@ use std::time::{Duration, Instant};
 use website::offline;
 
 /// A program that fails with `x` when its arguments are `fail`; waits,
-/// with a finalizer, when they are `wait`; and otherwise prints them and
-/// the variable `GREETING`.
+/// with a finalizer, when they are `wait`; logs two lines, one from a
+/// fiber, when they are `log`; and otherwise prints them and the variable
+/// `GREETING`.
 const PROGRAM: &str = r#"module Main exposing (main)
 
 import Dict
 import Nomi
+import Nomi.Fiber as Fiber
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -44,6 +47,11 @@ main =
                     say "waiting"
                         |> Task.andThen (\_ -> Process.sleep 60000)
                         |> Nomi.Task.ensure (say "finalized")
+
+                [ "log" ] ->
+                    Nomi.log "first"
+                        |> Task.andThen (\_ -> Fiber.fork (Nomi.log "from a fiber"))
+                        |> Task.andThen Fiber.join
 
                 _ ->
                     say (Debug.toString ( env.args, Dict.get "GREETING" env.vars ))
@@ -172,7 +180,8 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-/// A server on the port its argument names, answering `/json` with the
+/// A server on the port its argument names, or one it picks, printing
+/// which once it listens, answering `/json` with the
 /// field `n` of its JSON body plus one, or the `BodyError`, and any other
 /// path with what it reads of the request, in the body and the header
 /// `X-Echo`.
@@ -180,8 +189,9 @@ const SERVER: &str = r#"module Main exposing (main)
 
 import Json.Decode as Decode
 import Json.Encode as Encode
-import Nomi
+import Nomi exposing (Env)
 import Nomi.Server as Server exposing (Request, Response)
+import Nomi.Stdio as Stdio
 import Task exposing (Task)
 
 
@@ -196,8 +206,13 @@ main =
                 port_ =
                     List.head env.args |> Maybe.andThen String.toInt |> Maybe.withDefault 0
             in
-            Server.listen { defaults | port_ = port_ } handle env.net
+            Server.listen { defaults | port_ = port_, onListen = listening env } handle env.net
                 |> Task.mapError Server.errorToString
+
+
+listening : Env -> Int -> Task x ()
+listening env port_ =
+    Stdio.printLine ("listening on " ++ String.fromInt port_) env.stdout
 
 
 handle : Request -> Task Never Response
@@ -216,14 +231,16 @@ handle req =
             Task.succeed (Server.text 200 echo |> Server.withHeader "X-Echo" echo)
 "#;
 
-/// A server on the port its first argument names, draining for the
-/// milliseconds its second names. `/hang` says so and never answers, with
+/// A server on the port its first argument names, or one it picks,
+/// printing which once it listens, draining for the milliseconds its second
+/// names. `/hang` says so and never answers, with
 /// a finalizer that says so too; `/slow` says so and answers with its
 /// body; `/todo` dies; any other path is `ok`.
 const LIFECYCLE: &str = r#"module Main exposing (main)
 
-import Nomi
+import Nomi exposing (Env)
 import Nomi.Server as Server exposing (Request, Response)
+import Nomi.Stdio as Stdio
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -240,8 +257,13 @@ main =
                 number i =
                     List.drop i env.args |> List.head |> Maybe.andThen String.toInt |> Maybe.withDefault 0
             in
-            Server.listen { defaults | port_ = number 0, drainMilliseconds = number 1 } handle env.net
+            Server.listen { defaults | port_ = number 0, drainMilliseconds = number 1, onListen = listening env } handle env.net
                 |> Task.mapError Server.errorToString
+
+
+listening : Env -> Int -> Task x ()
+listening env port_ =
+    Stdio.printLine ("listening on " ++ String.fromInt port_) env.stdout
 
 
 handle : Request -> Task Never Response
@@ -343,6 +365,20 @@ fn a_program_is_a_node_entry_by_default_and_its_task_decides_the_exit() {
         .unwrap();
     assert_eq!(failed.status.code(), Some(1), "{failed:?}");
     assert_eq!(errors(&failed), ["nomi: the program failed: x"]);
+}
+
+#[test]
+fn nomi_log_writes_a_line_to_stderr() {
+    nomi_testkit::require_node();
+    let (_work, root) = built(PROGRAM);
+    let ran = node()
+        .args(["dist/main.mjs", "log"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
+    assert_eq!(errors(&ran), ["first", "from a fiber"]);
 }
 
 #[test]
@@ -497,13 +533,7 @@ fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
     );
 }
 
-/// A port on the loopback interface that nothing listens on.
-fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
-}
-
-/// A server serving on a port of its own, stopped when dropped.
+/// A server serving on the port it picked, stopped when dropped.
 struct Serving {
     port: u16,
     server: std::process::Child,
@@ -517,13 +547,12 @@ impl Serving {
         Serving::of(SERVER, &[])
     }
 
-    /// `program` built and serving, with `args` after its port.
+    /// `program` built and serving on port 0, with `args` after it, once
+    /// it says which port it took.
     fn of(program: &str, args: &[&str]) -> Serving {
         let (work, root) = built(program);
-        let port = free_port();
         let mut server = node()
-            .arg("dist/main.mjs")
-            .arg(port.to_string())
+            .args(["dist/main.mjs", "0"])
             .args(args)
             .current_dir(&root)
             .stdout(Stdio::piped())
@@ -539,12 +568,19 @@ impl Serving {
                 }
             }
         });
-        Serving {
-            port,
+        let mut serving = Serving {
+            port: 0,
             server,
             said,
             _work: work,
-        }
+        };
+        let line = (serving.said)
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the server says where it listens");
+        let port = line.strip_prefix("listening on ").expect(&line);
+        serving.port = port.parse().unwrap();
+        assert_ne!(serving.port, 0);
+        serving
     }
 
     /// Waits for the server to print `line`.

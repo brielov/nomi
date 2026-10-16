@@ -1,6 +1,6 @@
 module Nomi.Test exposing
     ( effect, effectWith
-    , env, withFiles, withArgs, stdout
+    , env, withFiles, withArgs, stdout, stderr
     , advance
     )
 
@@ -16,7 +16,7 @@ running once its task ends is interrupted.
 
 # Environments
 
-@docs env, withFiles, withArgs, stdout
+@docs env, withFiles, withArgs, stdout, stderr
 
 
 # Time
@@ -119,6 +119,14 @@ withArgs args environment =
 stdout : Env -> Task x String
 stdout environment =
     Elm.Kernel.NomiTest.captured environment.stdout
+
+
+{-| What was printed to `env.stderr` so far, with what `Nomi.log` wrote
+during the test.
+-}
+stderr : Env -> Task x String
+stderr environment =
+    Elm.Kernel.NomiTest.captured environment.stderr
 
 
 {-| Waits this many milliseconds of the test's clock, firing every timer

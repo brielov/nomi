@@ -98,7 +98,8 @@ readBytes =
 
 
 {-| Writes the text to the file, encoded as UTF-8, creating the file or
-replacing what it held. The directory it is in must exist.
+replacing what it held. The directory it is in must exist, or the task
+fails with `NotFound`; `makeDirectory` makes it.
 -}
 write : String -> String -> Fs -> Task Error ()
 write =
@@ -128,8 +129,13 @@ remove =
     Elm.Kernel.NomiFs.remove
 
 
-{-| Creates the directory, and those it is in that don't exist yet. If it
-already exists, the task fails with `AlreadyExists`.
+{-| Creates the directory, and those it is in that don't exist yet. A
+directory already there is left as it is, so the task succeeds; a file
+there fails it with `AlreadyExists`.
+
+    Nomi.Fs.makeDirectory "data" env.fs
+        |> Task.andThen (\_ -> Nomi.Fs.write "data/todos.json" "{}" env.fs)
+
 -}
 makeDirectory : String -> Fs -> Task Error ()
 makeDirectory =

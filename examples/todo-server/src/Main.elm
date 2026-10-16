@@ -14,7 +14,6 @@ import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Ref as Ref exposing (Ref)
 import Nomi.Server as Server exposing (Method(..), Request, Response)
-import Nomi.Stdio as Stdio exposing (Writer)
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -46,36 +45,22 @@ main =
                     Server.defaults
 
                 config =
-                    { defaults | port_ = Dict.get "PORT" env.vars |> Maybe.andThen String.toInt |> Maybe.withDefault defaults.port_ }
+                    { defaults
+                        | port_ = Dict.get "PORT" env.vars |> Maybe.andThen String.toInt |> Maybe.withDefault defaults.port_
+                        , onListen = \port_ -> Nomi.log ("listening on " ++ String.fromInt port_)
+                    }
             in
-            makeDirectory "data" env.fs
+            Fs.makeDirectory "data" env.fs
+                |> Task.mapError Fs.errorToString
                 |> Task.andThen (\_ -> load data)
                 |> Task.andThen (\store -> Task.map2 App (Ref.make store) (Ref.make 0))
                 |> Task.andThen
                     (\app ->
                         Nomi.Task.acquireRelease
-                            (Fiber.fork (flushEvery 5000 env.stderr data app.store))
-                            (\flusher -> Fiber.interrupt flusher |> Task.andThen (\_ -> flush env.stderr data app.store))
-                            (\_ ->
-                                Stdio.printLine ("listening on " ++ String.fromInt config.port_) env.stdout
-                                    |> Task.andThen (\_ -> Server.listen config (handle app) env.net)
-                                    |> Task.mapError Server.errorToString
-                            )
+                            (Fiber.fork (flushEvery 5000 data app.store))
+                            (\flusher -> Fiber.interrupt flusher |> Task.andThen (\_ -> flush data app.store))
+                            (\_ -> Server.listen config (handle app) env.net |> Task.mapError Server.errorToString)
                     )
-
-
-makeDirectory : String -> Fs -> Task String ()
-makeDirectory path fs =
-    Fs.makeDirectory path fs
-        |> Task.onError
-            (\error ->
-                case error of
-                    Fs.AlreadyExists _ ->
-                        Task.succeed ()
-
-                    _ ->
-                        Task.fail (Fs.errorToString error)
-            )
 
 
 {-| The todos saved in `todos.json`, or none if there is no such file.
@@ -99,18 +84,18 @@ load fs =
 
 {-| Flushes the store every `ms` milliseconds.
 -}
-flushEvery : Float -> Writer -> Fs -> Ref Store -> Task x ()
-flushEvery ms log fs store =
+flushEvery : Float -> Fs -> Ref Store -> Task x ()
+flushEvery ms fs store =
     Process.sleep ms
-        |> Task.andThen (\_ -> flush log fs store)
-        |> Task.andThen (\_ -> flushEvery ms log fs store)
+        |> Task.andThen (\_ -> flush fs store)
+        |> Task.andThen (\_ -> flushEvery ms fs store)
 
 
 {-| Writes the todos to `todos.json` if they changed since the last flush.
-A write that fails is reported to `log`, and tried again by the next one.
+A write that fails is logged, and tried again by the next one.
 -}
-flush : Writer -> Fs -> Ref Store -> Task x ()
-flush log fs store =
+flush : Fs -> Ref Store -> Task x ()
+flush fs store =
     -- Uninterruptible: interrupted between clearing `dirty` and writing,
     -- the shutdown's last flush would find nothing to write.
     Nomi.Task.uninterruptible <|
@@ -122,7 +107,7 @@ flush log fs store =
                             |> Task.onError
                                 (\error ->
                                     Ref.update (\now -> { now | dirty = True }) store
-                                        |> Task.andThen (\_ -> Stdio.printLine ("could not save the todos: " ++ Fs.errorToString error) log)
+                                        |> Task.andThen (\_ -> Nomi.log ("could not save the todos: " ++ Fs.errorToString error))
                                 )
 
                     else

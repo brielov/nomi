@@ -8,7 +8,7 @@ Run it from this directory, on Node 22 or later:
 nomi run
 ```
 
-It listens on port 8080, or on `PORT` if that is set:
+It listens on port 8080, or on `PORT` if that is set, `PORT=0` picking a free one, and writes `listening on <port>` to stderr once it does:
 
 ```
 curl -X POST -d '{"title": "milk"}' localhost:8080/todos   # {"id":1}

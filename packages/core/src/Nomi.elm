@@ -1,13 +1,14 @@
-module Nomi exposing (Program, program, Env, Net)
+module Nomi exposing (Program, program, Env, Net, log)
 
 {-| Programs that run on Node.
 
-@docs Program, program, Env, Net
+@docs Program, program, Env, Net, log
 
 -}
 
 import Dict exposing (Dict)
 import Elm.Kernel.Nomi
+import Elm.Kernel.NomiStdio
 import Nomi.Fs exposing (Fs)
 import Nomi.Stdio as Stdio
 import Task exposing (Task)
@@ -64,3 +65,16 @@ takes.
 -}
 type Net
     = Net
+
+
+{-| Writes the text and a newline to stderr, as `Nomi.Stdio.printLine`
+does to `env.stderr`, for a line to whoever runs the program from code
+that has no `Env` to hand. Under `nomi test` it goes to the test's
+`env.stderr`, which `Nomi.Test.stderr` reads.
+
+    Nomi.log ("could not save: " ++ Nomi.Fs.errorToString error)
+
+-}
+log : String -> Task x ()
+log =
+    Elm.Kernel.NomiStdio.log

@@ -18,11 +18,13 @@ var _NomiServer_http = process.getBuiltinModule('node:http');
 // finalizers that run after it.
 var _NomiServer_margin = 5000;
 
-// A server on `node:http`. Its requests are the fibers of a draining
-// scope, so they outlive the accept loop: interrupting `listen` closes the
-// accept loop's scope, which stops the server accepting connections, then
-// the draining scope gives the requests in flight the drain to finish, and
-// finally closes every connection left.
+// A server on `node:http`. Once it is bound, `onListen` runs with the port
+// it took, before the accept loop takes the first request. Its requests
+// are the fibers of a draining scope, so they outlive the accept loop:
+// interrupting `listen` closes the accept loop's scope, which stops the
+// server accepting connections, then the draining scope gives the
+// requests in flight the drain to finish, and finally closes every
+// connection left.
 var _NomiServer_listen = F3(function(config, handle, net)
 {
 	var drain = config.__$drainMilliseconds;
@@ -35,7 +37,9 @@ var _NomiServer_listen = F3(function(config, handle, net)
 			return _Runtime.andThen(opened, function(server) {
 				var accepting = _Runtime.addFinalizer(function() { return _NomiServer_stop(server); });
 				return _Runtime.scoped(_Runtime.andThen(accepting, function() {
-					return _NomiServer_accept(server, spawn, handle);
+					return _Runtime.andThen(config.__$onListen(server.http.address().port), function() {
+						return _NomiServer_accept(server, spawn, handle);
+					});
 				}));
 			});
 		});

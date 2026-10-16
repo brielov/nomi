@@ -7,7 +7,7 @@ import Nomi
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs
 import Nomi.Ref as Ref
-import Nomi.Test exposing (advance, effect, effectWith, stdout, withFiles)
+import Nomi.Test exposing (advance, effect, effectWith, stderr, withFiles)
 import Task exposing (Task)
 import Test exposing (Test, describe)
 
@@ -31,7 +31,7 @@ suite =
         , effect "the flusher writes what changed every five seconds" <|
             \env ->
                 Ref.make (store False)
-                    |> Task.andThen (\ref -> Fiber.fork (Main.flushEvery 5000 env.stderr env.fs ref) |> Task.map (\_ -> ref))
+                    |> Task.andThen (\ref -> Fiber.fork (Main.flushEvery 5000 env.fs ref) |> Task.map (\_ -> ref))
                     |> Task.andThen
                         (\ref ->
                             advance 5000
@@ -46,9 +46,9 @@ suite =
                 Ref.make (store True)
                     |> Task.andThen
                         (\ref ->
-                            Main.flush env.stdout (Fs.readOnly env.fs) ref
-                                |> Task.andThen (\_ -> Main.flush env.stdout env.fs ref)
-                                |> Task.andThen (\_ -> Task.map2 Tuple.pair (stdout env) (readBack env))
+                            Main.flush (Fs.readOnly env.fs) ref
+                                |> Task.andThen (\_ -> Main.flush env.fs ref)
+                                |> Task.andThen (\_ -> Task.map2 Tuple.pair (stderr env) (readBack env))
                         )
                     |> Task.map (Expect.equal ( "could not save the todos: todos.json: permission denied\n", Ok (store False) ))
         ]

@@ -1,6 +1,6 @@
 //! The example todo server, `examples/todo-server`, built from a copy and
 //! run on the tests' Node binary, which `NOMI_TEST_NODE` makes the oldest
-//! maintained LTS: SIGTERM lets a response in flight complete, then the
+//! maintained LTS, on the port it picks and says it took: SIGTERM lets a response in flight complete, then the
 //! todos are written and the process exits within its deadline; a client
 //! that disconnects interrupts its request; a handler that dies answers
 //! 500 and writes one line; and thousands of requests, some cut off, leave
@@ -13,7 +13,7 @@ pub mod website;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -93,12 +93,6 @@ fn build(root: &Path) {
     assert!(built.status.success(), "{built:?}");
 }
 
-/// A port on the loopback interface that nothing listens on.
-fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
-}
-
 /// The lines `pipe` gives, as they come.
 fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
     let (send, lines) = mpsc::channel();
@@ -110,6 +104,24 @@ fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
         }
     });
     lines
+}
+
+/// The port in the line `listening on <port>` among `stderr`, which the
+/// server writes once it is bound, waiting past what a build takes.
+fn listening(stderr: &Receiver<String>) -> u16 {
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        match stderr.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(line) => {
+                if let Some(port) = line.strip_prefix("listening on ") {
+                    let port = port.parse().unwrap();
+                    assert_ne!(port, 0);
+                    return port;
+                }
+            }
+            Err(e) => panic!("the server didn't say where it listens: {e}"),
+        }
+    }
 }
 
 /// A request closing its connection.
@@ -130,11 +142,10 @@ fn response(stream: &mut TcpStream) -> (u16, String) {
     (status.parse().unwrap(), body.to_owned())
 }
 
-/// The example serving on a port of its own, stopped when dropped.
+/// The example serving on the port it picked, stopped when dropped.
 struct Server {
     port: u16,
     child: Child,
-    stdout: Receiver<String>,
     stderr: Receiver<String>,
     _work: tempfile::TempDir,
 }
@@ -151,40 +162,24 @@ impl Server {
         Server::start(work, node)
     }
 
-    /// `command` serving, on a free port it is given as `PORT`.
+    /// `command` serving, given `PORT=0`, on the port it says it took.
     fn start(work: tempfile::TempDir, mut command: Command) -> Server {
-        let port = free_port();
         let mut child = command
-            .env("PORT", port.to_string())
-            .stdout(Stdio::piped())
+            .env("PORT", "0")
+            .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let stdout = lines(child.stdout.take().unwrap());
         let stderr = lines(child.stderr.take().unwrap());
-        let server = Server {
-            port,
+        let mut server = Server {
+            port: 0,
             child,
-            stdout,
             stderr,
             _work: work,
         };
-        // Printed before it listens, so it is listening once it answers.
-        server.says(&format!("listening on {port}"));
+        server.port = listening(&server.stderr);
         server.until_in_flight(0);
         server
-    }
-
-    /// Waits for the server to print `line`, past what a build takes.
-    fn says(&self, line: &str) {
-        let deadline = Instant::now() + Duration::from_secs(120);
-        loop {
-            match (self.stdout).recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(said) if said == line => return,
-                Ok(_) => {}
-                Err(e) => panic!("the server didn't print {line:?}: {e}"),
-            }
-        }
     }
 
     /// A new connection, once the server takes one.
