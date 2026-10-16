@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use nomi_base::Compat;
+use nomi_base::{Compat, Text};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::kernel;
 use nomi_compiler::canonical::Home;
@@ -23,14 +23,14 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
-use nomi_project::Name;
 use nomi_project::outline::PkgOutline;
+use nomi_project::{ModuleName, Name};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
 use crate::artifacts::{Artifacts, Hash, Key};
 use crate::graph::module_path;
-use crate::names::{infer, optimize};
+use crate::names::{ModuleInterface, infer, optimize};
 use crate::paths::package_src;
 use crate::project::package_outline;
 use crate::schedule;
@@ -122,13 +122,22 @@ pub fn build(
     memo: &mut Memo,
     artifacts: Option<&Artifacts>,
 ) -> Result<Dependencies, String> {
-    build_each(compat, packages, memo, artifacts, &|_, _| {})
+    build_each(
+        compat,
+        packages,
+        &BTreeMap::new(),
+        memo,
+        artifacts,
+        &|_, _| {},
+    )
 }
 
-/// [`build`], telling `done` of each package as soon as it is built.
+/// [`build`], each package depending on one of `prebuilt` built against
+/// it, telling `done` of each package as soon as it is built.
 pub(crate) fn build_each(
     compat: Compat,
     packages: &[(Name, PathBuf)],
+    prebuilt: &BTreeMap<Name, Arc<PackageBuild>>,
     memo: &mut Memo,
     artifacts: Option<&Artifacts>,
     done: &(dyn Fn(&Name, &Arc<PackageBuild>) + Sync),
@@ -145,6 +154,15 @@ pub(crate) fn build_each(
     let names: Vec<&Name> = outlines.keys().collect();
     let imports = schedule::dag(&names, |name| outlines[name].0.deps.keys())
         .ok_or("the packages depend on each other in a cycle")?;
+    // A prebuilt package has no release to name it, so its build is.
+    let prebuilt_keys: BTreeMap<&Name, Hash> = (prebuilt.iter())
+        .filter(|(name, _)| {
+            outlines
+                .values()
+                .any(|(pkg, _)| pkg.deps.contains_key(*name))
+        })
+        .map(|(name, build)| (name, Hash::of(&encode_build(build, compat))))
+        .collect();
     let memo_now: &Memo = memo;
     let job = |i: usize,
                deps: &[&(Hash, Arc<PackageBuild>)]|
@@ -160,6 +178,15 @@ pub(crate) fn build_each(
             key = key.part("dependency", names[d].to_string().as_bytes());
             key = key.hash("build", *dep_key);
             dependencies.insert(names[d].clone(), dep_build.clone());
+        }
+        for (dep, dep_key) in pkg
+            .deps
+            .keys()
+            .filter_map(|d| prebuilt_keys.get_key_value(d))
+        {
+            key = key.part("dependency", dep.to_string().as_bytes());
+            key = key.hash("build", *dep_key);
+            dependencies.insert((*dep).clone(), prebuilt[*dep].clone());
         }
         let key = key.finish();
         if let Some(build) = memo_now.get(&key) {
@@ -227,25 +254,92 @@ fn build_package(
         interfaces,
         built: modules,
     } = package.build(&exposed, &visible)?;
-    let types: Types = (interfaces.iter())
-        .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
-        .map(|(m, interface)| {
-            let home = Home {
-                package: name.to_string().into(),
-                module: m.clone().into(),
-            };
-            (home, ModuleTypes::from_interface(interface))
-        })
-        .collect();
+    let types = module_types(
+        name,
+        (interfaces.iter())
+            .filter(|(m, _)| matches!(modules.get(*m), Some(Built::Local(_))))
+            .map(|(m, interface)| (m.as_str(), interface)),
+    );
     let exposed: HashMap<String, Interface> = (interfaces.into_iter())
         .filter(|(m, _)| exposed.contains(m))
         .collect();
-    let graph = package.gather(modules);
+    let graph = gather(compat, modules);
     Ok(PackageBuild {
         exposed: Arc::new(exposed),
         types,
         graph,
     })
+}
+
+/// A member package's build, from what the module build of its exposed
+/// modules made: their interfaces, among `interfaces`, and with `graphs`,
+/// every module's unions and aliases and the graphs gathered as a
+/// published package's are.
+pub(crate) fn member_build(
+    compat: Compat,
+    name: &Name,
+    exposed: &[ModuleName],
+    interfaces: &[ModuleInterface],
+    graphs: Option<Vec<(ModuleName, LocalGraph)>>,
+) -> PackageBuild {
+    let exposed = (interfaces.iter())
+        .filter(|module| exposed.contains(&module.name))
+        .map(|module| (module.name.to_string(), module.interface.get().clone()))
+        .collect();
+    let Some(graphs) = graphs else {
+        return PackageBuild {
+            exposed: Arc::new(exposed),
+            ..PackageBuild::default()
+        };
+    };
+    let types = module_types(
+        name,
+        (interfaces.iter())
+            .filter_map(|module| Some((module.name.to_str()?, module.interface.get()))),
+    );
+    let built = (graphs.into_iter())
+        .map(|(module, graph)| (module.to_string(), Built::Local(graph)))
+        .collect();
+    PackageBuild {
+        exposed: Arc::new(exposed),
+        types,
+        graph: gather(compat, built),
+    }
+}
+
+/// The unions and aliases of the package `name`'s modules, from their
+/// interfaces.
+fn module_types<'i>(
+    name: &Name,
+    interfaces: impl Iterator<Item = (&'i str, &'i Interface)>,
+) -> Types {
+    let package: Text = name.to_string().into();
+    interfaces
+        .map(|(module, interface)| {
+            let home = Home {
+                package: package.clone(),
+                module: module.into(),
+            };
+            (home, ModuleTypes::from_interface(interface))
+        })
+        .collect()
+}
+
+/// `gatherObjects`: a package's modules' graphs and kernels folded from
+/// the right, so the first module by name wins a shared key; a kernel's
+/// field counts replace those of the modules after it.
+fn gather(compat: Compat, built: BTreeMap<String, Built>) -> GlobalGraph {
+    let mut graph = GlobalGraph::default();
+    for (name, built) in compat.in_name_order(built).into_iter().rev() {
+        match built {
+            Built::Local(local) => graph.add_local(local),
+            Built::Kernel(chunks) => {
+                let short = nomi_base::kernel::short(&name).unwrap_or(&name);
+                kernel::add_kernel(compat, &mut graph, short, chunks);
+            }
+        }
+    }
+    graph
 }
 
 /// A package's build as the artifact cache keeps it: the exposed
@@ -511,22 +605,5 @@ impl Package<'_> {
         );
         let interface = time(Phase::Interface, || interface(&canonical, &annotations));
         Ok(Compiled { interface, graph })
-    }
-
-    /// `gatherObjects`: the modules' graphs and kernels folded from the
-    /// right, so the first module by name wins a shared key; a kernel's
-    /// field counts replace those of the modules after it.
-    fn gather(&self, built: BTreeMap<String, Built>) -> GlobalGraph {
-        let mut graph = GlobalGraph::default();
-        for (name, built) in self.compat.in_name_order(built).into_iter().rev() {
-            match built {
-                Built::Local(local) => graph.add_local(local),
-                Built::Kernel(chunks) => {
-                    let short = nomi_base::kernel::short(&name).unwrap_or(&name);
-                    kernel::add_kernel(self.compat, &mut graph, short, chunks);
-                }
-            }
-        }
-        graph
     }
 }

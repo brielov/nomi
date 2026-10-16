@@ -4,8 +4,10 @@
 //! a package's exposed ones, built; then the documentation is written, or
 //! the code generated.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
@@ -23,13 +25,14 @@ use crate::check::{
 use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
 use crate::names::{Building, ModuleInterface, Packages};
-use crate::objects::Dependencies;
+use crate::objects::{Dependencies, Memo};
 use crate::packages::Resolve;
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
 use crate::report::{self, one_line};
 use crate::timings::{self, Phase};
-use crate::{Context, Pool, Vfs, javascript, workspace};
+use crate::workspace::MemberBuild;
+use crate::{Context, Pool, Vfs, javascript};
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
 #[derive(Clone, Debug)]
@@ -245,11 +248,12 @@ fn build(
     };
     // What fails before the dependencies are ready, which elm's progress
     // says they are.
-    let unready = |console: &mut dyn Console, report, compat| {
+    let unready = |console: &mut dyn Console, root: &Path, checked, compat| {
         if make.terminal() {
             details_progress(console, 0);
         }
-        fail(console, dir, report, compat)
+        show(console, root, &checked, compat, make.style);
+        None
     };
     let Some(root) = Root::find(cx.vfs, dir) else {
         return fail(console, dir, make.no_outline(), Compat::LATEST);
@@ -264,15 +268,41 @@ fn build(
         sources,
     } = match load(cx, &root, personality, make.resolve) {
         Ok(loaded) => loaded,
-        Err((report, compat)) => return unready(console, report, compat),
+        Err((report, compat)) => return unready(console, dir, Checked::Project(report), compat),
     };
     let root = root.dir().to_owned();
     let snapshot = cx.vfs.snapshot();
     let artifacts = Artifacts::new(cx.cache);
+    let memo = Mutex::new(Memo::new());
+    let members = match &sources.members {
+        None => BTreeMap::new(),
+        Some(members) => {
+            let build = MemberBuild {
+                snapshot: &snapshot,
+                compat,
+                personality,
+                packages: &sources.packages,
+                artifacts: &artifacts,
+                memo: &memo,
+                goal,
+            };
+            match build.run(members) {
+                Ok(built) => built,
+                Err(checked) => return unready(console, &members.root, checked, compat),
+            }
+        }
+    };
     // The dependencies build as the modules are found and checked, each
     // module once the packages it imports are built.
     let packages = sources.packages.clone();
-    let building = Building::new(compat, sources.packages, Some(&artifacts), sources.direct);
+    let building = Building::new(
+        compat,
+        sources.packages,
+        members,
+        Some(&artifacts),
+        &memo,
+        sources.direct,
+    );
     let built = timings::time(Phase::Modules, || {
         let build = Build {
             snapshot: &snapshot,
@@ -291,7 +321,10 @@ fn build(
     // as their problems come first.
     let dependencies = match building.finish() {
         Ok(dependencies) => dependencies,
-        Err(why) => return unready(console, check::packages_problem(&why), compat),
+        Err(why) => {
+            let report = check::packages_problem(&why);
+            return unready(console, dir, Checked::Project(report), compat);
+        }
     };
     let built_packages = dependencies.packages.len();
     shown(
@@ -366,9 +399,6 @@ fn load(
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
     let sources = check::sources(cx, &project, personality, resolve).map_err(fail)?;
-    if let Some((name, dir)) = sources.members.first() {
-        return Err(fail(workspace::member_dependency(name, dir)));
-    }
     let env = env_of(
         root.dir(),
         &project.outline,

@@ -39,7 +39,7 @@ fn shared() -> String {
         "summary": "shared",
         "license": "BSD-3-Clause",
         "version": "1.0.0",
-        "exposed-modules": ["Shared"],
+        "exposed-modules": ["Shared", "Shared.Other"],
         "elm-version": "0.19.0 <= v < 0.20.0",
         "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0"},
         "test-dependencies": {},
@@ -48,6 +48,31 @@ fn shared() -> String {
 }
 
 const MAIN: &str = "module Main exposing (main)\n\nmain =\n    1\n";
+
+/// acme/shared's modules: `Shared` imports `Shared.Base`, and
+/// `Shared.Other` imports neither.
+const SHARED: [(&str, &str); 3] = [
+    (
+        "Shared",
+        "module Shared exposing (greeting)\n\nimport Shared.Base\n\n\ngreeting : String\n\
+         greeting =\n    Shared.Base.hello ++ \"!\"\n",
+    ),
+    (
+        "Shared/Base",
+        "module Shared.Base exposing (hello)\n\n\nhello : String\nhello =\n    \"hello\"\n",
+    ),
+    (
+        "Shared/Other",
+        "module Shared.Other exposing (other)\n\n\nother : Int\nother =\n    1\n",
+    ),
+];
+
+/// A worker using both of acme/shared's exposed modules.
+const WORKER: &str = "module Main exposing (main)\n\nimport Shared\nimport Shared.Other\n\n\n\
+    main : Program () Int ()\nmain =\n    Platform.worker\n        \
+    { init = \\() -> ( String.length Shared.greeting + Shared.Other.other, Cmd.none )\n        \
+    , update = \\() n -> ( n, Cmd.none )\n        \
+    , subscriptions = \\_ -> Sub.none\n        }\n";
 
 /// A workspace of `apps/*` and `packages/*`, each member a directory and
 /// its `elm.json`.
@@ -61,7 +86,17 @@ fn workspace(members: &[(&str, String)]) -> (tempfile::TempDir, PathBuf) {
     for (dir, elm_json) in members {
         project(&root.join(dir), elm_json);
     }
+    for (module, text) in SHARED {
+        write(&root.join("packages/shared/src"), module, text);
+    }
     (work, root)
+}
+
+/// The module `name`, by its path without `.elm`, in `src`.
+fn write(src: &Path, name: &str, text: &str) {
+    let path = src.join(format!("{name}.elm"));
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
 }
 
 /// A new directory, by its canonical path.
@@ -120,7 +155,7 @@ fn elm_make_in_a_member_ignores_the_workspace_and_what_nomi_solved() {
         ("apps/web", app(&[("acme/shared", "1.0.0")])),
         ("packages/shared", shared()),
     ]);
-    upstream_unmoved_by_nomi(&root, &root.join("apps/web"), "MEMBER PACKAGE");
+    upstream_unmoved_by_nomi(&root, &root.join("apps/web"), "BAD MAIN TYPE");
 }
 
 #[test]
@@ -167,7 +202,7 @@ fn a_member_changed_is_resolved_again() {
     let web = root.join("apps/web");
     let check = ["check", "src/Main.elm"];
     let checked = run(nomi, cache.path(), &web, &check);
-    assert!(said(&checked).contains("MEMBER PACKAGE"), "{checked:?}");
+    assert!(said(&checked).contains("BAD MAIN TYPE"), "{checked:?}");
     let elm_json = root.join("packages/shared/elm.json");
     let bumped = fs::read_to_string(&elm_json)
         .unwrap()
@@ -185,4 +220,125 @@ fn a_member_changed_is_resolved_again() {
         ),
         "{checked:?}"
     );
+}
+
+/// How many modules a build with `NOMI_TIMINGS` canonicalized: those it
+/// checked rather than took from the artifact cache.
+fn canonicalized(output: &Output) -> usize {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with("Canonicalize "));
+    line.map_or(0, |line| {
+        let count = line.split_whitespace().last().unwrap();
+        count.trim_end_matches('×').parse().unwrap()
+    })
+}
+
+/// A workspace whose application `apps/web` builds [`WORKER`] with
+/// acme/shared, and nomi building it there into `main.js`.
+struct Worker {
+    _work: tempfile::TempDir,
+    root: PathBuf,
+    cache: tempfile::TempDir,
+}
+
+impl Worker {
+    fn new() -> Worker {
+        let (work, root) = workspace(&[
+            ("apps/web", app(&[("acme/shared", "1.0.0")])),
+            ("packages/shared", shared()),
+        ]);
+        write(&root.join("apps/web/src"), "Main", WORKER);
+        Worker {
+            _work: work,
+            root,
+            cache: website::fixture_cache(),
+        }
+    }
+
+    fn build(&self) -> Output {
+        let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+        let mut command = offline(nomi, self.cache.path());
+        command
+            .current_dir(self.root.join("apps/web"))
+            .args(["build", "src/Main.elm", "--output=main.js"])
+            .env("NOMI_BUNDLE", packages::bundle())
+            .env("NOMI_TIMINGS", "1");
+        command.output().unwrap()
+    }
+
+    fn js(&self) -> String {
+        fs::read_to_string(self.root.join("apps/web/main.js")).unwrap()
+    }
+
+    fn edit(&self, module: &str, text: &str) {
+        write(&self.root.join("packages/shared/src"), module, text);
+    }
+}
+
+#[test]
+fn an_app_builds_with_a_member_package_from_its_source() {
+    let worker = Worker::new();
+    let built = worker.build();
+    assert!(built.status.success(), "{}", said(&built));
+    let js = worker.js();
+    assert!(js.contains("var $acme$shared$Shared$greeting = "), "{js}");
+    assert!(
+        js.contains("var $acme$shared$Shared$Base$hello = 'hello';"),
+        "{js}"
+    );
+    assert!(
+        js.contains("var $acme$shared$Shared$Other$other = 1;"),
+        "{js}"
+    );
+}
+
+#[test]
+fn an_edit_to_a_member_package_rebuilds_its_module_and_what_depends_on_it() {
+    let worker = Worker::new();
+    assert!(worker.build().status.success());
+    let unchanged = worker.build();
+    assert!(unchanged.status.success(), "{}", said(&unchanged));
+    assert_eq!(canonicalized(&unchanged), 0, "{}", said(&unchanged));
+    // A body: Shared.Base alone, as its interface stays.
+    let base = "module Shared.Base exposing (hello)\n\n\nhello : String\nhello =\n    \"hi\"\n";
+    worker.edit("Shared/Base", base);
+    let body = worker.build();
+    assert!(body.status.success(), "{}", said(&body));
+    assert_eq!(canonicalized(&body), 1, "{}", said(&body));
+    assert!(
+        worker
+            .js()
+            .contains("var $acme$shared$Shared$Base$hello = 'hi';")
+    );
+    // Its interface: Shared, which imports it, too; not Shared.Other, nor
+    // Main, as Shared's own interface stays.
+    let exposing = base.replace("(hello)", "(hello, extra)");
+    worker.edit(
+        "Shared/Base",
+        &format!("{exposing}\n\nextra : Int\nextra =\n    2\n"),
+    );
+    let interface = worker.build();
+    assert!(interface.status.success(), "{}", said(&interface));
+    assert_eq!(canonicalized(&interface), 2, "{}", said(&interface));
+}
+
+#[test]
+fn an_error_in_a_member_package_is_a_module_error_in_its_file() {
+    let worker = Worker::new();
+    worker.edit(
+        "Shared/Base",
+        "module Shared.Base exposing (hello)\n\n\nhello : String\nhello =\n    1\n",
+    );
+    let built = worker.build();
+    assert!(!built.status.success(), "{built:?}");
+    let said = said(&built);
+    assert!(said.contains("Detected problems in 1 module."), "{said}");
+    let bar = said.lines().find(|l| l.starts_with("-- TYPE MISMATCH -"));
+    assert!(
+        bar.is_some_and(|bar| bar.ends_with("- packages/shared/src/Shared/Base.elm")),
+        "{said}"
+    );
+    assert!(!worker.root.join("apps/web/main.js").exists());
 }

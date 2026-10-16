@@ -105,12 +105,16 @@ impl<'a> Packages<'a> {
 }
 
 /// A project's dependencies, to build alongside its modules: the
-/// packages, and the modules each direct dependency exposes.
+/// packages, those built before it, and the modules each direct
+/// dependency exposes.
 #[derive(Debug)]
 pub struct Building<'a> {
     compat: Compat,
     sources: Vec<(Name, PathBuf)>,
+    prebuilt: BTreeMap<Name, Arc<objects::PackageBuild>>,
     artifacts: Option<&'a Artifacts>,
+    /// Each package's build, shared with the builds before and after.
+    memo: &'a Mutex<objects::Memo>,
     direct: Vec<Name>,
     /// Each exposed module's direct dependencies, by their place in
     /// `direct`; where there are several, the last is the one whose
@@ -123,11 +127,14 @@ pub struct Building<'a> {
 
 impl<'a> Building<'a> {
     /// `sources`, each a package and the directory of its source, to
-    /// build; `direct`, each direct dependency and the modules it exposes.
+    /// build beside `prebuilt`, those built already; `direct`, each
+    /// direct dependency and the modules it exposes.
     pub(crate) fn new(
         compat: Compat,
         sources: Vec<(Name, PathBuf)>,
+        prebuilt: BTreeMap<Name, Arc<objects::PackageBuild>>,
         artifacts: Option<&'a Artifacts>,
+        memo: &'a Mutex<objects::Memo>,
         direct: Vec<(Name, Vec<ModuleName>)>,
     ) -> Building<'a> {
         let mut exposers: HashMap<String, Vec<usize>> = HashMap::new();
@@ -139,7 +146,9 @@ impl<'a> Building<'a> {
         Building {
             compat,
             sources,
+            prebuilt,
             artifacts,
+            memo,
             builds: direct.iter().map(|_| OnceLock::new()).collect(),
             direct: direct.into_iter().map(|(name, _)| name).collect(),
             exposers,
@@ -160,9 +169,21 @@ impl<'a> Building<'a> {
                 open(i);
             }
         };
-        let mut memo = objects::Memo::new();
+        for (name, build) in &self.prebuilt {
+            done(name, build);
+        }
+        let mut memo = lock(self.memo);
         *built = Some(time(Phase::Packages, || {
-            objects::build_each(self.compat, &self.sources, &mut memo, self.artifacts, &done)
+            let mut built = objects::build_each(
+                self.compat,
+                &self.sources,
+                &self.prebuilt,
+                &mut memo,
+                self.artifacts,
+                &done,
+            )?;
+            (built.packages).extend(self.prebuilt.iter().map(|(n, b)| (n.clone(), b.clone())));
+            Ok(built)
         }));
     }
 
@@ -199,7 +220,8 @@ pub(crate) struct Walked {
     pub docs: Vec<docs::Module>,
     /// Each module's optimized graph, when asked for.
     pub optimized: Vec<(ModuleName, LocalGraph)>,
-    /// Each optimized module's interface, for the debugger's types.
+    /// Each clean module's interface: for the debugger's types, and
+    /// what a member package exposes.
     pub interfaces: Vec<ModuleInterface>,
     /// How many modules came out clean, checked or reused: what elm
     /// counts as compiled in a project of no `elm-stuff`.
@@ -287,13 +309,13 @@ pub(crate) fn check_graph(
                     Some(Asked::Docs(docs)) => walked.docs.push(docs),
                     Some(Asked::Graph(graph)) => {
                         walked.optimized.push((module.name.clone(), graph));
-                        walked.interfaces.push(ModuleInterface {
-                            name: module.name.clone(),
-                            interface: made.interface,
-                        });
                     }
                     None => {}
                 }
+                walked.interfaces.push(ModuleInterface {
+                    name: module.name.clone(),
+                    interface: made.interface,
+                });
             }
             Outcome::Failed(problems) => {
                 walked.ran.push(module.path.clone());

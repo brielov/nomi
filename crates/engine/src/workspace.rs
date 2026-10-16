@@ -1,24 +1,31 @@
 //! The workspace around a directory: the root `nomi.toml` with a
 //! `[workspace]`, its member patterns found on disk, and each member's
-//! `elm.json` and `nomi.toml` read into the graph `nomi_project` makes.
+//! `elm.json` and `nomi.toml` read into the graph `nomi_project` makes;
+//! and the member packages a project uses, built from their source.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use nomi_base::{Compat, Report};
+use nomi_project::outline::PkgOutline;
 use nomi_project::workspace::{Member, Workspace, WorkspaceError};
-use nomi_project::{Manifest, Name, Outline, report};
+use nomi_project::{Manifest, ModuleName, Name, Outline, Version, report};
 use nomi_registry::{SolverProblem, WorkspaceProblem};
 
-use crate::Vfs;
+use crate::artifacts::Artifacts;
+use crate::check::{Build, Checked, Goal, Made, env_of, packages_problem};
 use crate::console::Personality;
+use crate::graph::Foreigns;
 use crate::install::details_problem;
+use crate::names::{Building, Packages};
+use crate::objects::{self, Memo, PackageBuild};
 use crate::paths::{ELM_JSON, NOMI_TOML, Root};
-use crate::project::{Project, elm_json};
+use crate::project::{Project, elm_json, package_outline};
 use crate::report::one_line;
-use crate::vfs;
+use crate::{Snapshot, Vfs, vfs};
 
 /// The workspace around `dir`, if there is one: the nearest of its
 /// ancestors whose `nomi.toml` has a `[workspace]`, unless the project
@@ -263,17 +270,179 @@ pub(crate) fn resolution_problem(
     }
 }
 
-/// That the project depends on `name`, the member package in `dir`,
-/// which nomi doesn't build from its source.
-pub(crate) fn member_dependency(name: &Name, dir: &Path) -> Report {
-    one_line(
-        "MEMBER PACKAGE",
-        &format!(
-            "This project depends on {name}, the workspace member in {}, and nomi does not \
-             build member packages from their source.",
-            dir.display(),
-        ),
-    )
+/// The member packages a project builds with, and the root of their
+/// workspace, which their reports name paths from.
+#[derive(Debug)]
+pub(crate) struct Members {
+    pub root: PathBuf,
+    /// In the order they build, each after those it depends on.
+    pub packages: Vec<MemberPackage>,
+}
+
+/// A member package: its directory and its `elm.json`.
+#[derive(Debug)]
+pub(crate) struct MemberPackage {
+    pub dir: PathBuf,
+    pub outline: PkgOutline,
+}
+
+impl Members {
+    /// The member packages of `workspace` among `releases`, which keeps
+    /// the others; `None` if there are none.
+    pub(crate) fn among(
+        workspace: &Workspace,
+        releases: &mut Vec<(Name, Version)>,
+    ) -> Option<Members> {
+        let packages: Vec<MemberPackage> = (workspace.members().iter())
+            .filter_map(|member| match &member.outline {
+                Outline::Pkg(pkg) if releases.iter().any(|(name, _)| *name == pkg.name) => {
+                    Some(MemberPackage {
+                        dir: workspace.root().join(&member.dir),
+                        outline: pkg.clone(),
+                    })
+                }
+                Outline::Pkg(_) | Outline::App(_) => None,
+            })
+            .collect();
+        if packages.is_empty() {
+            return None;
+        }
+        releases.retain(|(name, _)| packages.iter().all(|p| p.outline.name != *name));
+        Some(Members {
+            root: workspace.root().to_owned(),
+            packages,
+        })
+    }
+}
+
+/// How member packages build: from their source, through the module
+/// build, against the registry's packages they reach.
+#[derive(Debug)]
+pub(crate) struct MemberBuild<'a> {
+    pub snapshot: &'a Snapshot,
+    pub compat: Compat,
+    pub personality: Personality,
+    /// The registry's packages of the project, and their directories.
+    pub packages: &'a [(Name, PathBuf)],
+    pub artifacts: &'a Artifacts,
+    pub memo: &'a Mutex<Memo>,
+    /// What the project's build makes: optimizing, it needs a member's
+    /// graph and types as well as its exposed interfaces.
+    pub goal: Goal,
+}
+
+impl MemberBuild<'_> {
+    /// Each of `members` built in order, by name; or what was wrong with
+    /// the first that failed.
+    pub(crate) fn run(
+        &self,
+        members: &Members,
+    ) -> Result<BTreeMap<Name, Arc<PackageBuild>>, Checked> {
+        let mut built = BTreeMap::new();
+        for member in &members.packages {
+            let build = self.member(members, member, &built)?;
+            built.insert(member.outline.name.clone(), Arc::new(build));
+        }
+        Ok(built)
+    }
+
+    /// `member` built as a project of its own, the members before it in
+    /// `built`.
+    fn member(
+        &self,
+        members: &Members,
+        member: &MemberPackage,
+        built: &BTreeMap<Name, Arc<PackageBuild>>,
+    ) -> Result<PackageBuild, Checked> {
+        let compat = self.compat;
+        let pkg = &member.outline;
+        let exposed: Vec<ModuleName> = pkg.exposed.modules().cloned().collect();
+        if exposed.is_empty() {
+            return Ok(PackageBuild::default());
+        }
+        let reached = self.reached(pkg, built).map_err(Checked::Project)?;
+        let direct: Vec<(Name, Vec<ModuleName>)> = (pkg.deps.keys())
+            .filter_map(|name| {
+                let outline = (reached.get(name).map(|(_, outline)| outline)).or_else(|| {
+                    let member = members.packages.iter().find(|m| m.outline.name == *name);
+                    Some(&member?.outline)
+                })?;
+                Some((name.clone(), outline.exposed.modules().cloned().collect()))
+            })
+            .collect();
+        let outline = Outline::Pkg(pkg.clone());
+        let env = env_of(&member.dir, &outline, compat, Foreigns::new(direct.clone()))
+            .map_err(Checked::Project)?;
+        let sources = (reached.into_iter()).map(|(name, (dir, _))| (name, dir));
+        let building = Building::new(
+            compat,
+            sources.collect(),
+            built.clone(),
+            Some(self.artifacts),
+            self.memo,
+            direct,
+        );
+        let build = Build {
+            snapshot: self.snapshot,
+            env: &env,
+            outline: &outline,
+            paths: &[],
+            personality: self.personality,
+            packages: Packages::Building(&building),
+            artifacts: Some(self.artifacts),
+        };
+        let goal = match self.goal {
+            Goal::Optimize => Goal::Optimize,
+            Goal::Check | Goal::Docs => Goal::Check,
+        };
+        let modules = (build.run(goal)).expect("nothing revises the files while make builds");
+        if let Err(why) = building.finish() {
+            return Err(Checked::Project(packages_problem(&why)));
+        }
+        let (interfaces, graphs) = match modules.made {
+            Some(Made::Interfaces(interfaces)) => (interfaces, None),
+            Some(Made::Optimized(optimized)) => (optimized.interfaces, Some(optimized.graphs)),
+            Some(Made::Docs(_)) | None => return Err(modules.checked),
+        };
+        Ok(objects::member_build(
+            compat,
+            &pkg.name,
+            &exposed,
+            &interfaces,
+            graphs,
+        ))
+    }
+
+    /// The registry's packages `pkg` reaches, the members in `built`
+    /// standing for themselves, and each one's directory and `elm.json`.
+    fn reached(
+        &self,
+        pkg: &PkgOutline,
+        built: &BTreeMap<Name, Arc<PackageBuild>>,
+    ) -> Result<BTreeMap<Name, (PathBuf, PkgOutline)>, Report> {
+        let mut reached = BTreeMap::new();
+        let mut todo: Vec<Name> = pkg.deps.keys().cloned().collect();
+        while let Some(name) = todo.pop() {
+            if reached.contains_key(&name) || built.contains_key(&name) {
+                continue;
+            }
+            let Some((_, dir)) = self.packages.iter().find(|(n, _)| *n == name) else {
+                continue;
+            };
+            let outline = match package_outline(dir, self.compat) {
+                Ok(Some(outline)) => outline,
+                Ok(None) => {
+                    return Err(packages_problem(&format!(
+                        "{name}'s elm.json isn't a package's"
+                    )));
+                }
+                Err(e) => return Err(packages_problem(&format!("{name}: {e}"))),
+            };
+            todo.extend(outline.deps.keys().cloned());
+            reached.insert(name, (dir.clone(), outline));
+        }
+        Ok(reached)
+    }
 }
 
 fn missing_member(dir: &Path) -> Report {

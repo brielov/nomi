@@ -27,7 +27,8 @@ use crate::packages::Resolve;
 use crate::project::{self, Project};
 use crate::report::{self, ModuleErrors, one_line};
 use crate::schedule::Cancelled;
-use crate::{Context, Pool, Snapshot, env, names, objects, packages, workspace};
+use crate::workspace::{self, Members};
+use crate::{Context, Pool, Snapshot, env, names, objects, packages};
 
 /// What checking found.
 #[derive(Debug)]
@@ -105,6 +106,8 @@ pub struct Built {
 /// What a clean build makes for its goal.
 #[derive(Debug)]
 pub enum Made {
+    /// Each module's interface, checking.
+    Interfaces(Vec<ModuleInterface>),
     /// `docs.json`, documenting.
     Docs(String),
     Optimized(Optimized),
@@ -173,7 +176,7 @@ impl Build<'_> {
         };
         let made = match goal {
             _ if !matches!(checked, Checked::Fine) => None,
-            Goal::Check => None,
+            Goal::Check => Some(Made::Interfaces(walked.interfaces)),
             Goal::Docs => Some(Made::Docs(nomi_compiler::docs::encode(
                 env.compat(),
                 &walked.docs,
@@ -290,8 +293,8 @@ pub(crate) struct Sources {
     /// Every package from the registry or nomi's bundle, and the
     /// directory of its source.
     pub packages: Vec<(Name, PathBuf)>,
-    /// Every member package of the workspace, and its directory.
-    pub members: Vec<(Name, PathBuf)>,
+    /// The member packages of the workspace it builds with, if any.
+    pub members: Option<Members>,
 }
 
 /// What the project builds with, every release downloaded first, its
@@ -325,7 +328,7 @@ pub(crate) fn sources(
     let kept = artifacts
         .get(key)
         .and_then(|bytes| decode_releases(&bytes, compat));
-    let releases = if let Some(releases) = kept {
+    let mut releases = if let Some(releases) = kept {
         releases
     } else {
         let mut registry = env::registry(
@@ -351,19 +354,16 @@ pub(crate) fn sources(
         let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
         releases
     };
-    let mut members = Vec::new();
-    let mut published = Vec::with_capacity(releases.len());
-    for (name, version) in releases {
-        let member = (workspace.as_ref()).and_then(|w| Some(w.root().join(&w.package(&name)?.dir)));
-        match member {
-            Some(dir) => members.push((name, dir)),
-            None => published.push((name, version)),
-        }
-    }
-    let releases = published;
+    let members = workspace.and_then(|w| Members::among(&w, &mut releases));
     let fetched = packages::fetch(Pool::global(), &store, cx.http, compat, &releases);
     let direct: Vec<&Name> = project.outline.direct().collect();
     let mut exposing = HashMap::new();
+    for member in members.iter().flat_map(|m| &m.packages) {
+        if direct.contains(&&member.outline.name) {
+            let modules = member.outline.exposed.modules().cloned().collect();
+            exposing.insert(member.outline.name.clone(), modules);
+        }
+    }
     let mut packages = Vec::new();
     for ((name, version), dir) in releases.iter().zip(fetched) {
         let dir =
