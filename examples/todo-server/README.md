@@ -18,4 +18,4 @@ curl localhost:8080/quote        # a slow dependency, given two seconds
 curl localhost:8080/health       # {"inFlight":0}, the requests being answered
 ```
 
-`nomi test` runs the tests in `tests/`, which load and flush the store on a file system in memory and a virtual clock.
+`nomi test` runs the tests in `tests/`, which load and flush the store on a file system in memory and a virtual clock, and answer requests made in the test with the handlers, a client disconnecting included.

@@ -1,4 +1,4 @@
-module Main exposing (Store, Todo, flush, flushEvery, load, main)
+module Main exposing (App, Store, Todo, flush, flushEvery, handle, load, main)
 
 {-| A small todo API: a JSON file for storage, a `Ref` for the live state,
 a background fiber that writes the file every five seconds when it

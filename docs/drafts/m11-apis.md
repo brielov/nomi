@@ -199,12 +199,18 @@ withHeader : String -> String -> Response -> Response
 type Error = AddressInUse | PermissionDenied | OtherError String
 
 errorToString : Error -> String
+
+
+-- Testing
+request : { method : Method, target : String, headers : List ( String, String ), body : String } -> Request
+respond : (Request -> Task Never Response) -> Request -> Task x { status : Int, headers : List ( String, String ), body : String }
 ```
 
 - `listen` runs until the program is interrupted, then drains: it stops accepting, lets in-flight requests run until `drainMilliseconds` pass, interrupts the rest and closes.
 - Each request runs on its own fiber in the server's scope. A client that disconnects interrupts it; a defect answers 500 and writes a log line to stderr.
 - **Decision: the handler is `Request -> Task Never Response`**, fetch-shaped, so every error becomes a response in the handler and the type says so.
 - **Decision: `port_`**, since `port` is an Elm keyword.
+- **Decision: a handler is tested with a request made in the test**, not a server and a client: `respond` answers it as `listen` would, a defect a 500 and a log line, and gives the response as a record `Expect.equal` compares. Interrupting `respond` is the client disconnecting. Both live in `Nomi.Server`, which alone sees inside `Response`, so nomi/test doesn't depend on nomi/server. A server can still listen inside a test, on the test's runtime, with elm/http as its client.
 - **Decision: no router.** `case ( method req, path req ) of` is the router; the example below shows it reads well.
 
 ## `Nomi.Test` (nomi/test)

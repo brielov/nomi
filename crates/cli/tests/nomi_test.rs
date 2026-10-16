@@ -379,13 +379,132 @@ speak say line =
     say line |> Task.mapError never
 "#;
 
-/// `program` run with `command`, then `args`, in a new project whose
-/// tests are `modules`, each a name and its source, offline with the
-/// fixture packages and nomi's own bundle.
-fn run(program: &Path, modules: &[(&str, &str)], command: &[&str], args: &[&str]) -> Output {
+/// The test dependencies of `SERVING`: nomi/server, and elm/http for a
+/// client.
+const SERVING_ELM_JSON: &str = r#"{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {"elm/core": "1.0.5"},
+        "indirect": {}
+    },
+    "test-dependencies": {
+        "direct": {"elm-explorations/test": "2.2.1", "elm/http": "2.0.0", "nomi/core": "1.0.0", "nomi/server": "1.0.0", "nomi/test": "1.0.0"},
+        "indirect": {"elm/bytes": "1.0.8", "elm/file": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
+    }
+}
+"#;
+
+/// Handlers in effectful tests: a request made in the test reads as a
+/// received one, a handler that dies answers 500 and logs to the test's
+/// stderr, and a server listening in a test, whose client disconnects,
+/// interrupts the request on the test's runtime, so its finalizer logs
+/// there too.
+const SERVING: &str = r#"module Serving exposing (aDefect, aDisconnect, aRequest)
+
+import Expect
+import Http
+import Nomi
+import Nomi.Fiber as Fiber
+import Nomi.Queue as Queue
+import Nomi.Server as Server exposing (Method(..))
+import Nomi.Task
+import Nomi.Test exposing (effect, stderr)
+import Process
+import Task exposing (Task)
+import Test exposing (Test)
+
+
+aRequest : Test
+aRequest =
+    effect "a request made in a test reads as one received" <|
+        \_ ->
+            Task.map2 Tuple.pair
+                (Server.respond echo (Server.request { method = Patch, target = "/a/b%20c/?q=1&q=2", headers = [ ( "X-A", "1" ), ( "x-a", "2" ) ], body = "hi" }))
+                (Server.respond echo (Server.request { method = Get, target = "/", headers = [], body = String.repeat 1048577 "a" }))
+                |> Task.map
+                    (Expect.equal
+                        ( { status = 200, headers = [ ( "X-Echo", "yes" ), ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "True a/b c 1 1, 2 hi" }
+                        , { status = 413, headers = [], body = "" }
+                        )
+                    )
+
+
+echo : Server.Request -> Task Never Server.Response
+echo req =
+    Server.body req
+        |> Task.map
+            (\body ->
+                Server.text 200 (String.join " " [ Debug.toString (Server.method req == Patch), String.join "/" (Server.path req), Maybe.withDefault "-" (Server.query "q" req), Maybe.withDefault "-" (Server.header "X-a" req), body ])
+                    |> Server.withHeader "X-Echo" "yes"
+            )
+        |> Task.onError (\_ -> Task.succeed (Server.empty 413))
+
+
+aDefect : Test
+aDefect =
+    effect "a handler that dies answers 500 and logs to the test's stderr" <|
+        \env ->
+            Server.respond (\_ -> Task.succeed () |> Task.andThen (\_ -> Debug.todo "dead")) (Server.request { method = OtherMethod "BREW", target = "/pot?x=1", headers = [], body = "" })
+                |> Task.andThen (\response -> stderr env |> Task.map (\err -> ( response, String.startsWith "nomi: request BREW /pot?x=1 died: Error: TODO in module `Serving`" err )))
+                |> Task.map (Expect.equal ( { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }, True ))
+
+
+aDisconnect : Test
+aDisconnect =
+    effect "a client that disconnects interrupts its request on the test's runtime" <|
+        \env ->
+            Queue.unbounded
+                |> Task.andThen
+                    (\events ->
+                        let
+                            defaults =
+                                Server.defaults
+
+                            config =
+                                { defaults | port_ = 0, onListen = \port_ -> Queue.offer (String.fromInt port_) events }
+
+                            handle _ =
+                                Nomi.Task.acquireRelease (Queue.offer "started" events)
+                                    (\_ -> Nomi.log "released" |> Task.andThen (\_ -> Queue.offer "released" events))
+                                    (\_ -> Process.sleep 60000 |> Task.map (\_ -> Server.text 200 "late"))
+                        in
+                        Fiber.fork (Server.listen config handle env.net)
+                            |> Task.andThen (\_ -> Queue.take events)
+                            |> Task.andThen (\port_ -> Fiber.fork (get port_))
+                            |> Task.andThen (\client -> Queue.take events |> Task.andThen (\started -> Fiber.interrupt client |> Task.map (\_ -> started)))
+                            |> Task.andThen (\started -> Queue.take events |> Task.map (\released -> [ started, released ]))
+                    )
+                |> Task.andThen (\events -> stderr env |> Task.map (Tuple.pair events))
+                |> Task.map (Expect.equal ( [ "started", "released" ], "released\n" ))
+
+
+get : String -> Task Http.Error ()
+get port_ =
+    Http.task
+        { method = "GET"
+        , headers = []
+        , url = "http://127.0.0.1:" ++ port_ ++ "/"
+        , body = Http.emptyBody
+        , resolver = Http.stringResolver (\_ -> Ok ())
+        , timeout = Nothing
+        }
+"#;
+
+/// `program` run with `command`, then `args`, in a new project with
+/// `elm_json` whose tests are `modules`, each a name and its source,
+/// offline with the fixture packages and nomi's own bundle.
+fn run(
+    program: &Path,
+    elm_json: &str,
+    modules: &[(&str, &str)],
+    command: &[&str],
+    args: &[&str],
+) -> Output {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
-    fs::write(root.join("elm.json"), ELM_JSON).unwrap();
+    fs::write(root.join("elm.json"), elm_json).unwrap();
     fs::create_dir(root.join("src")).unwrap();
     fs::create_dir(root.join("tests")).unwrap();
     for (name, source) in modules {
@@ -405,6 +524,7 @@ fn run(program: &Path, modules: &[(&str, &str)], command: &[&str], args: &[&str]
 fn nomi_test(modules: &[(&str, &str)], args: &[&str]) -> Output {
     run(
         Path::new(env!("CARGO_BIN_EXE_nomi")),
+        ELM_JSON,
         modules,
         &["test"],
         args,
@@ -495,7 +615,7 @@ fn the_json_report_has_effectful_tests_results() {
 fn elm_test_knows_nothing_of_nomi_test() {
     nomi_testkit::require_node();
     let (_bin, elm_test) = website::personality("elm-test");
-    let output = run(&elm_test, &[("Effects", TESTS)], &[], &[]);
+    let output = run(&elm_test, ELM_JSON, &[("Effects", TESTS)], &[], &[]);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(
         text(&output.stderr).contains("I could not find versions of the project's dependencies"),
@@ -552,4 +672,25 @@ fn concurrent_tasks_and_fibers_end_and_interrupt_as_documented_on_the_virtual_cl
     let (_, status, duration) = &completed[0];
     assert_eq!(status, "pass", "{out}");
     assert!(*duration < 1000, "{out}");
+}
+
+#[test]
+fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_it() {
+    nomi_testkit::require_node();
+    let output = run(
+        Path::new(env!("CARGO_BIN_EXE_nomi")),
+        SERVING_ELM_JSON,
+        &[("Serving", SERVING)],
+        &["test"],
+        &["--report", "json"],
+    );
+    let (out, err) = (text(&output.stdout), text(&output.stderr));
+    assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
+    let completed = completed(&out);
+    assert_eq!(completed.len(), 3, "{out}");
+    for (label, status, _) in &completed {
+        assert_eq!(status, "pass", "{label}: {out}");
+    }
+    // What the handlers logged was the tests', not the runner's.
+    assert_eq!(err, "", "{out}");
 }

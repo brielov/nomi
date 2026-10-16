@@ -3,6 +3,7 @@ module Nomi.Server exposing
     , Request, method, Method(..), path, query, header
     , body, jsonBody, BodyError(..)
     , Response, text, json, empty, withHeader
+    , request, respond
     )
 
 {-| HTTP servers. A handler is a function from a request to the task of
@@ -37,6 +38,11 @@ its response; `case ( method req, path req ) of` routes:
 
 @docs Response, text, json, empty, withHeader
 
+
+# Testing
+
+@docs request, respond
+
 -}
 
 import Elm.Kernel.NomiServer
@@ -68,7 +74,12 @@ that dies, as `Debug.todo` does, answers 500 and writes a line to stderr.
 -}
 listen : Config -> (Request -> Task Never Response) -> Net -> Task Error ()
 listen config handle net =
-    Elm.Kernel.NomiServer.listen config (\request -> Task.map (\(Response response) -> response) (handle request)) net
+    Elm.Kernel.NomiServer.listen config (unwrap handle) net
+
+
+unwrap : (Request -> Task Never Response) -> Request -> Task Never { status : Int, headers : List ( String, String ), body : String }
+unwrap handle req =
+    Task.map (\(Response response) -> response) (handle req)
 
 
 {-| Where to listen, how long requests in flight may run on once the
@@ -140,7 +151,7 @@ errorToString error =
 -- REQUESTS
 
 
-{-| A request a server received.
+{-| A request a server received, or one `request` made.
 -}
 type Request
     = Request
@@ -162,8 +173,8 @@ type Method
 {-| The request's method.
 -}
 method : Request -> Method
-method request =
-    case Elm.Kernel.NomiServer.method request of
+method req =
+    case Elm.Kernel.NomiServer.method req of
         "GET" ->
             Get
 
@@ -241,8 +252,8 @@ body =
 
 -}
 jsonBody : Decoder a -> Request -> Task BodyError a
-jsonBody decoder request =
-    body request
+jsonBody decoder req =
+    body req
         |> Task.andThen
             (\text_ ->
                 case Decode.decodeString decoder text_ of
@@ -302,3 +313,68 @@ withHeader name value (Response response) =
             String.toLower existing /= String.toLower name
     in
     Response { response | headers = ( name, value ) :: List.filter other response.headers }
+
+
+
+-- TESTING
+
+
+{-| A request with the method, target, headers and body, as a client
+would send it, for testing a handler. The target is the path and the
+query:
+
+    Nomi.Server.request
+        { method = Post
+        , target = "/todos?draft=true"
+        , headers = [ ( "Content-Type", "application/json" ) ]
+        , body = "{\"title\": \"milk\"}"
+        }
+
+-}
+request : { method : Method, target : String, headers : List ( String, String ), body : String } -> Request
+request r =
+    Elm.Kernel.NomiServer.request (methodName r.method) r.target r.headers r.body
+
+
+methodName : Method -> String
+methodName m =
+    case m of
+        Get ->
+            "GET"
+
+        Head ->
+            "HEAD"
+
+        Post ->
+            "POST"
+
+        Put ->
+            "PUT"
+
+        Patch ->
+            "PATCH"
+
+        Delete ->
+            "DELETE"
+
+        Options ->
+            "OPTIONS"
+
+        OtherMethod name ->
+            name
+
+
+{-| Answers the request with the handler as `listen` does, on a fiber of
+its own, and gives the response written: a handler that dies answers 500
+and logs a line, which a test reads with `Nomi.Test.stderr`.
+
+    Nomi.Server.respond handle (Nomi.Server.request { method = Get, target = "/hello/you", headers = [], body = "" })
+        |> Task.map (Expect.equal { status = 200, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "hello, you" })
+
+Interrupting the task is the client disconnecting: the handler is
+interrupted and its finalizers run.
+
+-}
+respond : (Request -> Task Never Response) -> Request -> Task x { status : Int, headers : List ( String, String ), body : String }
+respond handle req =
+    Elm.Kernel.NomiServer.answer (unwrap handle) req

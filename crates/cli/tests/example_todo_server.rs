@@ -467,5 +467,5 @@ fn the_examples_own_tests_pass() {
         .unwrap();
     let out = String::from_utf8_lossy(&tested.stdout);
     assert_eq!(tested.status.code(), Some(0), "{out}{tested:?}");
-    assert!(out.contains("Passed:   5\nFailed:   0\n"), "{out}");
+    assert!(out.contains("Passed:   11\nFailed:   0\n"), "{out}");
 }

@@ -1,8 +1,8 @@
 /*
 
 import Elm.Kernel.List exposing (fromArray, toArray)
-import Elm.Kernel.Scheduler exposing (runtime)
-import Elm.Kernel.Utils exposing (Tuple0)
+import Elm.Kernel.NomiStdio exposing (log)
+import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
 import Maybe exposing (Just, Nothing)
 import Nomi.Server as Server exposing (AddressInUse, PermissionDenied, OtherError, TooLarge, Disconnected)
 
@@ -24,16 +24,15 @@ var _NomiServer_margin = 5000;
 // interrupting `listen` closes the accept loop's scope, which stops the
 // server accepting connections, then the draining scope gives the
 // requests in flight the drain to finish, and finally closes every
-// connection left.
+// connection left. A disconnect interrupts its request through the
+// runtime running the server, which is a test's under `nomi test`.
 var _NomiServer_listen = F3(function(config, handle, net)
 {
 	var drain = config.__$drainMilliseconds;
-	var allowed = _Runtime.sync(function() {
-		_Runtime.allowShutdown(__Scheduler_runtime, drain + _NomiServer_margin);
-	});
-	return _Runtime.andThen(allowed, function() {
+	return _Runtime.withRuntime(function(runtime) {
+		_Runtime.allowShutdown(runtime, drain + _NomiServer_margin);
 		return _Runtime.draining(drain, function(spawn) {
-			var opened = _Runtime.acquireRelease(_NomiServer_open(config), _NomiServer_close);
+			var opened = _Runtime.acquireRelease(_NomiServer_open(config, runtime), _NomiServer_close);
 			return _Runtime.andThen(opened, function(server) {
 				var accepting = _Runtime.addFinalizer(function() { return _NomiServer_stop(server); });
 				return _Runtime.scoped(_Runtime.andThen(accepting, function() {
@@ -46,12 +45,13 @@ var _NomiServer_listen = F3(function(config, handle, net)
 	});
 });
 
-// A listening server, with the requests it received that no fiber has
-// taken yet, and the accept loop's `resume` while it waits for one.
-function _NomiServer_open(config)
+// A listening server on `runtime`, with the requests it received that no
+// fiber has taken yet, and the accept loop's `resume` while it waits for
+// one.
+function _NomiServer_open(config, runtime)
 {
 	return _Runtime.async(function(resume) {
-		var server = { http: _NomiServer_http.createServer(), requests: [], taker: null };
+		var server = { http: _NomiServer_http.createServer(), runtime: runtime, requests: [], taker: null };
 		server.http.on('request', function(req, res) {
 			var request = { req: req, res: res, body: null, fiber: null, gone: false };
 			// The connection closed before the response was written: the
@@ -59,7 +59,7 @@ function _NomiServer_open(config)
 			res.on('close', function() {
 				if (res.writableEnded) return;
 				request.gone = true;
-				request.fiber && __Scheduler_runtime.interrupt(request.fiber);
+				request.fiber && runtime.interrupt(request.fiber);
 			});
 			var taker = server.taker;
 			server.taker = null;
@@ -90,7 +90,7 @@ function _NomiServer_accept(server, spawn, handle)
 	var loop = _Runtime.andThen(next, function(request) {
 		return _Runtime.andThen(spawn(_NomiServer_respond(handle, request)), function(fiber) {
 			request.fiber = fiber;
-			request.gone && __Scheduler_runtime.interrupt(fiber);
+			request.gone && server.runtime.interrupt(fiber);
 			return loop;
 		});
 	});
@@ -149,18 +149,15 @@ function _NomiServer_respond(handle, request)
 		});
 	});
 	return _Runtime.andThen(_Runtime.fork(answered), function(fiber) {
-		return _Runtime.map(_Runtime.awaitFiber(fiber), function(exit) {
-			if (exit.$ === _Runtime.ExitKind.DEFECT)
-			{
-				_NomiServer_died(request, exit.defect);
-			}
-			return __Utils_Tuple0;
+		return _Runtime.andThen(_Runtime.awaitFiber(fiber), function(exit) {
+			return exit.$ === _Runtime.ExitKind.DEFECT ? _NomiServer_died(request, exit.defect) : _Runtime.succeed(__Utils_Tuple0);
 		});
 	});
 }
 
 // Answers 500 for a handler that died, or closes the connection when the
-// response had begun, and writes one line to stderr naming the request.
+// response had begun, and logs one line naming the request, as `Nomi.log`
+// does.
 function _NomiServer_died(request, defect)
 {
 	var res = request.res;
@@ -176,7 +173,57 @@ function _NomiServer_died(request, defect)
 		res.end('internal server error');
 	}
 	var described = String(defect).replace(/\s*\n\s*/g, ' ');
-	console.error('nomi: request ' + request.req.method + ' ' + request.req.url + ' died: ' + described);
+	return __NomiStdio_log('nomi: request ' + request.req.method + ' ' + request.req.url + ' died: ' + described);
+}
+
+
+// TESTING
+
+// A request with no connection behind it, whose body is `text`.
+var _NomiServer_request = F4(function(method, target, headers, text)
+{
+	var fields = {};
+	for (var list = headers; list.b; list = list.b) // WHILE_CONS
+	{
+		var name = list.a.a.toLowerCase();
+		fields[name] = name in fields ? fields[name] + ', ' + list.a.b : list.a.b;
+	}
+	return { req: { method: method, url: target, headers: fields }, text: text, body: null };
+});
+
+// Answers a request `_NomiServer_request` made as a server does, writing
+// to a response that records it, new each time the task runs.
+var _NomiServer_answer = F2(function(handle, made)
+{
+	var received = _Runtime.sync(function() {
+		return { req: made.req, res: _NomiServer_recorder(), text: made.text, body: null };
+	});
+	return _Runtime.andThen(received, function(request) {
+		return _Runtime.map(_NomiServer_respond(handle, request), function() {
+			var res = request.res;
+			var headers = [];
+			res.headers.forEach(function(header) { headers.push(__Utils_Tuple2(header[0], header[1])); });
+			return { __$status: res.statusCode, __$headers: __List_fromArray(headers), __$body: res.body };
+		});
+	});
+});
+
+// What answering a request uses of `node:http`'s response, its headers
+// keyed by lower-case name, as Node keys them.
+function _NomiServer_recorder()
+{
+	var headers = new Map();
+	return {
+		headers: headers,
+		statusCode: 200,
+		body: '',
+		headersSent: false,
+		destroyed: false,
+		setHeader: function(name, value) { headers.set(name.toLowerCase(), [name, value]); },
+		removeHeader: function(name) { headers.delete(name.toLowerCase()); },
+		getHeaderNames: function() { return Array.from(headers.keys()); },
+		end: function(body) { this.body = body; }
+	};
 }
 
 
@@ -232,8 +279,15 @@ var _NomiServer_maxBody = 1024 * 1024;
 function _NomiServer_body(request)
 {
 	return _Runtime.fromPromise(function() {
-		return request.body || (request.body = _NomiServer_read(request.req));
+		return request.body || (request.body = request.text === undefined ? _NomiServer_read(request.req) : _NomiServer_given(request.text));
 	});
+}
+
+// The body of a request made in a test, too large past what a server
+// reads.
+function _NomiServer_given(text)
+{
+	return Buffer.byteLength(text) > _NomiServer_maxBody ? Promise.reject(__Server_TooLarge) : Promise.resolve(text);
 }
 
 // Reads the body of `req` as UTF-8, rejecting with a `BodyError`. A body
