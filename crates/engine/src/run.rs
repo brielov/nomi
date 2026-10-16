@@ -24,6 +24,7 @@ use nomi_registry::Http;
 
 use crate::artifacts::Hash;
 use crate::console::{self, Console, Personality};
+use crate::javascript::Target;
 use crate::make::{self, Code, FfiModule, Make, NamedIn};
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
@@ -47,8 +48,11 @@ pub enum Program {
 struct Built {
     /// The module's path, from `dir`.
     main: PathBuf,
-    /// The ES module to write, absolute.
+    /// The code to write, absolute: an ES module on Node.
     output: PathBuf,
+    /// Whether `output`'s extension is the platform's, as nothing names
+    /// it.
+    output_by_platform: bool,
     /// The FFI module, its path from `dir`.
     ffi: Option<FfiModule>,
     /// What `main` and `ffi` are relative to.
@@ -257,8 +261,9 @@ fn serve_built(console: &mut dyn Console, built: &Built, code: &Code) -> Result<
         static_dir: built.static_dir.as_ref().map(|dir| built.dir.join(dir)),
         port: built.port.unwrap_or(FIRST_PORT),
         from: &built.dir,
+        dir: &built.dir,
     })?;
-    console.err(&serving("", &main, &server));
+    console.err(&serving(&main, &server));
     Ok(server)
 }
 
@@ -279,6 +284,9 @@ struct Served<'a> {
     port: u16,
     /// Where the directory is named from when it is missing.
     from: &'a Path,
+    /// Its project's directory, absolute, whose name titles a page the
+    /// server makes.
+    dir: &'a Path,
 }
 
 /// Starts the dev server of `served`.
@@ -293,6 +301,8 @@ fn serve(served: Served<'_>) -> Result<Server, Report> {
     let site = Site {
         code: served.output.to_owned(),
         module: served.module.to_string(),
+        title: (served.dir.file_name())
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
         static_dir,
     };
     Server::start(site, served.port).map_err(|e| match e.kind() {
@@ -307,13 +317,9 @@ fn serve(served: Served<'_>) -> Result<Server, Report> {
     })
 }
 
-/// What nomi says once `server` serves the entry whose `main` is `main`,
-/// after `prefix`.
-fn serving(prefix: &str, main: &str, server: &Server) -> String {
-    format!(
-        "{prefix}Serving {main} at http://localhost:{}\n",
-        server.port()
-    )
+/// What nomi says once `server` serves the entry it names `name`.
+fn serving(name: &str, server: &Server) -> String {
+    format!("Serving {name} at http://localhost:{}\n", server.port())
 }
 
 /// Builds and runs `program` as [`run`] does, then again as the project
@@ -381,9 +387,7 @@ fn watch_one(
             }
             let statics = (live.page.as_ref()).and_then(|page| page.static_dir.clone());
             snapshot.watch(watched(cx, &root, program), statics.into_iter().collect());
-            if live.child.is_none() {
-                console.err("Watching for changes...\n");
-            }
+            console.err("Watching for changes...\n");
         }
         while queue.is_empty() {
             if let Some((signal, sent)) = caught.take() {
@@ -412,6 +416,8 @@ fn watch_one(
 struct Live {
     child: Option<Child>,
     page: Option<Page>,
+    /// The entry's `main`, which nomi's lines name it by.
+    main: String,
 }
 
 /// A browser program served while [`watch_one`] watches.
@@ -443,13 +449,23 @@ impl Live {
         built: Option<(Built, Code)>,
         args: &[OsString],
     ) -> Result<(), Report> {
-        if let Some(mut old) = self.child.take() {
-            let _ = stop(console, &mut old, Some(Stop::Terminate));
-        }
+        let old = self.child.take();
         let Some((built, code)) = built else {
+            if let Some(mut old) = old {
+                console.err(&format!("Stopping {}, as its build failed\n", self.main));
+                let _ = stop(console, &mut old, Some(Stop::Terminate));
+            }
             return Ok(());
         };
+        self.main = built.main.display().to_string();
+        let verb = if let Some(mut old) = old {
+            let _ = stop(console, &mut old, Some(Stop::Terminate));
+            "Restarting"
+        } else {
+            "Starting"
+        };
         if code.platform == Platform::Node {
+            console.err(&format!("{verb} {}\n", self.main));
             self.page = None;
             self.child = (built.node(args).spawn())
                 .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
@@ -460,6 +476,7 @@ impl Live {
         match &mut self.page {
             Some(page) => {
                 if page.code != hash {
+                    console.err(&format!("Reloading {}\n", self.main));
                     page.code = hash;
                     page.server.reload();
                 }
@@ -480,9 +497,7 @@ impl Live {
     fn reap(&mut self, console: &mut dyn Console) {
         if let Some(status) = (self.child.as_mut()).and_then(|c| c.try_wait().ok().flatten()) {
             let code = exit_code(status);
-            console.err(&format!(
-                "The program exited with code {code}. Watching for changes...\n"
-            ));
+            console.err(&format!("{} exited with code {code}\n", self.main));
             self.child = None;
         }
     }
@@ -504,6 +519,7 @@ impl Live {
         }
         console.err(&format!("{}\n", message(&queue)));
         if queue.iter().any(|change| page.serves(change.path())) {
+            console.err(&format!("Reloading {}\n", self.main));
             page.server.reload();
         }
         queue.iter().any(|change| !page.serves(change.path()))
@@ -545,7 +561,7 @@ fn build(
     console: &mut dyn Console,
     program: &Program,
 ) -> Option<(Built, Code)> {
-    let built = chosen(cx, program)
+    let mut built = chosen(cx, program)
         .inspect_err(|report| console::report(console, report, Compat::LATEST))
         .ok()?;
     let output = built.output.to_string_lossy();
@@ -553,6 +569,11 @@ fn build(
         .expect("a program run is written to an ES module");
     let make = Make {
         ffi: built.ffi.clone(),
+        output_by_platform: built.output_by_platform,
+        target: Target {
+            quiet: true,
+            ..make.target
+        },
         ..make
     };
     let cx = Context {
@@ -560,6 +581,8 @@ fn build(
         ..*cx
     };
     let code = make::wrote(&cx, console, &make)?.code?;
+    built.output.clone_from(&code.output);
+    let output = built.output.to_string_lossy();
     if code.platform == Platform::Node && !make::has_ext(".mjs", &output) {
         let main = built.main.display().to_string();
         let output = relative(&built.output, &built.dir);
@@ -579,6 +602,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
         Program::Module(main) => Built {
             main: main.clone(),
             output: output_of(&cx.dir.join(main), "mjs"),
+            output_by_platform: false,
             ffi: None,
             dir: cx.dir.to_owned(),
             platform: Some(Platform::Node),
@@ -592,6 +616,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 Some(output) => root.dir().join(output),
                 None => output_of(&root.dir().join(&entry.main), extension(&entry)),
             };
+            let output_by_platform = entry.output.is_none();
             Built {
                 ffi: entry.ffi.map(|path| FfiModule {
                     path: path.into(),
@@ -599,6 +624,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 }),
                 main: entry.main.into(),
                 output,
+                output_by_platform,
                 dir: root.dir().to_owned(),
                 platform: entry.platform,
                 args: entry.args,
@@ -611,7 +637,8 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
 }
 
 /// The extension of the code of `entry` when nothing names its output:
-/// a script for the browser, an ES module otherwise.
+/// a script for the browser, an ES module otherwise, until a build
+/// without a platform finds it is a browser program's.
 pub(crate) fn extension(entry: &Entry) -> &'static str {
     match entry.platform {
         Some(Platform::Browser) => "js",

@@ -165,6 +165,7 @@ fn elm_make(
         kind: Ok(Kind::Dev),
         target: Target::default(),
         platform_by_main: false,
+        output_by_platform: false,
         resolve,
         ffi: None,
         members_of: Some(project.root.clone()),
@@ -234,6 +235,7 @@ pub fn build<H: Http + Sync>(
         format: Format::Iife,
         dom: Dom::Polyfilled,
         ffi: None,
+        quiet: false,
     };
     if !make::run(&env.at(&dir), &mut quiet, &make) {
         return Err(quiet.shown(console));

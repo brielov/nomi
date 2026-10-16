@@ -24,6 +24,8 @@ pub struct Site {
     pub code: PathBuf,
     /// The module whose `main` the generated page starts.
     pub module: String,
+    /// The generated page's title: its project's name.
+    pub title: String,
     /// The directory of static files, canonical.
     pub static_dir: Option<PathBuf>,
 }
@@ -262,11 +264,19 @@ fn generated(site: &Site) -> String {
     } else {
         format!("<script src=\"/{script}\"></script>\n<script>\n{init}\n</script>")
     };
+    let title = escaped(&site.title);
     format!(
-        "<!DOCTYPE HTML>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>{module}</title>\n  \
+        "<!DOCTYPE HTML>\n<html>\n<head>\n  <meta charset=\"UTF-8\">\n  <title>{title}</title>\n  \
          <style>body {{ padding: 0; margin: 0; }}</style>\n</head>\n\n<body>\n\n\
          <pre id=\"elm\"></pre>\n\n{scripts}\n\n</body>\n</html>"
     )
+}
+
+/// `text` as HTML's text.
+fn escaped(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// `page` with [`RELOAD`] before its last `</body>`, or at its end.
@@ -366,6 +376,7 @@ mod tests {
         let site = Site {
             code: dir.join("Main.js"),
             module: "Pages.Home".to_owned(),
+            title: "web".to_owned(),
             static_dir: Some(public),
         };
         (work, site)
@@ -412,6 +423,7 @@ mod tests {
             "{page}"
         );
         assert!(page.contains("Elm.Pages.Home.init("), "{page}");
+        assert!(page.contains("<title>web</title>"), "{page}");
         assert!(page.contains(&format!("{RELOAD}</body>")), "{page}");
         // An application's own routes get the page too.
         assert_eq!(get("/todos/3").text(), page);
@@ -441,6 +453,7 @@ mod tests {
         let site = Site {
             code: PathBuf::from("/w/Main.mjs"),
             module: "Main".to_owned(),
+            title: "w".to_owned(),
             static_dir: None,
         };
         let page = generated(&site);

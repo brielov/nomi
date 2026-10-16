@@ -19,8 +19,8 @@ use nomi_registry::Http;
 
 use crate::artifacts::Artifacts;
 use crate::check::{
-    self, Build, Built, Checked, Goal, Made, Sources, Style, env_of, problems_summary, show,
-    show_reports,
+    self, Build, Built, Checked, Goal, Made, Optimized, Sources, Style, env_of, problems_summary,
+    show, show_reports,
 };
 use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
@@ -49,6 +49,10 @@ pub struct Make {
     /// Whether the roots' `main`s choose the platform in place of
     /// `target`'s: Node for nomi/core's `Program`.
     pub platform_by_main: bool,
+    /// Whether the output's extension and format are the platform's:
+    /// `.mjs` and an ES module on Node, `.js` and a script in the
+    /// browser, as for an entry whose output nothing names.
+    pub output_by_platform: bool,
     /// Which packages the dependencies resolve to: nomi's commands, `nomi
     /// test` among them, know more than upstream's.
     pub resolve: Resolve,
@@ -147,6 +151,7 @@ impl Make {
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
             platform_by_main: false,
+            output_by_platform: false,
             resolve: Resolve::Nomi,
             ffi: None,
             members_of: None,
@@ -184,8 +189,10 @@ impl Make {
                 },
                 dom: javascript::Dom::Native,
                 ffi: None,
+                quiet: false,
             },
             platform_by_main: platform.is_none(),
+            output_by_platform: false,
             resolve: Resolve::Nomi,
             ffi: None,
             members_of: None,
@@ -286,6 +293,8 @@ pub(crate) struct Code {
     pub platform: Platform,
     /// The modules whose `main`s it starts.
     pub mains: Vec<ModuleName>,
+    /// Where it went, absolute.
+    pub output: PathBuf,
 }
 
 /// The interfaces of the modules of a project around the directory,
@@ -593,17 +602,14 @@ fn write(
             Ok(target) => target,
             Err(report) => return fail(console, report),
         };
-        if let Some(target) = target {
+        if let Some(mut target) = target {
             if kind == javascript::Kind::Optimize {
                 let uses = javascript::debug_uses(compat, &optimized);
                 if !uses.is_empty() {
                     return fail(console, report::debug_remnants(&uses));
                 }
             }
-            let mut made_for = make.target.clone();
-            if make.platform_by_main && javascript::runs_on_node(&optimized) {
-                made_for.platform = Platform::Node;
-            }
+            let mut made_for = made_for(make, &optimized, &mut target.path);
             if let Some(ffi) = &make.ffi {
                 match ffi_module(vfs, dir, ffi, &made_for, &target) {
                     Ok(ffi) => made_for.ffi = Some(ffi),
@@ -641,6 +647,7 @@ fn write(
             code = Some(Code {
                 platform: made_for.platform,
                 mains: target.names,
+                output: path,
             });
         }
     }
@@ -657,6 +664,26 @@ fn write(
         console.out(&format!("\n{diagram}\n"));
     }
     Some(Wrote { ran, code })
+}
+
+/// What `make` generates code for, `optimized` being the program: the
+/// platform its `main` chooses where `make` lets it, with that
+/// platform's extension for `path` and its format where `make` leaves
+/// them to it.
+fn made_for(make: &Make, optimized: &Optimized, path: &mut PathBuf) -> javascript::Target {
+    let mut made_for = make.target.clone();
+    if make.platform_by_main && javascript::runs_on_node(optimized) {
+        made_for.platform = Platform::Node;
+    }
+    if make.output_by_platform {
+        let (extension, format) = match made_for.platform {
+            Platform::Node => ("mjs", javascript::Format::EsModule),
+            Platform::Browser => ("js", javascript::Format::Iife),
+        };
+        path.set_extension(extension);
+        made_for.format = format;
+    }
+    made_for
 }
 
 /// Writes `bytes` to the file at `path`, and the directories it is in.

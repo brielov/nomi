@@ -183,6 +183,11 @@ impl Fixture {
     /// member went, by its directory, the modules it checked by their
     /// paths from the root, sorted.
     fn build(&self) -> (Captured, Vec<(String, Outcome)>) {
+        self.build_of(None)
+    }
+
+    /// [`Fixture::build`] of the members in `dirs`, or every member.
+    fn build_of(&self, dirs: Option<&[&str]>) -> (Captured, Vec<(String, Outcome)>) {
         let vfs = Vfs::new();
         let cx = Context {
             vfs: &vfs,
@@ -194,14 +199,17 @@ impl Fixture {
             .unwrap()
             .unwrap();
         let mut console = Captured::default();
-        let every: Vec<PathBuf> = (workspace.members().iter())
-            .map(|member| member.dir.clone())
-            .collect();
+        let dirs: Vec<PathBuf> = match dirs {
+            Some(dirs) => dirs.iter().map(PathBuf::from).collect(),
+            None => (workspace.members().iter())
+                .map(|member| member.dir.clone())
+                .collect(),
+        };
         let outcomes = workspace::build(
             &cx,
             &mut console,
             &workspace,
-            &every,
+            &dirs,
             Making::Code(Kind::Dev),
         );
         let outcomes = (outcomes.into_iter())
@@ -419,5 +427,35 @@ fn a_package_reaching_a_kernel_builds_for_the_applications_release() {
     assert!(
         web.contains("$Shared$Other$other = $elm$core$List$length(\n\t_List_fromArray("),
         "{web}"
+    );
+}
+
+#[test]
+fn a_package_builds_once_for_the_release_of_the_applications_using_it() {
+    let fixture = Fixture::new();
+    // A value defined as itself, which 0.19.1, the applications' release,
+    // reports with its typo and later releases without.
+    fixture.write("packages/shared/src/Shared/Base.elm", &base("base + 1"));
+    let (console, outcomes) = fixture.build();
+    assert_eq!(
+        outcomes[0],
+        ("packages/shared".to_owned(), Outcome::Failed),
+        "{}",
+        said(&console)
+    );
+    let said_all = said(&console);
+    assert_eq!(
+        said_all.matches("Are you are trying").count(),
+        1,
+        "{said_all}"
+    );
+    assert!(!said_all.contains("Are you trying"), "{said_all}");
+    // Alone, the package takes the newest release its elm-version admits.
+    let (console, _) = fixture.build_of(Some(&["packages/shared"]));
+    let said_alone = said(&console);
+    assert_eq!(
+        said_alone.matches("Are you trying").count(),
+        1,
+        "{said_alone}"
     );
 }

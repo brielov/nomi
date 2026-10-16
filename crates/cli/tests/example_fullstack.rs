@@ -151,11 +151,13 @@ fn batch(stderr: &Receiver<String>, run: &mut Child) -> String {
 }
 
 /// Waits for the api to say it listens on `port`, unless it said so in
-/// `said`.
-fn listening(said: &str, stderr: &Receiver<String>, run: &mut Child, port: u16) {
+/// `said`; what nomi said meanwhile.
+fn listening(said: &str, stderr: &Receiver<String>, run: &mut Child, port: u16) -> String {
     let line = format!("listening on http://localhost:{port}");
-    if !said.contains(&line) {
-        expect(stderr, &line, run);
+    if said.contains(&line) {
+        String::new()
+    } else {
+        expect(stderr, &line, run).join("\n")
     }
 }
 
@@ -176,16 +178,12 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
         .unwrap();
     let stderr = lines(run.stderr.take().unwrap());
     let started = batch(&stderr, &mut run);
-    // Prefixes are padded to one width.
     for (member, port) in [("apps/web", ports.web), ("apps/landing", ports.landing)] {
-        let serving = format!("Serving src/Main.elm at http://localhost:{port}");
-        assert!(
-            (started.lines())
-                .any(|line| line.starts_with(&format!("[{member}] ")) && line.ends_with(&serving)),
-            "{started}"
-        );
+        let serving = format!("[nomi] Serving {member} at http://localhost:{port}");
+        assert!(started.lines().any(|line| line == serving), "{started}");
     }
-    listening(&started, &stderr, &mut run, ports.api);
+    assert!(started.contains("[nomi] Starting apps/api"), "{started}");
+    let mut said = vec![listening(&started, &stderr, &mut run, ports.api), started];
 
     // The api lets the page's origin read its answers and post to it.
     let origin = format!("http://localhost:{}", ports.web);
@@ -219,8 +217,15 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
     let code = request(ports.web, "GET", "/Main.js").unwrap();
     assert_eq!(code.status, 200);
     assert!(!code.text().contains("completed"));
+    // The landing page, which has none of its own, is titled by its
+    // member.
     let landing = request(ports.landing, "GET", "/").unwrap();
     assert_eq!(landing.status, 200, "{landing:?}");
+    assert!(
+        landing.text().contains("<title>landing</title>"),
+        "{}",
+        landing.text()
+    );
     let (status, events) = events(ports.web, "/__nomi/events").unwrap();
     assert_eq!(status, 200);
 
@@ -238,7 +243,8 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
     assert!(rebuilt.contains("[nomi] Reloading apps/web"), "{rebuilt}");
     assert!(!rebuilt.contains("apps/landing"), "{rebuilt}");
     expect(&events, "event: reload", &mut run);
-    listening(&rebuilt, &stderr, &mut run, ports.api);
+    said.push(listening(&rebuilt, &stderr, &mut run, ports.api));
+    said.push(rebuilt);
     let todos = request(ports.api, "GET", "/todos").unwrap();
     assert_eq!(
         todos.text(),
@@ -249,6 +255,10 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
 
     signal_term(&run);
     assert_eq!(ended(&mut run), Some(143));
+    // Neither the api's start nor its restart repeats DEV mode's advice.
+    said.extend(stderr.iter());
+    let said = said.join("\n");
+    assert!(!said.contains("Compiled in DEV mode"), "{said}");
 }
 
 fn signal_term(child: &Child) {

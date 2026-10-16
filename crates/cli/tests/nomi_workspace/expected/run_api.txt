@@ -6,4 +6,3 @@
 |
 |    Main ───> {dir}/apps/api/elm-stuff/nomi/run/src/Main.mjs
 |
-|Compiled in DEV mode. Follow the advice at https://elm-lang.org/0.19.1/optimize for better performance and smaller assets.

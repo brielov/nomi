@@ -73,6 +73,9 @@ pub struct Target {
     pub dom: Dom,
     /// The FFI module an ES module imports, if it has one.
     pub ffi: Option<Ffi>,
+    /// Whether the program leaves out its advice to optimize, which a
+    /// program restarted on each change would repeat.
+    pub quiet: bool,
 }
 
 /// The specifier a module at `output` imports the file `module` by: the

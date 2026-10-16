@@ -250,7 +250,7 @@ impl Outline {
     }
 
     /// The release this project is built as: see [`Outline::detect`].
-    fn compat(&self) -> Result<Compat, DetectError> {
+    pub fn compat(&self) -> Result<Compat, DetectError> {
         match self {
             Outline::App(app) => Compat::ALL
                 .into_iter()

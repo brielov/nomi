@@ -1,5 +1,4 @@
 [[entry]]
 main = "src/Main.elm"
-platform = "browser"
 static = "public"
 port = 8000

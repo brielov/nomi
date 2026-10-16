@@ -28,7 +28,6 @@ use super::{
 };
 use crate::Context;
 use crate::console::{self, Console};
-use crate::javascript::Kind;
 use crate::make::has_ext;
 use crate::paths::relative;
 use crate::serve::Server;
@@ -48,13 +47,7 @@ pub(super) fn run(
     workspace: &Workspace,
     dirs: &[PathBuf],
 ) -> u8 {
-    let builds = workspace::builds(
-        cx,
-        &mut Stderr(console),
-        workspace,
-        dirs,
-        Making::Code(Kind::Dev),
-    );
+    let builds = workspace::builds(cx, &mut Stderr(console), workspace, dirs, Making::Run);
     if !(builds.outcomes.iter()).all(|(_, outcome)| matches!(outcome, Outcome::Built(_))) {
         return 1;
     }
@@ -63,7 +56,10 @@ pub(super) fn run(
         console::report(console, &report, Compat::LATEST);
         return 1;
     }
-    let prefixes = prefixes(&builds.entries, console.err_is_terminal());
+    let labels: Vec<String> = (builds.entries.iter())
+        .map(|built| label_of(built.member, built.entry))
+        .collect();
+    let prefixes = prefixes_of(&labels, console.err_is_terminal());
     let mut caught = match Caught::new() {
         Ok(caught) => caught,
         Err(e) => {
@@ -71,7 +67,7 @@ pub(super) fn run(
             return 1;
         }
     };
-    let Some(servers) = servers(console, root, &builds.entries, &prefixes) else {
+    let Some(servers) = servers(console, root, &builds.entries, &labels) else {
         return 1;
     };
     let mut running = Running::new(servers);
@@ -95,20 +91,20 @@ fn unrunnable(built: &EntryBuilt<'_>, root: &Path) -> Option<Report> {
 }
 
 /// Serves each browser program of `entries`, as [`served`] does, saying
-/// where after its prefix of `prefixes`; the servers, or `None` once what
-/// went wrong is shown.
+/// where by its label of `labels`; the servers, or `None` once what went
+/// wrong is shown.
 fn servers(
     console: &mut dyn Console,
     root: &Path,
     entries: &[EntryBuilt<'_>],
-    prefixes: &[String],
+    labels: &[String],
 ) -> Option<Vec<Server>> {
-    let browser = (entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Browser);
+    let browser = (entries.iter().zip(labels)).filter(|(b, _)| b.platform == Platform::Browser);
     let mut servers = Vec::new();
-    for (nth, (built, prefix)) in browser.enumerate() {
+    for (nth, (built, label)) in browser.enumerate() {
         match served(root, built, nth) {
             Ok(server) => {
-                console.err(&serving(prefix, &built.entry.main, &server));
+                console.err(&format!("[nomi] {}", serving(label, &server)));
                 servers.push(server);
             }
             Err(report) => {
@@ -138,16 +134,8 @@ fn served(root: &Path, built: &EntryBuilt<'_>, nth: usize) -> Result<Server, Rep
         static_dir: built.entry.static_dir.as_ref().map(|d| dir.join(d)),
         port: (built.entry.port).unwrap_or_else(|| FIRST_PORT.saturating_add(nth)),
         from: root,
+        dir: &dir,
     })
-}
-
-/// Each entry's prefix, `[member] `, padded to the longest, as
-/// [`prefixes_of`] gives them.
-fn prefixes(entries: &[EntryBuilt<'_>], color: bool) -> Vec<String> {
-    let labels: Vec<String> = (entries.iter())
-        .map(|built| label_of(built.member, built.entry))
-        .collect();
-    prefixes_of(&labels, color)
 }
 
 /// The name of `entry` of `member`: the member by its directory from the

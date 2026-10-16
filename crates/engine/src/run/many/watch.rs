@@ -20,7 +20,6 @@ use super::{Running, label_of, prefixes_of, served, serving, unrunnable};
 use crate::Context;
 use crate::artifacts::Hash;
 use crate::console::{self, Console};
-use crate::javascript::Kind;
 use crate::make::Shared;
 use crate::paths::{ELM_JSON, NOMI_TOML};
 use crate::run::{Caught, Stderr, Stop, code_hash, counted, exit_code, no_node, scoped};
@@ -430,7 +429,7 @@ impl Watch {
             engine.shared,
             workspace,
             dirs,
-            Making::Code(Kind::Dev),
+            Making::Run,
         );
         let root = workspace.root();
         let built: Vec<Option<(&EntryBuilt<'_>, Hash)>> = (slots.iter())
@@ -518,7 +517,7 @@ fn apply(
             slot.live = Live::Idle;
             match served(root, built, nth) {
                 Ok(server) => {
-                    console.err(&serving(&slot.prefix, &slot.entry.main, &server));
+                    console.err(&format!("[nomi] {}", serving(label, &server)));
                     slot.live = Live::Served(server);
                     slot.code = Some(hash);
                 }
@@ -549,6 +548,7 @@ mod tests {
         let site = Site {
             code: PathBuf::from("Main.js"),
             module: "Main".to_owned(),
+            title: "web".to_owned(),
             static_dir: None,
         };
         let served = Live::Served(Server::start(site, 0).unwrap());

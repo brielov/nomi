@@ -53,7 +53,9 @@ pub fn generate(
     };
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
-    kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
+    if !target.quiet {
+        kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
+    }
     if target.platform == Platform::Node {
         kernels.extend_from_slice(runtime::prologue().as_bytes());
     }
@@ -508,6 +510,25 @@ mod tests {
         assert_eq!(
             String::from_utf8(module).unwrap(),
             format!("const scope = {{}};\n{body}}}(scope));\nexport const Elm = scope.Elm;\n")
+        );
+    }
+
+    #[test]
+    fn a_quiet_program_leaves_out_the_advice_to_optimize() {
+        let (graph, mains) = static_mains(&["Main"]);
+        let built = |target: &Target| {
+            let js = generate(Compat::V0_19_1, &DEV, target, &NONE, &graph, &mains);
+            String::from_utf8(js).unwrap()
+        };
+        let quiet = Target {
+            quiet: true,
+            ..Target::default()
+        };
+        let note = perf_note(Compat::V0_19_1, &DEV);
+        assert!(built(&Target::default()).contains(&note));
+        assert_eq!(
+            built(&quiet),
+            built(&Target::default()).replacen(&note, "", 1)
         );
     }
 

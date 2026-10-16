@@ -21,7 +21,7 @@ use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_pro
 use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
-use crate::make::{self, FfiModule, Make, NamedIn, Output, Shared};
+use crate::make::{self, FfiModule, Make, NamedIn, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
@@ -556,6 +556,9 @@ pub enum Making {
     Check,
     /// Their entries' code, of this kind, as `nomi build` writes it.
     Code(javascript::Kind),
+    /// Their entries' code as `nomi run` writes it: DEV mode's, without
+    /// its advice to optimize.
+    Run,
 }
 
 /// Builds the members of `workspace` whose directories `dirs` gives, and
@@ -634,7 +637,11 @@ pub(crate) fn builds_in<'w>(
         let outcome = if blocked {
             Outcome::Blocked
         } else {
-            built(cx, console, shared, workspace, member, making, &mut entries)
+            let releases = releases(workspace, &wanted, member);
+            let (outcome, mut wrote) =
+                built(cx, console, shared, workspace, member, &releases, making);
+            entries.append(&mut wrote);
+            outcome
         };
         outcomes.push((member, outcome));
     }
@@ -659,71 +666,101 @@ pub(crate) fn with_deps<'w>(workspace: &'w Workspace, dirs: &'w [PathBuf]) -> BT
     wanted
 }
 
+/// The releases the member package `member` is built for: those of the
+/// members in `wanted` that use it, an application's its own and a
+/// package's those it is built for, or its own when none there uses it.
+fn releases(workspace: &Workspace, wanted: &BTreeSet<&Path>, member: &Member) -> BTreeSet<Compat> {
+    let users = (workspace.members().iter()).filter(|user| {
+        wanted.contains(user.dir.as_path()) && workspace.deps(user).any(|d| d.dir == member.dir)
+    });
+    let mut releases = BTreeSet::new();
+    for user in users {
+        match user.outline {
+            Outline::App(_) => {
+                releases.insert(release(user));
+            }
+            Outline::Pkg(_) => releases.append(&mut self::releases(workspace, wanted, user)),
+        }
+    }
+    if releases.is_empty() {
+        releases.insert(release(member));
+    }
+    releases
+}
+
+/// The release `member` alone is built as.
+fn release(member: &Member) -> Compat {
+    member.outline.compat().unwrap_or(Compat::LATEST)
+}
+
 /// Builds `member` of `workspace`: a package's exposed modules as its
-/// dependents see them, then each of its entries, adding those whose
-/// code it wrote to `entries`.
+/// dependents see them, for each of `releases`, then each of its entries;
+/// how it went, and the entries whose code it wrote.
 fn built<'w>(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     shared: &Shared,
     workspace: &Workspace,
     member: &'w Member,
+    releases: &BTreeSet<Compat>,
     making: Making,
-    entries: &mut Vec<EntryBuilt<'w>>,
-) -> Outcome {
+) -> (Outcome, Vec<EntryBuilt<'w>>) {
     let dir = workspace.root().join(&member.dir);
     let cx = Context { dir: &dir, ..*cx };
     let (goal, verb) = match making {
         Making::Check => (Goal::Check, "Checking"),
-        Making::Code(_) => (Goal::Optimize, "Building"),
+        Making::Code(_) | Making::Run => (Goal::Optimize, "Building"),
     };
     // A project alone is the one member, at the root, and needs no name.
     if !member.dir.as_os_str().is_empty() {
         console.out(&format!("{verb} {}\n", member.dir.display()));
     }
     let mut ran = match &member.outline {
-        Outline::Pkg(pkg) => match package(&cx, console, shared, workspace.root(), pkg, goal) {
-            Some(ran) => ran,
-            None => return Outcome::Failed,
-        },
+        Outline::Pkg(pkg) => {
+            match package(&cx, console, shared, workspace.root(), pkg, releases, goal) {
+                Some(ran) => ran,
+                None => return (Outcome::Failed, Vec::new()),
+            }
+        }
         Outline::App(_) => Vec::new(),
     };
+    let mut entries = Vec::new();
     for entry in member.manifest.iter().flat_map(|m| &m.entries) {
         let make = match entry_make(&dir, entry, making) {
             Ok(make) => make,
             Err(report) => {
                 console::report(console, &report, Compat::LATEST);
-                return Outcome::Failed;
+                return (Outcome::Failed, entries);
             }
         };
         let Some(mut wrote) = make::made(&cx, console, &make, shared) else {
-            return Outcome::Failed;
+            return (Outcome::Failed, entries);
         };
         ran.append(&mut wrote.ran);
-        if let (Some(code), Some(Output::Js(output) | Output::Html(output))) =
-            (wrote.code, &make.output)
-        {
+        if let Some(code) = wrote.code {
             entries.push(EntryBuilt {
                 member,
                 entry,
-                output: dir.join(output),
+                output: code.output,
                 platform: code.platform,
                 module: (code.mains.into_iter().next()).expect("an entry has one main"),
             });
         }
     }
-    Outcome::Built(ran)
+    (Outcome::Built(ran), entries)
 }
 
 /// The member package `pkg`, in the directory, built into `shared` for
-/// `goal` as its dependents see it; the modules checked, or `None` once
-/// what was wrong is shown, its paths named from `root`.
+/// `goal` as its dependents see it, as each of `releases` builds it; the
+/// modules checked, or `None` once what was wrong is shown, as the
+/// release that found it reports it, its paths named from `root`.
 fn package(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     shared: &Shared,
     root: &Path,
     pkg: &PkgOutline,
+    releases: &BTreeSet<Compat>,
     goal: Goal,
 ) -> Option<Vec<PathBuf>> {
     let mut fail = |checked, compat| {
@@ -743,33 +780,36 @@ fn package(
         dir: cx.dir.to_owned(),
         outline: pkg.clone(),
     });
-    let build = MemberBuild {
-        snapshot: &cx.vfs.snapshot(),
-        compat: loaded.compat,
-        personality: Personality::Nomi,
-        packages: &loaded.sources.packages,
-        artifacts: Some(&shared.artifacts),
-        memo: &shared.memo,
-        goal,
-    };
-    match build.in_command(&members, shared) {
-        Ok(built) => {
-            check::show(
-                console,
-                root,
-                &Checked::Fine,
-                loaded.compat,
-                Style::Terminal,
-            );
-            Some(built.ran)
+    let snapshot = cx.vfs.snapshot();
+    let mut ran = Vec::new();
+    for &compat in releases {
+        let build = MemberBuild {
+            snapshot: &snapshot,
+            compat,
+            personality: Personality::Nomi,
+            packages: &loaded.sources.packages,
+            artifacts: Some(&shared.artifacts),
+            memo: &shared.memo,
+            goal,
+        };
+        match build.in_command(&members, shared) {
+            Ok(mut built) => ran.append(&mut built.ran),
+            Err(checked) => return fail(checked, compat),
         }
-        Err(checked) => fail(checked, loaded.compat),
     }
+    check::show(
+        console,
+        root,
+        &Checked::Fine,
+        loaded.compat,
+        Style::Terminal,
+    );
+    Some(ran)
 }
 
 /// What building `entry` of the member in `dir` asks for, as `making`
-/// asks: `nomi check` of its `main`, or what `nomi build` makes of its
-/// `main`, platform and FFI module, written to its `output` or, without
+/// asks: `nomi check` of its `main`, or what `nomi build` or `nomi run`
+/// makes of its `main`, platform and FFI module, written to its `output` or, without
 /// one, to a file of its own in `elm-stuff`.
 fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report> {
     let kind = match making {
@@ -780,6 +820,7 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
             ));
         }
         Making::Code(kind) => kind,
+        Making::Run => javascript::Kind::Dev,
     };
     let output = entry.output.clone().unwrap_or_else(|| {
         let path = run::default_output(dir, &dir.join(&entry.main), run::extension(entry));
@@ -791,8 +832,14 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
         entry.platform,
     )
     .ok_or_else(|| bad_output(&entry.main, &output))?;
+    let target = javascript::Target {
+        quiet: making == Making::Run,
+        ..make.target.clone()
+    };
     Ok(Make {
         kind: Ok(kind),
+        target,
+        output_by_platform: entry.output.is_none(),
         ffi: (entry.ffi.as_ref()).map(|path| FfiModule {
             path: path.into(),
             named_in: NamedIn::Entry(entry.main.clone()),

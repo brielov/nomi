@@ -305,6 +305,7 @@ fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
         .unwrap();
     let stdout = lines(run.stdout.take().unwrap());
     let stderr = lines(run.stderr.take().unwrap());
+    let mut said = expect(&stderr, "Starting src/Main.elm", &mut run);
     assert_eq!(
         expect(&stdout, "version 1: ()", &mut run),
         [] as [String; 0]
@@ -312,15 +313,21 @@ fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
     // The old program is stopped as SIGTERM stops it, its finalizer
     // running, before the new one starts.
     version(&root, "\"22\"");
-    expect(&stderr, "src/Version.elm changed", &mut run);
+    said.extend(expect(&stderr, "src/Version.elm changed", &mut run));
+    said.extend(expect(&stderr, "Restarting src/Main.elm", &mut run));
     assert_eq!(
         expect(&stdout, "version 22: ()", &mut run),
         ["finalized 1: ()"]
     );
     // A build that fails stops the program and waits for the next change.
     version(&root, "333");
-    expect(&stderr, "-- TYPE MISMATCH", &mut run);
-    expect(&stderr, "Watching for changes...", &mut run);
+    said.extend(expect(&stderr, "-- TYPE MISMATCH", &mut run));
+    said.extend(expect(
+        &stderr,
+        "Stopping src/Main.elm, as its build failed",
+        &mut run,
+    ));
+    said.extend(expect(&stderr, "Watching for changes...", &mut run));
     assert_eq!(
         expect(&stdout, "finalized 22: ()", &mut run),
         [] as [String; 0]
@@ -340,6 +347,14 @@ fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
     }
     let _ = run.kill();
     assert_eq!(run.wait().unwrap().code(), Some(143));
+    // Nor the first start nor a restart repeats DEV mode's advice.
+    said.extend(stderr.iter());
+    assert!(
+        !said
+            .iter()
+            .any(|line| line.contains("Compiled in DEV mode")),
+        "{said:?}"
+    );
 }
 
 #[test]
@@ -355,11 +370,7 @@ fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
     let stdout = lines(run.stdout.take().unwrap());
     let stderr = lines(run.stderr.take().unwrap());
     expect(&stdout, "3: ()", &mut run);
-    expect(
-        &stderr,
-        "The program exited with code 3. Watching for changes...",
-        &mut run,
-    );
+    expect(&stderr, "src/Main.elm exited with code 3", &mut run);
     fs::write(
         root.join("src/Main.elm"),
         PROGRAM.replace("say code", "say (code ++ \"!\")"),
@@ -404,16 +415,24 @@ fn a_browser_entry_is_served_until_nomi_is_stopped() {
     let stderr = lines(run.stderr.take().unwrap());
     let serving = format!("Serving src/Main.elm at http://localhost:{port}");
     expect(&stderr, &serving, &mut run);
-    // Built where its main's type says, as an ES module, for want of a
-    // platform before the build.
+    // Built where its main's type says, without a platform: a script for
+    // the browser, in a page titled by its project.
     let page = request(port, "GET", "/").unwrap();
     assert_eq!(page.status, 200);
     assert!(
-        page.text().contains("import { Elm } from \"/Main.mjs\";"),
+        page.text().contains("<script src=\"/Main.js\"></script>"),
         "{page:?}"
     );
-    let code = request(port, "GET", "/Main.mjs").unwrap();
-    assert!(code.text().contains("export const Elm"), "{code:?}");
+    let title = root.file_name().unwrap().to_string_lossy();
+    assert!(
+        page.text().contains(&format!("<title>{title}</title>")),
+        "{page:?}"
+    );
+    let code = request(port, "GET", "/Main.js").unwrap();
+    assert!(!code.text().contains("export const Elm"), "{code:?}");
+    assert!(!code.text().contains("Compiled in DEV mode"), "{code:?}");
+    assert!(root.join("elm-stuff/nomi/run/src/Main.js").is_file());
+    assert!(!root.join("elm-stuff/nomi/run/src/Main.mjs").exists());
     signal(&run, "-TERM");
     assert_eq!(ended(&mut run), Some(143));
 }
@@ -552,7 +571,7 @@ fn at_the_root_browser_entries_are_served_beside_the_programs() {
     let mut run = spawn_at_root(cache.path(), &root);
     let stdout = lines(run.stdout.take().unwrap());
     let stderr = lines(run.stderr.take().unwrap());
-    let serving = format!("[apps/web]    Serving src/Main.elm at http://localhost:{port}");
+    let serving = format!("[nomi] Serving apps/web at http://localhost:{port}");
     expect(&stderr, &serving, &mut run);
     assert_eq!(
         two_lines(&stdout, &mut run),
@@ -640,13 +659,15 @@ fn with_watch_a_browser_entry_is_served_and_reloaded_as_it_changes() {
         "\\_ -> ( always () \"edited\", Cmd.none )",
     );
     fs::write(root.join("src/Main.elm"), edited).unwrap();
+    expect(&stderr, "Reloading src/Main.elm", &mut run);
     reloaded(&events, &mut run);
-    let code = request(port, "GET", "/Main.mjs").unwrap();
+    let code = request(port, "GET", "/Main.js").unwrap();
     assert!(code.text().contains("edited"), "{code:?}");
     // A static file reloads the page without a build.
-    let output = root.join("elm-stuff/nomi/run/src/Main.mjs");
+    let output = root.join("elm-stuff/nomi/run/src/Main.js");
     let built = fs::metadata(&output).unwrap().modified().unwrap();
     fs::write(root.join("public/app.css"), "p {}\n").unwrap();
+    expect(&stderr, "Reloading src/Main.elm", &mut run);
     reloaded(&events, &mut run);
     assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), built);
     signal(&run, "-TERM");
@@ -741,7 +762,7 @@ fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
     let started = batch(&stderr, &mut run);
     assert!(
         started.contains(&format!(
-            "[apps/web] Serving src/Main.elm at http://localhost:{port}"
+            "[nomi] Serving apps/web at http://localhost:{port}"
         )),
         "{started}"
     );
