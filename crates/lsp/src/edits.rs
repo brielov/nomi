@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 
 use crate::diagnostics::{Cause, DiagnosticData, severity};
 use crate::position::{Files, Text};
-use crate::{Failure, Server, command_root, file_path, project_root};
+use crate::{Failure, Server, file_path};
 
 /// The command an install action runs.
 pub(crate) const INSTALL_PACKAGE: &str = "nomi.installPackage";
@@ -158,7 +158,7 @@ impl Server {
             return Err(Failure::invalid("a file and a package"));
         };
         let root = file_path(uri)
-            .and_then(|path| project_root(&self.vfs.snapshot(), &path))
+            .and_then(|path| self.project_root(&self.vfs.snapshot(), &path))
             .ok_or_else(|| Failure::invalid(format!("{uri} has no project")))?;
         if lock(&self.shared.settings).skip_install_confirmation {
             self.install(&root, package, Answer::Yes);
@@ -346,7 +346,7 @@ impl Server {
         let destinations: Vec<Destination> = (params.as_ref())
             .and_then(|params| self.move_source(&snapshot, params))
             .and_then(|(path, _)| {
-                let root = project_root(&snapshot, &path)?;
+                let root = self.project_root(&snapshot, &path)?;
                 let index = self.index(&snapshot, &path)?;
                 Some(nomi_ide::move_destinations(&index, &root, &path))
             })
@@ -440,11 +440,11 @@ impl Server {
         };
         let actions = nomi_ide::code_actions(&snapshot, &index, path, &request);
         let mut files = Files::new(&snapshot, self.shared.unit);
+        let command_root = self.command_root(&snapshot, path).unwrap_or_default();
         let asked = Asked {
             uri,
-            path,
             text: &text,
-            snapshot: &snapshot,
+            command_root: &command_root,
             client_diagnostics,
         };
         Ok((actions.into_iter())
@@ -454,13 +454,13 @@ impl Server {
 }
 
 /// What a code action request asked about, which its actions name: the
-/// file, its text and the diagnostics the client sent.
+/// file, its text, its project as commands name it and the diagnostics
+/// the client sent.
 #[derive(Clone, Copy)]
 struct Asked<'a> {
     uri: &'a Url,
-    path: &'a Path,
     text: &'a Text<'a>,
-    snapshot: &'a Snapshot,
+    command_root: &'a str,
     client_diagnostics: &'a [Diagnostic],
 }
 
@@ -544,7 +544,7 @@ fn action_json(action: Action, asked: Asked<'_>, files: &mut Files) -> Value {
                 }),
                 json!(name),
             ];
-            let root = command_root(asked.snapshot, asked.path).unwrap_or_default();
+            let root = asked.command_root;
             Command::new(
                 "Refactor".to_owned(),
                 format!("elm.refactor-{root}"),

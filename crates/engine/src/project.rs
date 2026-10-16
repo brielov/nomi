@@ -9,11 +9,11 @@ use nomi_base::{Compat, Report};
 use nomi_project::outline::PkgOutline;
 use nomi_project::{Outline, report};
 
-use crate::Vfs;
 use crate::console::Personality;
 use crate::paths::{ELM_JSON, Root};
 use crate::report::one_line;
 use crate::vfs::canonical_or_given;
+use crate::{Snapshot, Vfs};
 
 /// A project's `elm.json`, read.
 pub(crate) struct Project {
@@ -40,7 +40,7 @@ impl Project {
         root: &Root,
         personality: Personality,
     ) -> Result<Project, Report> {
-        Project::decode(root, &elm_json(vfs, root)?, personality)
+        Project::decode(root, &elm_json(&vfs.snapshot(), root)?, personality)
     }
 
     /// The project at `root` whose `elm.json` holds `src`.
@@ -70,8 +70,8 @@ impl Project {
 }
 
 /// What the `elm.json` at `root` holds.
-pub(crate) fn elm_json(vfs: &Vfs, root: &Root) -> Result<Vec<u8>, Report> {
-    vfs.read_bytes(&root.elm_json()).map_err(|e| {
+pub(crate) fn elm_json(snapshot: &Snapshot, root: &Root) -> Result<Vec<u8>, Report> {
+    snapshot.read_bytes(&root.elm_json()).map_err(|e| {
         one_line(
             "PROBLEM READING ELM.JSON",
             &format!("I could not read elm.json: {e}"),

@@ -367,10 +367,11 @@ fn build(
                 compat,
                 personality,
                 packages: &sources.packages,
-                shared,
+                artifacts: Some(&shared.artifacts),
+                memo: &shared.memo,
                 goal,
             };
-            match build.run(members) {
+            match build.in_command(members, shared) {
                 Ok(built) => built.builds,
                 Err(checked) => return unready(console, &members.root, checked, compat),
             }

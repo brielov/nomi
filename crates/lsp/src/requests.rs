@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::edits::ExposeArgs;
 use crate::position::{Files, Text};
-use crate::{Failure, Server, command_root, file_path};
+use crate::{Failure, Server, file_path};
 
 /// What a code lens carries for its resolve, as elm-language-server
 /// writes it.
@@ -365,7 +365,10 @@ impl Server {
                 let commands = lock(&self.shared.settings)
                     .extended_capabilities
                     .expose_commands;
-                match commands.then(|| command_root(&snapshot, &path)).flatten() {
+                match commands
+                    .then(|| self.command_root(&snapshot, &path))
+                    .flatten()
+                {
                     Some(root) => {
                         let verb = if exposed { "unexpose" } else { "expose" };
                         let arguments = vec![json!(ExposeArgs {

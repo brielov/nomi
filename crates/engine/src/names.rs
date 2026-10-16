@@ -55,7 +55,20 @@ pub fn package_interfaces_with(
     packages: &[(Name, PathBuf)],
     memo: &mut objects::Memo,
 ) -> Result<PackageInterfaces, String> {
-    let exposed = objects::build(compat, packages, memo, None)?.exposed();
+    package_interfaces_beside(compat, packages, &BTreeMap::new(), memo)
+}
+
+/// [`package_interfaces_with`], with `prebuilt`, the member packages
+/// built from their source, among them and built against.
+pub(crate) fn package_interfaces_beside(
+    compat: Compat,
+    packages: &[(Name, PathBuf)],
+    prebuilt: &BTreeMap<Name, Arc<objects::PackageBuild>>,
+    memo: &mut objects::Memo,
+) -> Result<PackageInterfaces, String> {
+    let mut built = objects::build_each(compat, packages, prebuilt, memo, None, &|_, _| {})?;
+    (built.packages).extend(prebuilt.iter().map(|(n, b)| (n.clone(), b.clone())));
+    let exposed = built.exposed();
     // What's kept for later calls is only what they read: across a corpus
     // of packages, their graphs would fill memory.
     for build in memo.values_mut() {

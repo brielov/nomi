@@ -47,7 +47,7 @@ pub fn run(
         let Some(package) = &package else {
             return Err(no_args(personality, cx.cache));
         };
-        let src = project::elm_json(cx.vfs, &root)?;
+        let src = project::elm_json(&cx.vfs.snapshot(), &root)?;
         // Upstream loads the registry before it reads the outline, so its
         // problems come first; reading it as the release it names comes
         // first here.

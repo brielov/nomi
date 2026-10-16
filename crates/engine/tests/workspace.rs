@@ -278,7 +278,7 @@ fn workspaces_on_disk() {
         let from = top.join(case.from);
         std::fs::create_dir_all(&from).unwrap();
         let name = case.name;
-        match (discover(&Vfs::new(), &from), case.found) {
+        match (discover(&Vfs::new().snapshot(), &from), case.found) {
             (None, Found::Standalone) => {}
             (Some(Ok(workspace)), Found::Members(root, expected)) => {
                 assert_eq!(workspace.root(), top.join(root), "{name}");

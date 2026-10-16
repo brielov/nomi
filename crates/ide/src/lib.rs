@@ -34,7 +34,7 @@ use nomi_base::diagnostic::code::{Position, Region};
 use nomi_base::diagnostic::render::{self, Styles};
 use nomi_base::{Compat, LineCol, LineIndex, TextRange, TextSize};
 use nomi_engine::Snapshot;
-use nomi_engine::index::manifest;
+use nomi_engine::index::nearest;
 use nomi_engine::report::syntax_problem;
 use nomi_project::Outline;
 use nomi_syntax::{Tool, parse_module, validate};
@@ -218,7 +218,7 @@ struct ProjectOutline {
 
 /// The project that owns the file at `path`.
 fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<ProjectOutline> {
-    let manifest = manifest(snapshot, path)?;
+    let manifest = nearest(snapshot, path)?;
     let (outline, compat) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
     Some(ProjectOutline {
         root: manifest.parent()?.to_owned(),

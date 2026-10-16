@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use nomi_base::{Compat, Platform, Report, lock};
@@ -16,54 +16,56 @@ use nomi_project::workspace::{Member, Workspace, WorkspaceError};
 use nomi_project::{Entry, Manifest, ModuleName, Name, Outline, Version, report};
 use nomi_registry::{Http, SolverProblem, WorkspaceProblem};
 
+use crate::artifacts::Artifacts;
 use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_problem};
 use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
 use crate::make::{self, Make, Shared};
 use crate::names::{Building, Packages};
-use crate::objects::{self, PackageBuild};
+use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
 use crate::paths::{ELM_JSON, NOMI_TOML, Root};
 use crate::project::{Project, elm_json, package_outline};
 use crate::report::one_line;
+use crate::schedule::Cancelled;
 use crate::timings;
-use crate::{Context, Snapshot, Vfs, javascript, run, vfs};
+use crate::{Context, Snapshot, javascript, run, vfs};
 
 /// The workspace around `dir`, if there is one: the nearest of its
 /// ancestors whose `nomi.toml` has a `[workspace]`, unless the project
 /// around `dir` is below that root and none of its members, in which
 /// case the project stands alone there and the search goes on above.
-pub fn discover(vfs: &Vfs, dir: &Path) -> Option<Result<Workspace, Report>> {
-    let project = Root::find(vfs, dir);
+pub fn discover(snapshot: &Snapshot, dir: &Path) -> Option<Result<Workspace, Report>> {
+    let project = (dir.ancestors()).find(|d| snapshot.is_file(&d.join(ELM_JSON)));
     for root in dir.ancestors() {
         let path = root.join(NOMI_TOML);
-        if !vfs.is_file(&path) {
+        if !snapshot.is_file(&path) {
             continue;
         }
-        let manifest = match manifest(vfs, &path, NOMI_TOML) {
+        let manifest = match manifest(snapshot, &path, NOMI_TOML) {
             Ok(manifest) => manifest,
             Err(report) => return Some(Err(report)),
         };
         let Some(workspace) = &manifest.workspace else {
             continue;
         };
-        let below = (project.as_ref())
-            .and_then(|project| project.dir().strip_prefix(root).ok())
+        let below = project
+            .and_then(|project| project.strip_prefix(root).ok())
             .filter(|dir| !dir.as_os_str().is_empty());
         if let Some(dir) = below
             && !workspace.members.iter().any(|m| m.pattern.matches(dir))
         {
             continue;
         }
-        return Some(load(vfs, root, manifest));
+        return Some(load(snapshot, root, manifest));
     }
     None
 }
 
 /// The workspace whose root `nomi.toml`, in `root`, holds `manifest`.
-fn load(vfs: &Vfs, root: &Path, manifest: Manifest) -> Result<Workspace, Report> {
-    let has_project = vfs.is_file(&root.join(ELM_JSON));
+fn load(snapshot: &Snapshot, root: &Path, manifest: Manifest) -> Result<Workspace, Report> {
+    let has_project = snapshot.is_file(&root.join(ELM_JSON));
     if !has_project && !manifest.entries.is_empty() {
         return Err(entry_without_project());
     }
@@ -81,7 +83,7 @@ fn load(vfs: &Vfs, root: &Path, manifest: Manifest) -> Result<Workspace, Report>
                 )
             })?;
         for dir in found {
-            if vfs.is_file(&root.join(&dir).join(ELM_JSON)) {
+            if snapshot.is_file(&root.join(&dir).join(ELM_JSON)) {
                 dirs.insert(dir);
             } else if member.pattern.is_literal() {
                 return Err(missing_member(&dir));
@@ -92,17 +94,17 @@ fn load(vfs: &Vfs, root: &Path, manifest: Manifest) -> Result<Workspace, Report>
     if has_project {
         members.push(Member::new(
             PathBuf::new(),
-            outline(vfs, root, Path::new(""))?,
+            outline(snapshot, root, Path::new(""))?,
             Some(manifest),
         ));
     }
     for dir in dirs {
         let path = root.join(&dir).join(NOMI_TOML);
         let shown = shown(&dir.join(NOMI_TOML));
-        let manifest = (vfs.is_file(&path))
-            .then(|| self::manifest(vfs, &path, &shown))
+        let manifest = (snapshot.is_file(&path))
+            .then(|| self::manifest(snapshot, &path, &shown))
             .transpose()?;
-        let outline = outline(vfs, root, &dir)?;
+        let outline = outline(snapshot, root, &dir)?;
         members.push(Member::new(dir, outline, manifest));
     }
     Workspace::new(root.to_owned(), members).map_err(|e| problem(&e))
@@ -125,20 +127,20 @@ fn subdirs(dir: &Path) -> io::Result<Vec<OsString>> {
 }
 
 /// The outline of the member in `dir`, below `root`.
-fn outline(vfs: &Vfs, root: &Path, dir: &Path) -> Result<Outline, Report> {
+fn outline(snapshot: &Snapshot, root: &Path, dir: &Path) -> Result<Outline, Report> {
     let project = Root::new(root.join(dir));
     let named = |mut report: Report| {
         report.path = Some(shown(&dir.join(ELM_JSON)));
         report
     };
-    let src = elm_json(vfs, &project).map_err(named)?;
+    let src = elm_json(snapshot, &project).map_err(named)?;
     let project = Project::decode(&project, &src, Personality::Nomi).map_err(named)?;
     Ok(project.outline)
 }
 
 /// The `nomi.toml` at `path`, shown as `shown`.
-fn manifest(vfs: &Vfs, path: &Path, shown: &str) -> Result<Manifest, Report> {
-    let src = vfs.read_bytes(path).map_err(|e| {
+fn manifest(snapshot: &Snapshot, path: &Path, shown: &str) -> Result<Manifest, Report> {
+    let src = snapshot.read_bytes(path).map_err(|e| {
         one_line(
             "PROBLEM READING NOMI.TOML",
             &format!("I could not read {shown}: {e}"),
@@ -296,25 +298,51 @@ impl Members {
         workspace: &Workspace,
         releases: &mut Vec<(Name, Version)>,
     ) -> Option<Members> {
+        let members = Members::named(workspace, |name| releases.iter().any(|(n, _)| n == name))?;
+        releases.retain(|(name, _)| !members.has(name));
+        Some(members)
+    }
+
+    /// The member packages of `workspace` that `deps` names, and those
+    /// they depend on in turn; `None` if there are none.
+    pub(crate) fn reached<'n>(
+        workspace: &Workspace,
+        deps: impl IntoIterator<Item = &'n Name>,
+    ) -> Option<Members> {
+        let mut used: BTreeSet<&Name> = deps.into_iter().collect();
+        // Each member after those it depends on: backwards, a dependent
+        // comes first.
+        for member in workspace.members().iter().rev() {
+            if let Outline::Pkg(pkg) = &member.outline
+                && used.contains(&pkg.name)
+            {
+                used.extend(pkg.deps.keys());
+            }
+        }
+        Members::named(workspace, |name| used.contains(name))
+    }
+
+    /// The member packages of `workspace` whose names `wanted` takes, in
+    /// order; `None` if there are none.
+    fn named(workspace: &Workspace, wanted: impl Fn(&Name) -> bool) -> Option<Members> {
         let packages: Vec<MemberPackage> = (workspace.members().iter())
             .filter_map(|member| match &member.outline {
-                Outline::Pkg(pkg) if releases.iter().any(|(name, _)| *name == pkg.name) => {
-                    Some(MemberPackage {
-                        dir: workspace.root().join(&member.dir),
-                        outline: pkg.clone(),
-                    })
-                }
+                Outline::Pkg(pkg) if wanted(&pkg.name) => Some(MemberPackage {
+                    dir: workspace.root().join(&member.dir),
+                    outline: pkg.clone(),
+                }),
                 Outline::Pkg(_) | Outline::App(_) => None,
             })
             .collect();
-        if packages.is_empty() {
-            return None;
-        }
-        releases.retain(|(name, _)| packages.iter().all(|p| p.outline.name != *name));
-        Some(Members {
+        (!packages.is_empty()).then(|| Members {
             root: workspace.root().to_owned(),
             packages,
         })
+    }
+
+    /// Whether `name` is one of them.
+    pub(crate) fn has(&self, name: &Name) -> bool {
+        self.packages.iter().any(|p| p.outline.name == *name)
     }
 }
 
@@ -327,7 +355,11 @@ pub(crate) struct MemberBuild<'a> {
     pub personality: Personality,
     /// The registry's packages of the project, and their directories.
     pub packages: &'a [(Name, PathBuf)],
-    pub shared: &'a Shared<'a>,
+    /// What earlier builds left, reused.
+    pub artifacts: Option<&'a Artifacts>,
+    /// Each registry package's build, shared with the builds before and
+    /// after.
+    pub memo: &'a Mutex<Memo>,
     /// What the project's build makes: optimizing, it needs a member's
     /// graph and types as well as its exposed interfaces.
     pub goal: Goal,
@@ -342,40 +374,61 @@ pub(crate) struct MembersBuilt {
 }
 
 impl MemberBuild<'_> {
-    /// Each of `members` built in order, or taken from the command's
-    /// builds before; or what was wrong with the first that failed.
-    pub(crate) fn run(&self, members: &Members) -> Result<MembersBuilt, Checked> {
+    /// Each of `members` built in order, or taken from `known`, the
+    /// command's builds before; or what was wrong with the first that
+    /// failed. Cancelled once the snapshot is stale.
+    pub(crate) fn run(
+        &self,
+        members: &Members,
+        known: &Mutex<BTreeMap<Name, Arc<PackageBuild>>>,
+    ) -> Result<Result<MembersBuilt, Checked>, Cancelled> {
         let mut built = MembersBuilt::default();
         for member in &members.packages {
             let name = &member.outline.name;
-            let known = lock(&self.shared.members).get(name).cloned();
-            let build = if let Some(build) = known {
+            let known_build = lock(known).get(name).cloned();
+            let build = if let Some(build) = known_build {
                 build
             } else {
-                let build = Arc::new(self.member(members, member, &mut built)?);
-                lock(&self.shared.members).insert(name.clone(), build.clone());
+                let build = match self.member(members, member, &mut built)? {
+                    Ok(build) => Arc::new(build),
+                    Err(checked) => return Ok(Err(checked)),
+                };
+                lock(known).insert(name.clone(), build.clone());
                 build
             };
             built.builds.insert(name.clone(), build);
         }
-        Ok(built)
+        Ok(Ok(built))
+    }
+
+    /// [`MemberBuild::run`] in a command, which nothing revises the files
+    /// during, with its builds before in `shared`.
+    pub(crate) fn in_command(
+        &self,
+        members: &Members,
+        shared: &Shared,
+    ) -> Result<MembersBuilt, Checked> {
+        (self.run(members, &shared.members)).expect("nothing revises the files while nomi builds")
     }
 
     /// `member` built as a project of its own, the members before it in
     /// `built`.
-    fn member(
+    pub(crate) fn member(
         &self,
         members: &Members,
         member: &MemberPackage,
         built: &mut MembersBuilt,
-    ) -> Result<PackageBuild, Checked> {
+    ) -> Result<Result<PackageBuild, Checked>, Cancelled> {
         let compat = self.compat;
         let pkg = &member.outline;
         let exposed: Vec<ModuleName> = pkg.exposed.modules().cloned().collect();
         if exposed.is_empty() {
-            return Ok(PackageBuild::default());
+            return Ok(Ok(PackageBuild::default()));
         }
-        let reached = self.reached(pkg, &built.builds).map_err(Checked::Project)?;
+        let reached = match self.reached(pkg, &built.builds) {
+            Ok(reached) => reached,
+            Err(report) => return Ok(Err(Checked::Project(report))),
+        };
         let direct: Vec<(Name, Vec<ModuleName>)> = (pkg.deps.keys())
             .filter_map(|name| {
                 let outline = (reached.get(name).map(|(_, outline)| outline)).or_else(|| {
@@ -386,15 +439,17 @@ impl MemberBuild<'_> {
             })
             .collect();
         let outline = Outline::Pkg(pkg.clone());
-        let env = env_of(&member.dir, &outline, compat, Foreigns::new(direct.clone()))
-            .map_err(Checked::Project)?;
+        let env = match env_of(&member.dir, &outline, compat, Foreigns::new(direct.clone())) {
+            Ok(env) => env,
+            Err(report) => return Ok(Err(Checked::Project(report))),
+        };
         let sources = (reached.into_iter()).map(|(name, (dir, _))| (name, dir));
         let building = Building::new(
             compat,
             sources.collect(),
             built.builds.clone(),
-            Some(&self.shared.artifacts),
-            &self.shared.memo,
+            self.artifacts,
+            self.memo,
             direct,
         );
         let build = Build {
@@ -404,29 +459,29 @@ impl MemberBuild<'_> {
             paths: &[],
             personality: self.personality,
             packages: Packages::Building(&building),
-            artifacts: Some(&self.shared.artifacts),
+            artifacts: self.artifacts,
         };
         let goal = match self.goal {
             Goal::Optimize => Goal::Optimize,
             Goal::Check | Goal::Docs => Goal::Check,
         };
-        let mut modules = (build.run(goal)).expect("nothing revises the files while make builds");
+        let mut modules = build.run(goal)?;
         built.ran.append(&mut modules.ran);
         if let Err(why) = building.finish() {
-            return Err(Checked::Project(packages_problem(&why)));
+            return Ok(Err(Checked::Project(packages_problem(&why))));
         }
         let (interfaces, graphs) = match modules.made {
             Some(Made::Interfaces(interfaces)) => (interfaces, None),
             Some(Made::Optimized(optimized)) => (optimized.interfaces, Some(optimized.graphs)),
-            Some(Made::Docs(_)) | None => return Err(modules.checked),
+            Some(Made::Docs(_)) | None => return Ok(Err(modules.checked)),
         };
-        Ok(objects::member_build(
+        Ok(Ok(objects::member_build(
             compat,
             &pkg.name,
             &exposed,
             &interfaces,
             graphs,
-        ))
+        )))
     }
 
     /// The registry's packages `pkg` reaches, the members in `built`
@@ -576,10 +631,11 @@ fn package(
         compat: loaded.compat,
         personality: Personality::Nomi,
         packages: &loaded.sources.packages,
-        shared,
+        artifacts: Some(&shared.artifacts),
+        memo: &shared.memo,
         goal: Goal::Optimize,
     };
-    match build.run(&members) {
+    match build.in_command(&members, shared) {
         Ok(built) => Some(built.ran),
         Err(checked) => fail(checked, loaded.compat),
     }

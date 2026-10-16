@@ -190,7 +190,9 @@ impl Fixture {
             cache: &self.cache,
             http: &Offline,
         };
-        let workspace = workspace::discover(&vfs, &self.root).unwrap().unwrap();
+        let workspace = workspace::discover(&vfs.snapshot(), &self.root)
+            .unwrap()
+            .unwrap();
         let mut console = Captured::default();
         let outcomes = workspace::build(&cx, &mut console, &workspace, Kind::Dev);
         let outcomes = (workspace.members().iter().zip(outcomes))

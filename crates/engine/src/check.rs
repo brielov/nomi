@@ -309,7 +309,7 @@ pub(crate) fn sources(
     let store = packages::store_for(cx.cache, resolve)?;
     let workspace = match resolve {
         Resolve::Upstream => None,
-        Resolve::Nomi => workspace::discover(cx.vfs, project.root.dir()).transpose()?,
+        Resolve::Nomi => workspace::discover(&cx.vfs.snapshot(), project.root.dir()).transpose()?,
     };
     // elm keeps a project's dependencies as solved until its elm.json
     // changes (`Details.load`), asking the website nothing; nomi keeps

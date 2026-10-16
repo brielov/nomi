@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use nomi_base::ColumnUnit;
 use nomi_engine::Snapshot;
-use nomi_engine::index::{Index, manifest};
+use nomi_engine::index::{Index, Owners};
 use nomi_engine::live::Live;
 use nomi_engine::schedule::Cancelled;
 use serde_json::Value;
@@ -159,12 +159,12 @@ impl Review {
     }
 }
 
-/// The problems of every project with an `open` file, as `settings` has
-/// them, on open or save if `saved`, with elm-review's kept in
-/// `reviewed` and its columns read in `unit`. `check` checks a project,
-/// by its manifest and open files, as elm does, and indexes it from the
-/// file it's given where the problems need an index; cancelled where it
-/// is.
+/// The problems of every project that owns an `open` file, each file's
+/// from its owner alone (R7), as `settings` has them, on open or save if
+/// `saved`, with elm-review's kept in `reviewed` and its columns read in
+/// `unit`. `check` checks a project, by its manifest
+/// and open files, as elm does, and indexes it from the file it's given
+/// where the problems need an index; cancelled where it is.
 pub fn project_problems(
     snapshot: &Snapshot,
     open: &[PathBuf],
@@ -178,10 +178,11 @@ pub fn project_problems(
         Option<&Path>,
     ) -> Result<(Option<Live>, Option<Arc<Index>>), Cancelled>,
 ) -> Result<Vec<Problem>, Cancelled> {
+    let owners = Owners::read(snapshot, open);
     let mut projects: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     let mut found = Vec::new();
     for path in open {
-        match manifest(snapshot, path) {
+        match owners.owner(snapshot, path) {
             Some(manifest) => projects.entry(manifest).or_default().push(path.clone()),
             None => found.extend(syntax_problems(snapshot, path, None)),
         }
@@ -193,7 +194,12 @@ pub fn project_problems(
         let (live, index) = check(&manifest, &open, plan.index_from)?;
         let before = found.len();
         match live {
-            Some(live) => found.extend(compiler_problems(snapshot, &live, &open)),
+            // A module another project owns, such as one two projects'
+            // source directories list, is that project's to show.
+            Some(live) => found.extend(
+                (compiler_problems(snapshot, &live, &open).into_iter())
+                    .filter(|p| owners.owner(snapshot, &p.path).as_ref() == Some(&manifest)),
+            ),
             None => {
                 for path in &open {
                     found.extend(syntax_problems(snapshot, path, Some(root)));

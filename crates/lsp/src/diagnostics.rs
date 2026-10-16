@@ -19,7 +19,7 @@ use lsp_types::{
 };
 use nomi_base::{ColumnUnit, lock};
 use nomi_engine::artifacts::Artifacts;
-use nomi_engine::index::{Index, Memo};
+use nomi_engine::index::{Index, MemberBuilds, Memo};
 use nomi_engine::live::Live;
 use nomi_engine::schedule::Cancelled;
 use nomi_engine::{Snapshot, Store, live};
@@ -74,6 +74,9 @@ pub(crate) struct Shared {
     pub(crate) artifacts: Option<Artifacts>,
     /// The packages' interfaces, made once per server.
     pub(crate) memo: Mutex<Memo>,
+    /// The workspaces' member packages, as checks and indexes last built
+    /// them.
+    pub(crate) members: MemberBuilds,
     pub(crate) unit: ColumnUnit,
     pub(crate) sender: Sender<Message>,
     /// Held to make a revision, and to publish what a snapshot found
@@ -228,12 +231,23 @@ fn check(
         let indexing = index_from.map(|first| {
             let mut memo = memo.clone();
             scope.spawn(move || {
-                let index = (shared.indexes).get(snapshot, &shared.store, &mut memo, first);
+                let kept = &shared.members;
+                let index =
+                    (shared.indexes).get(snapshot, &shared.store, &mut memo, kept, manifest, first);
                 (index, memo)
             })
         });
         let artifacts = shared.artifacts.as_ref();
-        let checked = live::check(snapshot, &shared.store, manifest, open, memo, artifacts);
+        let kept = &shared.members;
+        let checked = live::check(
+            snapshot,
+            &shared.store,
+            manifest,
+            open,
+            memo,
+            kept,
+            artifacts,
+        );
         let index = (indexing.and_then(|thread| thread.join().ok())).and_then(|(index, built)| {
             memo.extend(built);
             index

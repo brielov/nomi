@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use nomi_base::lock;
-use nomi_engine::index::{self, Index, Memo};
+use nomi_engine::index::{self, Index, MemberBuilds, Memo};
 use nomi_engine::{Revision, Snapshot, Store};
 
 #[derive(Default)]
@@ -20,30 +20,40 @@ pub(crate) struct Indexes {
 }
 
 impl Indexes {
-    /// The index of the project that owns `path`, as of `snapshot`: the
-    /// latest where it's as new, or else one made from it, with the
-    /// packages `memo` has built.
+    /// The index of the project whose `elm.json` is `manifest`, which
+    /// owns `path`, as of `snapshot`: the latest where it's as new, or
+    /// else one made from it, with the packages `memo` has built and the
+    /// member packages as `kept` has them.
     pub(crate) fn get(
         &self,
         snapshot: &Snapshot,
         store: &Store,
         memo: &mut Memo,
+        kept: &MemberBuilds,
+        manifest: &Path,
         path: &Path,
     ) -> Option<Arc<Index>> {
-        let manifest = index::manifest(snapshot, path)?;
         let revision = snapshot.revision();
         let _building = lock(&self.building);
         let previous = {
             let latest = lock(&self.latest);
-            match latest.get(&manifest) {
+            match latest.get(manifest) {
                 Some((r, index)) if *r == revision => return Some(index.clone()),
                 Some((_, index)) => Some(index.clone()),
                 None => None,
             }
         };
-        let index = index::index_from(snapshot, store, path, memo, previous.as_deref())?;
+        let index = index::index_from(
+            snapshot,
+            store,
+            manifest,
+            path,
+            memo,
+            kept,
+            previous.as_deref(),
+        )?;
         let index = Arc::new(index);
-        lock(&self.latest).insert(manifest, (revision, index.clone()));
+        lock(&self.latest).insert(manifest.to_owned(), (revision, index.clone()));
         Some(index)
     }
 }

@@ -5,10 +5,11 @@
 //! application's releases are the ones its `elm.json` pins, and a
 //! package's are the newest the store holds in each range.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use nomi_base::{Compat, TextSize, lock};
 use nomi_compiler::canonicalize::module::{Canonical, canonicalize_with_references, interface};
@@ -21,15 +22,20 @@ use nomi_registry::Store;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
-use crate::Snapshot;
-use crate::check::env_of;
+use crate::artifacts::Artifacts;
+use crate::check::{Goal, env_of};
+use crate::console::Personality;
 use crate::graph::{
     BadSource, Env, Foreigns, Graph, Module, Root, Status, is_good_name, written_imports,
 };
 use crate::names::{self, PackageInterfaces};
-use crate::paths::{ELM_JSON, tests_dir};
+use crate::objects::PackageBuild;
+use crate::paths::{ELM_JSON, relative, tests_dir};
 use crate::project::package_outline;
+use crate::schedule::Cancelled;
 use crate::vfs::{self, canonical, canonical_or_given};
+use crate::workspace::{self, MemberBuild, Members, MembersBuilt};
+use crate::{Revision, Snapshot};
 
 pub use crate::objects::Memo;
 
@@ -44,6 +50,9 @@ pub struct Index {
     pub modules: Vec<Arc<Indexed>>,
     /// Each dependency's source directory, by package name.
     pub packages: HashMap<String, PathBuf>,
+    /// The directories of the dependencies that are members of the
+    /// project's workspace, whose sources change as its own do.
+    pub members: Vec<PathBuf>,
     /// The modules each direct dependency the store holds exposes, by
     /// package name.
     pub exposed: HashMap<String, Vec<String>>,
@@ -179,9 +188,10 @@ impl Index {
             .map(|m| &**m)
     }
 
-    /// Whether `path` is in a dependency's sources.
+    /// Whether `path` is in the sources of a released dependency, which
+    /// never change.
     pub fn is_package_file(&self, path: &Path) -> bool {
-        self.packages.values().any(|dir| path.starts_with(dir))
+        (self.packages.values()).any(|dir| path.starts_with(dir) && !self.members.contains(dir))
     }
 
     /// The project's module named `name`.
@@ -190,12 +200,100 @@ impl Index {
     }
 }
 
-/// The `elm.json` of the project that owns `file`: the nearest above it.
-pub fn manifest(snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
+/// The nearest `elm.json` above `file`, which owns it unless an editor's
+/// [`Owners`] know a project that holds it deeper.
+pub fn nearest(snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
     file.ancestors()
         .skip(1)
         .map(|dir| dir.join(ELM_JSON))
         .find(|manifest| snapshot.is_file(manifest))
+}
+
+/// Which project owns each file (R7), among the projects of the files an
+/// editor has open and the members of their workspaces: of those whose
+/// source directories hold the file, the one whose directory is deepest;
+/// of two that list one directory, the one whose `elm.json` is nearer the
+/// file, and then the first by path. A file none holds is the nearest
+/// `elm.json`'s above it, so that its syntax is still checked.
+#[derive(Debug, Default)]
+pub struct Owners(Vec<Sources>);
+
+/// A project and the directories its modules are in.
+#[derive(Debug)]
+struct Sources {
+    manifest: PathBuf,
+    /// The directory of its `elm.json`, resolved.
+    root: PathBuf,
+    /// Its source directories and its tests', resolved.
+    dirs: Vec<PathBuf>,
+}
+
+impl Owners {
+    /// The projects around `files`: the nearest `elm.json` above each, and
+    /// each member of the workspace around it.
+    pub fn read(snapshot: &Snapshot, files: &[PathBuf]) -> Owners {
+        let mut manifests = BTreeSet::new();
+        let mut around = BTreeSet::new();
+        for file in files {
+            let manifest = nearest(snapshot, file);
+            let dir = match &manifest {
+                Some(manifest) => manifest.parent(),
+                None => file.parent(),
+            };
+            around.extend(dir.map(Path::to_path_buf));
+            manifests.extend(manifest);
+        }
+        let mut roots = BTreeSet::new();
+        for dir in around {
+            let Some(Ok(workspace)) = workspace::discover(snapshot, &dir) else {
+                continue;
+            };
+            if roots.insert(workspace.root().to_owned()) {
+                manifests.extend(
+                    (workspace.members().iter())
+                        .map(|m| workspace.root().join(&m.dir).join(ELM_JSON)),
+                );
+            }
+        }
+        Owners(
+            (manifests.into_iter())
+                .filter_map(|manifest| Sources::read(snapshot, manifest))
+                .collect(),
+        )
+    }
+
+    /// The `elm.json` of the project that owns `file`.
+    pub fn owner(&self, snapshot: &Snapshot, file: &Path) -> Option<PathBuf> {
+        let path = canonical_or_given(file);
+        let holding = self.0.iter().filter_map(|sources| {
+            let depth = (sources.dirs.iter())
+                .filter(|dir| path.starts_with(dir))
+                .map(|dir| dir.components().count())
+                .max()?;
+            let away = relative(&path, &sources.root).components().count();
+            Some((Reverse(depth), away, &sources.manifest))
+        });
+        match holding.min() {
+            Some((_, _, manifest)) => Some(manifest.clone()),
+            None => nearest(snapshot, file),
+        }
+    }
+}
+
+impl Sources {
+    fn read(snapshot: &Snapshot, manifest: PathBuf) -> Option<Sources> {
+        let (outline, _) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
+        let root = manifest.parent()?;
+        let mut dirs: Vec<PathBuf> = (outline.source_dirs().iter())
+            .map(|dir| canonical_or_given(&root.join(dir)))
+            .collect();
+        dirs.push(canonical_or_given(&tests_dir(root)));
+        Some(Sources {
+            root: canonical_or_given(root),
+            dirs,
+            manifest,
+        })
+    }
 }
 
 /// A project as the editor sees it: its outline, and what the store holds
@@ -208,7 +306,10 @@ pub(crate) struct Setup {
     /// Each release the store holds, and the directory of its source.
     pub sources: Vec<(Name, PathBuf)>,
     pub direct: Vec<Name>,
-    /// Whether the store holds every dependency.
+    /// The member packages of its workspace it depends on, which build
+    /// from their source.
+    pub members: Option<Members>,
+    /// Whether the store holds every dependency that isn't a member.
     pub complete: bool,
 }
 
@@ -218,12 +319,20 @@ impl Setup {
     pub(crate) fn read(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
         let root = manifest.parent()?.to_owned();
         let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
-        let (sources, direct) = releases(store, &outline, compat);
+        let members = (workspace::discover(snapshot, &root)).and_then(|workspace| {
+            let deps = match &outline {
+                Outline::App(app) => app.direct.keys().chain(app.indirect.keys()).collect(),
+                Outline::Pkg(pkg) => pkg.deps.keys().collect::<Vec<_>>(),
+            };
+            Members::reached(&workspace.ok()?, deps)
+        });
+        let (sources, direct) = releases(store, &outline, compat, members.as_ref());
+        let is_member = |name: &Name| members.as_ref().is_some_and(|m| m.has(name));
         let complete = match &outline {
-            Outline::App(app) => sources.len() == app.direct.len() + app.indirect.len(),
-            Outline::Pkg(pkg) => {
-                (pkg.deps.keys()).all(|name| sources.iter().any(|(n, _)| n == name))
-            }
+            Outline::App(app) => (app.direct.keys().chain(app.indirect.keys()))
+                .all(|name| is_member(name) || sources.iter().any(|(n, _)| n == name)),
+            Outline::Pkg(pkg) => (pkg.deps.keys())
+                .all(|name| is_member(name) || sources.iter().any(|(n, _)| n == name)),
         };
         Some(Setup {
             root,
@@ -231,6 +340,7 @@ impl Setup {
             compat,
             sources,
             direct,
+            members,
             complete,
         })
     }
@@ -261,15 +371,51 @@ impl Setup {
         self
     }
 
-    /// The modules each direct dependency the store holds exposes.
+    /// The modules each direct dependency the store holds, or the
+    /// workspace has as a member, exposes.
     pub(crate) fn exposing(&self) -> Vec<(Name, Vec<ModuleName>)> {
         (self.direct.iter())
             .filter_map(|name| {
+                let member = (self.members.iter())
+                    .flat_map(|m| &m.packages)
+                    .find(|p| p.outline.name == *name);
+                if let Some(member) = member {
+                    let exposed = member.outline.exposed.modules().cloned().collect();
+                    return Some((name.clone(), exposed));
+                }
                 let (_, dir) = self.sources.iter().find(|(n, _)| n == name)?;
                 let pkg = package_outline(dir, self.compat).ok()??;
                 Some((name.clone(), pkg.exposed.modules().cloned().collect()))
             })
             .collect()
+    }
+
+    /// The member packages it depends on, built from `snapshot` as their
+    /// dependents check against them: a member that doesn't build as its
+    /// last good build in `kept`. None where a member never built.
+    /// Cancelled once the snapshot is stale.
+    pub(crate) fn member_builds(
+        &self,
+        snapshot: &Snapshot,
+        kept: &MemberBuilds,
+        memo: &mut Memo,
+    ) -> Result<Option<BTreeMap<Name, Arc<PackageBuild>>>, Cancelled> {
+        let Some(members) = &self.members else {
+            return Ok(Some(BTreeMap::new()));
+        };
+        let shared = Mutex::new(std::mem::take(memo));
+        let build = MemberBuild {
+            snapshot,
+            compat: self.compat,
+            personality: Personality::Elm,
+            packages: &self.sources,
+            artifacts: kept.artifacts.as_ref(),
+            memo: &shared,
+            goal: Goal::Check,
+        };
+        let built = kept.build(snapshot.revision(), &build, members);
+        *memo = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
+        built
     }
 
     /// The project's build environment, with the modules each direct
@@ -282,6 +428,69 @@ impl Setup {
             Foreigns::new(exposing.iter().cloned()),
         )
         .ok()
+    }
+}
+
+/// The member packages an editor built, by directory: the revision each
+/// last built at, and its last good build, which its dependents check
+/// against while it fails, so that a mistake in a member leaves them as
+/// they were.
+#[derive(Debug, Default)]
+pub struct MemberBuilds {
+    kept: Mutex<HashMap<PathBuf, Kept>>,
+    /// What earlier builds left, which builds of members reuse.
+    artifacts: Option<Artifacts>,
+}
+
+/// A member package as an editor last built it.
+#[derive(Debug)]
+struct Kept {
+    revision: Revision,
+    good: Option<Arc<PackageBuild>>,
+}
+
+impl MemberBuilds {
+    /// None built yet, builds reusing what `artifacts` holds.
+    pub fn new(artifacts: Option<Artifacts>) -> MemberBuilds {
+        MemberBuilds {
+            kept: Mutex::default(),
+            artifacts,
+        }
+    }
+
+    /// Each of `members` as `build` builds it at `revision`, built once
+    /// there whoever asks; none where one never built.
+    fn build(
+        &self,
+        revision: Revision,
+        build: &MemberBuild,
+        members: &Members,
+    ) -> Result<Option<BTreeMap<Name, Arc<PackageBuild>>>, Cancelled> {
+        // Held throughout, so that a check and an index of one revision
+        // build each member once between them.
+        let mut kept = lock(&self.kept);
+        let mut built = MembersBuilt::default();
+        for member in &members.packages {
+            let good = match kept.get(&member.dir) {
+                Some(now) if now.revision == revision => now.good.clone(),
+                before => {
+                    let before = before.and_then(|kept| kept.good.clone());
+                    let made = build.member(members, member, &mut built)?.ok();
+                    let good = made.map(Arc::new).or(before);
+                    let now = Kept {
+                        revision,
+                        good: good.clone(),
+                    };
+                    kept.insert(member.dir.clone(), now);
+                    good
+                }
+            };
+            let Some(good) = good else {
+                return Ok(None);
+            };
+            built.builds.insert(member.outline.name.clone(), good);
+        }
+        Ok(Some(built.builds))
     }
 }
 
@@ -320,26 +529,31 @@ pub(crate) fn elm_files(env: &Env) -> Vec<PathBuf> {
     paths
 }
 
-/// The index of the project that owns `file`; none where there is no
-/// project, its `elm.json` isn't readable, or its modules import each
+/// The index of the project of the nearest `elm.json` above `file`; none
+/// where there is none, it isn't readable, or its modules import each
 /// other in a cycle.
 pub fn index(snapshot: &Snapshot, store: &Store, file: &Path, memo: &mut Memo) -> Option<Index> {
-    index_from(snapshot, store, file, memo, None)
+    let manifest = nearest(snapshot, file)?;
+    let kept = MemberBuilds::default();
+    index_from(snapshot, store, &manifest, file, memo, &kept, None)
 }
 
-/// [`index`], reusing from `previous`, an index of the same project, each
-/// module whose text is the same and whose project imports have the same
-/// interfaces, as an editor's next index mostly is, and what it read from
-/// the dependencies' modules.
+/// The index of the project whose `elm.json` is `manifest`, which owns
+/// `file`, its member packages as `kept` has them, reusing from
+/// `previous`, an index of the same project, each module whose text is
+/// the same and whose project imports have the same interfaces, as an
+/// editor's next index mostly is, and what it read from the dependencies'
+/// modules.
 pub fn index_from(
     snapshot: &Snapshot,
     store: &Store,
+    manifest: &Path,
     file: &Path,
     memo: &mut Memo,
+    kept: &MemberBuilds,
     previous: Option<&Index>,
 ) -> Option<Index> {
-    let manifest = manifest(snapshot, file)?;
-    let setup = Setup::read(snapshot, store, &manifest)?.with_tests(store);
+    let setup = Setup::read(snapshot, store, manifest)?.with_tests(store);
     let exposing = setup.exposing();
     let mut env = setup.env(&exposing)?;
     let tests = tests_dir(&setup.root);
@@ -348,17 +562,29 @@ pub fn index_from(
     if tests.is_dir() && !listed {
         env = env.with_src_dir(&tests).ok()?;
     }
+    // A member that doesn't build leaves its modules out, as a package
+    // nomi can't canonicalize does.
+    let built = (setup.member_builds(snapshot, kept, memo).ok())
+        .flatten()
+        .unwrap_or_default();
     let Setup {
         compat,
         sources,
         direct,
+        members,
         ..
     } = setup;
     // A package nomi can't canonicalize leaves the project's own modules
     // to navigate.
     let packages: PackageInterfaces =
-        names::package_interfaces_with(compat, &sources, memo).unwrap_or_default();
+        names::package_interfaces_beside(compat, &sources, &built, memo).unwrap_or_default();
     let mut interfaces = names::visible(&packages, &direct);
+    let members = members.map(|m| m.packages).unwrap_or_default();
+    let member_dirs: Vec<PathBuf> = members.iter().map(|p| p.dir.clone()).collect();
+    let members = members.into_iter().map(|p| (p.outline.name, p.dir));
+    let package_dirs: HashMap<String, PathBuf> = (sources.into_iter().chain(members))
+        .map(|(name, dir)| (name.to_string(), dir))
+        .collect();
     let mut paths = elm_files(&env);
     // The file itself, which may be open in the editor and not yet
     // saved. Discovery starts from the canonical source directories.
@@ -373,12 +599,15 @@ pub fn index_from(
         .or_else(|_| Graph::from_paths(snapshot, &env, &[]))
         .ok()?;
     let package = env.owner().package_name();
-    // Only an index of the same packages has the same interfaces of them.
+    // Only an index of the same packages has the same interfaces of them,
+    // and a member's may have changed since.
     let previous = previous.filter(|p| {
         p.compat == compat
             && p.package == package
-            && p.packages.len() == sources.len()
-            && (sources.iter()).all(|(name, dir)| p.packages.get(&name.to_string()) == Some(dir))
+            && p.packages == package_dirs
+            && (built.values()).all(|build| {
+                (build.exposed.keys()).all(|m| p.interfaces.get(m) == interfaces.get(m))
+            })
     });
     let mut visit = Visit {
         graph: &graph,
@@ -416,9 +645,8 @@ pub fn index_from(
         exposed,
         interfaces,
         package_files,
-        packages: (sources.into_iter())
-            .map(|(name, dir)| (name.to_string(), dir))
-            .collect(),
+        packages: package_dirs,
+        members: member_dirs,
     })
 }
 
@@ -443,21 +671,31 @@ fn named(env: &Env, paths: &[PathBuf]) -> Vec<PathBuf> {
     paths.iter().filter(|p| fits(p)).cloned().collect()
 }
 
-/// The releases the project builds with that the store holds, and its
-/// direct dependencies.
-fn releases(store: &Store, outline: &Outline, compat: Compat) -> (Vec<(Name, PathBuf)>, Vec<Name>) {
+/// The releases the project builds with that the store holds, but for
+/// `members`, with those their members depend on, and its direct
+/// dependencies.
+fn releases(
+    store: &Store,
+    outline: &Outline,
+    compat: Compat,
+    members: Option<&Members>,
+) -> (Vec<(Name, PathBuf)>, Vec<Name>) {
+    let is_member = |name: &Name| members.is_some_and(|m| m.has(name));
     let sources = match outline {
         Outline::App(app) => (app.direct.iter().chain(&app.indirect))
+            .filter(|(name, _)| !is_member(name))
             .filter_map(|(name, &version)| Some((name.clone(), store.get(name, version).ok()??)))
             .collect(),
         Outline::Pkg(pkg) => {
             let mut sources: Vec<(Name, PathBuf)> = Vec::new();
-            resolve(
-                store,
-                compat,
-                pkg.deps.iter().map(|(n, c)| (n.clone(), *c)).collect(),
-                &mut sources,
-            );
+            let member_deps = (members.iter())
+                .flat_map(|m| &m.packages)
+                .flat_map(|p| &p.outline.deps);
+            let pending = (pkg.deps.iter().chain(member_deps))
+                .filter(|(name, _)| !is_member(name))
+                .map(|(n, c)| (n.clone(), *c));
+            resolve(store, compat, pending.collect(), &mut sources);
+            sources.retain(|(name, _)| !is_member(name));
             sources
         }
     };

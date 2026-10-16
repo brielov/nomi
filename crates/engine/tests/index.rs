@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use nomi_engine::check::Checked;
-use nomi_engine::index::{self, Index, Memo};
+use nomi_engine::index::{self, Index, MemberBuilds, Memo};
 use nomi_engine::{Store, Vfs, live};
 use nomi_testkit::write_file;
 
@@ -49,8 +49,14 @@ fn an_index_reuses_modules_whose_text_and_imports_stayed() {
     let vfs = Vfs::new();
     let mut memo = Memo::new();
     let main = root.join("src/Main.elm");
+    let manifest = root.join("elm.json");
+    let kept = MemberBuilds::default();
     let mut index = |previous: Option<&Index>| {
-        index::index_from(&vfs.snapshot(), &store, &main, &mut memo, previous).unwrap()
+        let snapshot = vfs.snapshot();
+        index::index_from(
+            &snapshot, &store, &manifest, &main, &mut memo, &kept, previous,
+        )
+        .unwrap()
     };
     let first = index(None);
     let unchanged = index(Some(&first));
@@ -86,7 +92,7 @@ fn a_link_to_nothing_is_no_module_to_index_or_check() {
     let store = Store::new(store);
     let snapshot = Vfs::new().snapshot();
     let main = root.join("src/Main.elm");
-    let index = index::index_from(&snapshot, &store, &main, &mut Memo::new(), None).unwrap();
+    let index = index::index(&snapshot, &store, &main, &mut Memo::new()).unwrap();
     let mut canonical: Vec<&str> = (index.modules.iter())
         .filter(|m| m.canonical.is_some())
         .map(|m| m.name.as_str())
@@ -94,7 +100,16 @@ fn a_link_to_nothing_is_no_module_to_index_or_check() {
     canonical.sort_unstable();
     assert_eq!(canonical, ["A", "B", "Main"]);
     let manifest = root.join("elm.json");
-    let live = live::check(&snapshot, &store, &manifest, &[], &mut Memo::new(), None);
+    let kept = MemberBuilds::default();
+    let live = live::check(
+        &snapshot,
+        &store,
+        &manifest,
+        &[],
+        &mut Memo::new(),
+        &kept,
+        None,
+    );
     // Main's `Int` is no program: the one problem, rather than the link's.
     let checked = live.unwrap().unwrap().checked;
     let titles: Option<Vec<(&str, &str)>> = match &checked {
@@ -107,3 +122,82 @@ fn a_link_to_nothing_is_no_module_to_index_or_check() {
     };
     assert_eq!(titles, Some(vec![("Main", "BAD MAIN TYPE")]), "{checked:?}");
 }
+
+/// An application's `elm.json` of the source directories `dirs`.
+fn app_of(dirs: &[&str]) -> String {
+    ELM_JSON.replace(r#"["src"]"#, &format!("{dirs:?}"))
+}
+
+#[test]
+fn each_file_has_one_owner_whatever_is_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap();
+    let files = [
+        // Two projects listing one directory, and one listing a deeper
+        // directory of another's.
+        ("a/elm.json", app_of(&["src", "../shared"])),
+        ("b/elm.json", app_of(&["src", "../shared"])),
+        ("c/elm.json", app_of(&["src", "../a/src/Deep"])),
+        // A workspace whose application opens alone.
+        (
+            "ws/nomi.toml",
+            "[workspace]\nmembers = [\"web\", \"shared\"]\n".to_owned(),
+        ),
+        ("ws/web/elm.json", app_of(&["src"])),
+        ("ws/shared/elm.json", SHARED_PACKAGE.to_owned()),
+    ];
+    for (path, text) in &files {
+        write_file(&root, path, text);
+    }
+    let file = |path: &str| root.join(path);
+    let manifest = |dir: &str| Some(root.join(dir).join("elm.json"));
+    let snapshot = Vfs::new().snapshot();
+    let opened = [
+        vec![
+            file("a/src/Main.elm"),
+            file("b/src/Main.elm"),
+            file("c/src/Main.elm"),
+        ],
+        vec![
+            file("c/src/Main.elm"),
+            file("b/src/Main.elm"),
+            file("a/src/Main.elm"),
+        ],
+    ];
+    for open in opened {
+        let owners = index::Owners::read(&snapshot, &open);
+        let owner = |path: &str| owners.owner(&snapshot, &file(path));
+        assert_eq!(owner("shared/Common.elm"), manifest("a"));
+        assert_eq!(owner("b/src/Main.elm"), manifest("b"));
+        assert_eq!(owner("a/src/Deep/X.elm"), manifest("c"));
+        assert_eq!(owner("a/src/X.elm"), manifest("a"));
+        assert_eq!(owner("a/tests/X.elm"), manifest("a"));
+    }
+    // Only b open: the shared directory is b's.
+    let owners = index::Owners::read(&snapshot, &[file("b/src/Main.elm")]);
+    assert_eq!(
+        owners.owner(&snapshot, &file("shared/Common.elm")),
+        manifest("b")
+    );
+    // A member package is its own, though only an application is open.
+    let owners = index::Owners::read(&snapshot, &[file("ws/web/src/Main.elm")]);
+    let owner = |path: &str| owners.owner(&snapshot, &file(path));
+    assert_eq!(owner("ws/shared/src/Shared.elm"), manifest("ws/shared"));
+    // A file no project known holds is the nearest elm.json's above it,
+    // and none's with none.
+    assert_eq!(owner("a/src/Deep/X.elm"), manifest("a"));
+    assert_eq!(owner("shared/Common.elm"), None);
+}
+
+const SHARED_PACKAGE: &str = r#"{
+    "type": "package",
+    "name": "acme/shared",
+    "summary": "shared",
+    "license": "BSD-3-Clause",
+    "version": "1.0.0",
+    "exposed-modules": ["Shared"],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": { "elm/core": "1.0.0 <= v < 2.0.0" },
+    "test-dependencies": {}
+}
+"#;

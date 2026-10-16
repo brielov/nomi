@@ -14,7 +14,7 @@ use crate::Snapshot;
 use crate::artifacts::Artifacts;
 use crate::check::{Build, Checked, Goal};
 use crate::console::Personality;
-use crate::index::{self, Memo, Setup};
+use crate::index::{self, MemberBuilds, Memo, Setup};
 use crate::names;
 use crate::schedule::Cancelled;
 use crate::vfs::canonical_or_given;
@@ -31,23 +31,29 @@ pub struct Live {
 }
 
 /// Checks the project whose `elm.json` is `manifest`, with `open` among
-/// its modules where they lie in its source directories; none where the
-/// project isn't readable or the store lacks a dependency, since then
-/// nothing nomi says about it would be what elm says. What `artifacts`
-/// holds of earlier checks is reused, as `nomi make` reuses it. Cancelled
-/// once the snapshot is stale, when no further module is checked.
+/// its modules where they lie in its source directories, and the member
+/// packages of its workspace as `kept` has them; none where the project
+/// isn't readable, the store lacks a dependency or a member never built,
+/// since then nothing nomi says about it would be what elm says. What
+/// `artifacts` holds of earlier checks is reused, as `nomi make` reuses
+/// it. Cancelled once the snapshot is stale, when no further module is
+/// checked.
 pub fn check(
     snapshot: &Snapshot,
     store: &Store,
     manifest: &Path,
     open: &[PathBuf],
     memo: &mut Memo,
+    kept: &MemberBuilds,
     artifacts: Option<&Artifacts>,
 ) -> Result<Option<Live>, Cancelled> {
     let Some(setup) = Setup::read(snapshot, store, manifest).filter(|setup| setup.complete) else {
         return Ok(None);
     };
     let Some(env) = setup.env(&setup.exposing()) else {
+        return Ok(None);
+    };
+    let Some(built) = setup.member_builds(snapshot, kept, memo)? else {
         return Ok(None);
     };
     let Setup {
@@ -58,7 +64,7 @@ pub fn check(
         direct,
         ..
     } = setup;
-    let Ok(packages) = names::package_interfaces_with(compat, &sources, memo) else {
+    let Ok(packages) = names::package_interfaces_beside(compat, &sources, &built, memo) else {
         return Ok(None);
     };
     let visible = names::visible(&packages, &direct);

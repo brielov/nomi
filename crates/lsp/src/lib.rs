@@ -45,8 +45,8 @@ use lsp_types::{
 };
 use nomi_base::{TextSize, lock};
 use nomi_engine::artifacts::Artifacts;
-use nomi_engine::index::{self, Index, Memo, PackageModules};
-use nomi_engine::paths::Cache;
+use nomi_engine::index::{Index, MemberBuilds, Memo, Owners, PackageModules};
+use nomi_engine::paths::{Cache, ELM_JSON, NOMI_TOML};
 use nomi_engine::{Snapshot, Store, Vfs};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -150,8 +150,9 @@ fn serve_with(
     let shared = Arc::new(Shared {
         store,
         indexes: Indexes::default(),
-        artifacts,
+        artifacts: artifacts.clone(),
         memo: Mutex::new(memo),
+        members: MemberBuilds::new(artifacts),
         unit,
         sender: connection.sender.clone(),
         publishing: Mutex::new(()),
@@ -163,6 +164,7 @@ fn serve_with(
         shared,
         vfs: Vfs::new(),
         documents: HashMap::new(),
+        owners: Owners::default(),
         client: ClientSupport::of(&params.capabilities),
         settings_request: None,
         sent: 0,
@@ -276,6 +278,10 @@ struct Server {
     vfs: Vfs,
     /// The documents the client has open, with their text.
     documents: HashMap<Url, Document>,
+    /// Which project owns each file, as of the latest revision that could
+    /// change it: one that opened, closed or saved a file, or changed an
+    /// `elm.json` or a `nomi.toml`.
+    owners: Owners,
     diagnostics: Diagnostics,
     client: ClientSupport,
     /// The id of the request for the client's settings, while it's out.
@@ -518,10 +524,16 @@ impl Server {
         let Ok(path) = uri.to_file_path() else {
             return;
         };
-        self.documents.insert(uri.clone(), Document { path, text });
-        let document = &self.documents[uri];
+        let overlay: Arc<str> = text.as_str().into();
+        self.documents.insert(
+            uri.clone(),
+            Document {
+                path: path.clone(),
+                text,
+            },
+        );
         self.revise(Cause::Saved, |vfs| {
-            let _ = vfs.set_overlay(&document.path, document.text.as_str());
+            let _ = vfs.set_overlay(&path, overlay);
         });
     }
 
@@ -542,9 +554,10 @@ impl Server {
                 }
             }
         }
-        let document = &self.documents[uri];
-        self.revise(Cause::Edited(document.path.clone()), |vfs| {
-            let _ = vfs.set_overlay(&document.path, document.text.as_str());
+        let overlay: Arc<str> = document.text.as_str().into();
+        let path = document.path.clone();
+        self.revise(Cause::Edited(path.clone()), |vfs| {
+            let _ = vfs.set_overlay(&path, overlay);
         });
     }
 
@@ -563,7 +576,7 @@ impl Server {
 
     /// Has the files checked as they are now: a file saved, or the
     /// client asking.
-    fn check_now(&self) {
+    fn check_now(&mut self) {
         self.revise(Cause::Saved, |vfs| {
             vfs.disk_changed();
         });
@@ -571,15 +584,25 @@ impl Server {
 
     /// Makes a revision, `change` laying the editor's text over the disk
     /// or taking it off, and has it checked for `cause`.
-    fn revise(&self, cause: Cause, change: impl FnOnce(&Vfs)) {
+    fn revise(&mut self, cause: Cause, change: impl FnOnce(&Vfs)) {
         let snapshot = {
             let _held = lock(&self.shared.publishing);
             change(&self.vfs);
             self.vfs.snapshot()
         };
-        let open = (self.documents.iter())
+        let open: Vec<(Url, PathBuf)> = (self.documents.iter())
             .map(|(uri, document)| (uri.clone(), document.path.clone()))
             .collect();
+        let owned = match &cause {
+            Cause::Saved | Cause::Closed => true,
+            Cause::Edited(path) => {
+                (path.file_name()).is_some_and(|name| name == ELM_JSON || name == NOMI_TOML)
+            }
+        };
+        if owned {
+            let paths: Vec<PathBuf> = open.iter().map(|(_, path)| path.clone()).collect();
+            self.owners = Owners::read(&snapshot, &paths);
+        }
         self.diagnostics.check(Job {
             snapshot,
             open,
@@ -605,8 +628,29 @@ impl Server {
     /// The index of the project that owns `path`, made anew only when the
     /// editor's text changed since the last.
     fn index(&self, snapshot: &Snapshot, path: &Path) -> Option<Arc<Index>> {
+        let manifest = self.owners.owner(snapshot, path)?;
         let mut memo = lock(&self.shared.memo);
-        (self.shared.indexes).get(snapshot, &self.shared.store, &mut memo, path)
+        let kept = &self.shared.members;
+        (self.shared.indexes).get(
+            snapshot,
+            &self.shared.store,
+            &mut memo,
+            kept,
+            &manifest,
+            path,
+        )
+    }
+
+    /// The directory of the project that owns `path`.
+    fn project_root(&self, snapshot: &Snapshot, path: &Path) -> Option<PathBuf> {
+        let manifest = self.owners.owner(snapshot, path)?;
+        manifest.parent().map(Path::to_path_buf)
+    }
+
+    /// The project that owns `path` as elm-language-server's commands
+    /// name it: its directory's URI without the last `/`.
+    fn command_root(&self, snapshot: &Snapshot, path: &Path) -> Option<String> {
+        command_root(&self.project_root(snapshot, path)?)
     }
 
     /// Sends the client a request under an id no other has had, which its
@@ -649,17 +693,10 @@ fn file_path(uri: &str) -> Option<PathBuf> {
     Url::parse(uri).ok()?.to_file_path().ok()
 }
 
-/// The directory of the project that owns `path`.
-fn project_root(snapshot: &Snapshot, path: &Path) -> Option<PathBuf> {
-    index::manifest(snapshot, path)?
-        .parent()
-        .map(Path::to_path_buf)
-}
-
-/// The project that owns `path` as elm-language-server's commands name
-/// it: its directory's URI without the last `/`.
-fn command_root(snapshot: &Snapshot, path: &Path) -> Option<String> {
-    let root = Url::from_file_path(project_root(snapshot, path)?).ok()?;
+/// The project in `root` as elm-language-server's commands name it: its
+/// directory's URI without the last `/`.
+fn command_root(root: &Path) -> Option<String> {
+    let root = Url::from_file_path(root).ok()?;
     Some(root.as_str().trim_end_matches('/').to_owned())
 }
 
