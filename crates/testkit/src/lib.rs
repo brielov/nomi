@@ -83,6 +83,23 @@ pub fn require_node() {
     assert!(runs, "this test runs Node, which isn't on the PATH");
 }
 
+/// The Node binary the tests that run programs use: the one
+/// `NOMI_TEST_NODE` names, to test another release, or else `node` on the
+/// PATH. It is the binary Node reports running, since a version manager's
+/// wrapper may exit 128 plus a signal itself rather than pass it on.
+pub fn node() -> PathBuf {
+    let launcher = std::env::var_os("NOMI_TEST_NODE").unwrap_or_else(|| "node".into());
+    let output = Command::new(&launcher)
+        .args(["-p", "process.execPath"])
+        .output();
+    match output {
+        Ok(output) if output.status.success() => {
+            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+        }
+        _ => panic!("this test runs Node, and {launcher:?} doesn't run"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parallel_on;

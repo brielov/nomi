@@ -1,0 +1,476 @@
+//! The example todo server, `examples/todo-server`, built from a copy and
+//! run on the tests' Node binary, which `NOMI_TEST_NODE` makes the oldest
+//! maintained LTS: SIGTERM lets a response in flight complete, then the
+//! todos are written and the process exits within its deadline; a client
+//! that disconnects interrupts its request; a handler that dies answers
+//! 500 and writes one line; and thousands of requests, some cut off, leave
+//! no fiber, handle or memory behind. Its own effectful tests pass.
+#![cfg(unix)]
+
+#[path = "support/website.rs"]
+pub mod website;
+
+use std::ffi::OsString;
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use website::offline;
+
+/// Loaded before the server with `--import`: on SIGUSR2 it writes a line
+/// to stderr, `probe <fibers> <heap> <handles>`, where `fibers` counts the
+/// runtime's `Fiber` objects alive in a heap snapshot, `heap` is the heap
+/// in use after a full collection (`--expose-gc`), and `handles` lists
+/// Node's active resources. The server itself carries nothing for it.
+const PROBE: &str = r#"import { getHeapSnapshot } from "node:v8";
+
+process.on("SIGUSR2", async () => {
+  const handles = process.getActiveResourcesInfo().sort().join(",");
+  const chunks = [];
+  for await (const chunk of getHeapSnapshot()) chunks.push(Buffer.from(chunk));
+  const { snapshot: { meta }, nodes, strings } = JSON.parse(Buffer.concat(chunks).toString());
+  const width = meta.node_fields.length;
+  const type = meta.node_fields.indexOf("type");
+  const name = meta.node_fields.indexOf("name");
+  const object = meta.node_types[type].indexOf("object");
+  let fibers = 0;
+  for (let i = 0; i < nodes.length; i += width) {
+    if (nodes[i + type] === object && strings[nodes[i + name]] === "Fiber") fibers++;
+  }
+  globalThis.gc();
+  console.error(`probe ${fibers} ${process.memoryUsage().heapUsed} ${handles}`);
+});
+"#;
+
+/// A copy of the example in a new directory, without what running it in
+/// place leaves behind.
+fn example() -> (tempfile::TempDir, PathBuf) {
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/todo-server");
+    nomi_testkit::copy_tree(&example, &root, |path| {
+        !["elm-stuff", "data", "dist"]
+            .iter()
+            .any(|dir| path.starts_with(dir))
+    })
+    .unwrap();
+    (work, root)
+}
+
+/// The PATH with the tests' Node binary's directory first.
+fn path_to_node() -> OsString {
+    let node = nomi_testkit::node();
+    let mut path = OsString::from(node.parent().unwrap());
+    path.push(":");
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    path
+}
+
+/// nomi in `root`, offline with `cache`, with `args`.
+fn nomi(cache: &Path, root: &Path, args: &[&str]) -> Command {
+    let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
+    nomi.current_dir(root)
+        .env("PATH", path_to_node())
+        .args(args);
+    nomi
+}
+
+/// The example, as copied into `root`, built into `dist/main.mjs`.
+fn build(root: &Path) {
+    let cache = website::fixture_cache();
+    let built = nomi(
+        cache.path(),
+        root,
+        &["build", "src/Main.elm", "--output=dist/main.mjs"],
+    )
+    .output()
+    .unwrap();
+    assert!(built.status.success(), "{built:?}");
+}
+
+/// A port on the loopback interface that nothing listens on.
+fn free_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+/// The lines `pipe` gives, as they come.
+fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
+    let (send, lines) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+            if send.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    lines
+}
+
+/// A request closing its connection.
+fn request(method: &str, target: &str, body: &str) -> Vec<u8> {
+    format!(
+        "{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+/// The response read from `stream` to its end: its status and body.
+fn response(stream: &mut TcpStream) -> (u16, String) {
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let (head, body) = response.split_once("\r\n\r\n").unwrap();
+    let status = head.split(' ').nth(1).unwrap();
+    (status.parse().unwrap(), body.to_owned())
+}
+
+/// The example serving on a port of its own, stopped when dropped.
+struct Server {
+    port: u16,
+    child: Child,
+    stdout: Receiver<String>,
+    stderr: Receiver<String>,
+    _work: tempfile::TempDir,
+}
+
+impl Server {
+    /// The example built in `root`, run on the tests' Node binary with
+    /// the probe loaded.
+    fn node(work: tempfile::TempDir, root: &Path) -> Server {
+        build(root);
+        fs::write(root.join("probe.mjs"), PROBE).unwrap();
+        let mut node = Command::new(nomi_testkit::node());
+        node.args(["--expose-gc", "--import", "./probe.mjs", "dist/main.mjs"])
+            .current_dir(root);
+        Server::start(work, node)
+    }
+
+    /// `command` serving, on a free port it is given as `PORT`.
+    fn start(work: tempfile::TempDir, mut command: Command) -> Server {
+        let port = free_port();
+        let mut child = command
+            .env("PORT", port.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdout = lines(child.stdout.take().unwrap());
+        let stderr = lines(child.stderr.take().unwrap());
+        let server = Server {
+            port,
+            child,
+            stdout,
+            stderr,
+            _work: work,
+        };
+        // Printed before it listens, so it is listening once it answers.
+        server.says(&format!("listening on {port}"));
+        server.until_in_flight(0);
+        server
+    }
+
+    /// Waits for the server to print `line`, past what a build takes.
+    fn says(&self, line: &str) {
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            match (self.stdout).recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(said) if said == line => return,
+                Ok(_) => {}
+                Err(e) => panic!("the server didn't print {line:?}: {e}"),
+            }
+        }
+    }
+
+    /// A new connection, once the server takes one.
+    fn connect(&self) -> TcpStream {
+        let started = Instant::now();
+        let stream = loop {
+            match TcpStream::connect(("127.0.0.1", self.port)) {
+                Ok(stream) => break stream,
+                Err(e) if started.elapsed() > Duration::from_secs(10) => panic!("{e}"),
+                Err(_) => thread::sleep(Duration::from_millis(10)),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        stream
+    }
+
+    /// `request` sent on a new connection; the response's status and body.
+    fn send(&self, request: &[u8]) -> (u16, String) {
+        let mut stream = self.connect();
+        stream.write_all(request).unwrap();
+        response(&mut stream)
+    }
+
+    /// How many requests the server is answering, from `/health`.
+    fn in_flight(&self) -> u32 {
+        let (status, body) = self.send(&request("GET", "/health", ""));
+        assert_eq!(status, 200);
+        let count = body.strip_prefix(r#"{"inFlight":"#).unwrap();
+        count.strip_suffix('}').unwrap().parse().unwrap()
+    }
+
+    /// Waits until the server answers `count` requests besides `/health`.
+    fn until_in_flight(&self, count: u32) {
+        let started = Instant::now();
+        while self.in_flight() != count {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "never {count} in flight"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn signal(&self, signal: &str) {
+        let sent = Command::new("kill")
+            .args([format!("-{signal}"), self.child.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+    }
+
+    /// The probe's report: live fibers, heap in use and active handles.
+    fn probe(&self) -> (usize, usize, String) {
+        self.signal("USR2");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let line = (self.stderr)
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("the probe answers");
+            if let Some(report) = line.strip_prefix("probe ") {
+                let mut parts = report.splitn(3, ' ');
+                let fibers = parts.next().unwrap().parse().unwrap();
+                let heap = parts.next().unwrap().parse().unwrap();
+                return (fibers, heap, parts.next().unwrap_or("").to_owned());
+            }
+        }
+    }
+
+    /// The exit code once the server exits, within 15 seconds, and the
+    /// lines it wrote to stderr past the development mode's warning.
+    fn exit(&mut self) -> (Option<i32>, Vec<String>) {
+        let started = Instant::now();
+        while self.child.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 15 {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let code = (self.child.try_wait().unwrap()).and_then(|status| status.code());
+        if code.is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+        let lines = (self.stderr.iter())
+            .filter(|line| !line.starts_with("Compiled in DEV mode."))
+            .collect();
+        (code, lines)
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn sigterm_lets_a_response_in_flight_complete_then_writes_the_todos_and_exits() {
+    let (work, root) = example();
+    let cache = website::fixture_cache();
+    let run = nomi(cache.path(), &root, &["run"]);
+    let mut server = Server::start(work, run);
+    // The handler waits for the body, sent once SIGTERM has stopped the
+    // server accepting connections.
+    let body = r#"{"title": "drained"}"#;
+    let mut stream = server.connect();
+    let sent = request("POST", "/todos", body);
+    stream.write_all(&sent[..sent.len() - body.len()]).unwrap();
+    server.until_in_flight(1);
+    assert!(!root.join("data/todos.json").exists());
+    // To `nomi run`, which passes it on.
+    server.signal("TERM");
+    let signalled = Instant::now();
+    loop {
+        match TcpStream::connect(("127.0.0.1", server.port)) {
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => break,
+            _ if signalled.elapsed() > Duration::from_secs(5) => panic!("still accepting"),
+            _ => thread::sleep(Duration::from_millis(10)),
+        }
+    }
+    stream.write_all(body.as_bytes()).unwrap();
+    assert_eq!(response(&mut stream), (201, r#"{"id":1}"#.to_owned()));
+    let (code, errors) = server.exit();
+    assert_eq!(code, Some(143), "{errors:?}");
+    // Well within the drain's 5 seconds, and not cut off by the deadline.
+    assert!(signalled.elapsed() < Duration::from_secs(5));
+    assert!(
+        !errors.iter().any(|line| line.starts_with("nomi:")),
+        "{errors:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("data/todos.json")).unwrap(),
+        "{\n  \"1\": {\n    \"title\": \"drained\",\n    \"done\": false\n  }\n}"
+    );
+}
+
+#[test]
+fn a_client_that_disconnects_interrupts_its_request() {
+    let (work, root) = example();
+    let mut server = Server::node(work, &root);
+    let mut stream = server.connect();
+    stream.write_all(&request("GET", "/quote", "")).unwrap();
+    server.until_in_flight(1);
+    let dropped = Instant::now();
+    drop(stream);
+    // Its finalizer ran: the quote, left alone, answers only after its
+    // two-second timeout.
+    server.until_in_flight(0);
+    assert!(dropped.elapsed() < Duration::from_millis(1500));
+    assert_eq!(
+        server.send(&request("GET", "/todos", "")),
+        (200, "{}".to_owned())
+    );
+    server.signal("TERM");
+    assert_eq!(server.exit(), (Some(143), vec![]));
+}
+
+#[test]
+fn a_handler_that_dies_answers_500_and_writes_one_line() {
+    let (work, root) = example();
+    let main = root.join("src/Main.elm");
+    let source = fs::read_to_string(&main).unwrap();
+    let route = r#"Task.succeed (Server.text 404 "not found")"#;
+    assert_eq!(source.matches(route).count(), 1);
+    fs::write(&main, source.replace(route, r#"Debug.todo "no route""#)).unwrap();
+    let line = source.lines().position(|l| l.contains(route)).unwrap() + 1;
+    let mut server = Server::node(work, &root);
+    assert_eq!(
+        server.send(&request("GET", "/nowhere?x=1", "")),
+        (500, "internal server error".to_owned())
+    );
+    assert_eq!(server.in_flight(), 0);
+    assert_eq!(
+        server.send(&request("GET", "/todos", "")),
+        (200, "{}".to_owned())
+    );
+    server.signal("TERM");
+    assert_eq!(
+        server.exit(),
+        (
+            Some(143),
+            vec![format!(
+                "nomi: request GET /nowhere?x=1 died: Error: TODO in module `Main` on line {line} no route"
+            )]
+        )
+    );
+}
+
+/// `count` requests from 8 clients at once: todos added, listed and
+/// removed, and one in ten cut off, a slow quote or a body half sent.
+fn load(port: u16, count: usize) {
+    let clients: Vec<_> = (0..8)
+        .map(|client| {
+            thread::spawn(move || {
+                let connect = || {
+                    let stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(10)))
+                        .unwrap();
+                    stream
+                };
+                let send = |sent: &[u8]| {
+                    let mut stream = connect();
+                    stream.write_all(sent).unwrap();
+                    response(&mut stream)
+                };
+                let mut id = String::new();
+                for k in (client..count).step_by(8) {
+                    let pause = Duration::from_millis((k % 7) as u64);
+                    match k % 20 {
+                        0 => {
+                            let mut stream = connect();
+                            let _ = stream.write_all(&request("GET", "/quote", ""));
+                            thread::sleep(pause);
+                        }
+                        10 => {
+                            let mut stream = connect();
+                            let _ = stream.write_all(b"POST /todos HTTP/1.1\r\nHost: localhost\r\nContent-Length: 40\r\n\r\n{\"title");
+                            thread::sleep(pause);
+                        }
+                        _ if k % 3 == 0 => {
+                            let (status, body) =
+                                send(&request("POST", "/todos", r#"{"title": "load"}"#));
+                            assert_eq!(status, 201, "{body}");
+                            id = body.trim_start_matches(r#"{"id":"#).trim_end_matches('}').to_owned();
+                        }
+                        _ if k % 3 == 1 => {
+                            let (status, _) = send(&request("DELETE", &format!("/todos/{id}"), ""));
+                            assert_eq!(status, if id.is_empty() { 404 } else { 204 });
+                        }
+                        _ => assert_eq!(send(&request("GET", "/todos", "")).0, 200),
+                    }
+                }
+            })
+        })
+        .collect();
+    for client in clients {
+        client.join().unwrap();
+    }
+}
+
+#[test]
+fn nothing_leaks_under_load() {
+    let (work, root) = example();
+    let mut server = Server::node(work, &root);
+    load(server.port, 500);
+    server.until_in_flight(0);
+    let (fibers, heap, handles) = server.probe();
+    assert!(handles.contains("TCPServerWrap"), "{handles}");
+    load(server.port, 2000);
+    server.until_in_flight(0);
+    // Back to what it was once closing connections have closed.
+    let started = Instant::now();
+    let after = loop {
+        let after = server.probe();
+        if (after.0, &after.2) == (fibers, &handles) || started.elapsed() > Duration::from_secs(10)
+        {
+            break after;
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!((after.0, &after.2), (fibers, &handles));
+    // A request left behind keeps a fiber of over a kilobyte and its
+    // request and socket: 2,000 of them would be several megabytes.
+    assert!(
+        after.1 < heap + 2 * 1024 * 1024,
+        "the heap grew from {heap} to {} bytes",
+        after.1
+    );
+    server.signal("TERM");
+    let (code, errors) = server.exit();
+    assert_eq!(code, Some(143));
+    assert!(
+        errors.iter().all(|line| line.starts_with("probe ")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn the_examples_own_tests_pass() {
+    let (_work, root) = example();
+    let cache = website::fixture_cache();
+    let tested = nomi(cache.path(), &root, &["test", "--offline", "--no-color"])
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&tested.stdout);
+    assert_eq!(tested.status.code(), Some(0), "{out}{tested:?}");
+    assert!(out.contains("Passed:   5\nFailed:   0\n"), "{out}");
+}

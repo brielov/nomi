@@ -308,14 +308,8 @@ fn built(program: &str) -> (tempfile::TempDir, PathBuf) {
     (work, root)
 }
 
-/// Node's own binary: a version manager's `node` may exit 128 plus the
-/// signal for a child the signal killed.
 fn node() -> Command {
-    let path = Command::new("node")
-        .args(["-p", "process.execPath"])
-        .output()
-        .unwrap();
-    Command::new(String::from_utf8(path.stdout).unwrap().trim())
+    Command::new(nomi_testkit::node())
 }
 
 /// The lines of standard error past the development mode's warning.

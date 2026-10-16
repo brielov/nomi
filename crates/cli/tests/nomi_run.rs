@@ -74,15 +74,10 @@ fn project(program: &str, nomi_toml: Option<&str>) -> (tempfile::TempDir, PathBu
     (work, root)
 }
 
-/// `nomi run` with `args` in `root`, offline with `cache`, with Node's own
-/// directory first on the PATH: a version manager's `node` may exit 128
-/// plus the signal itself rather than pass it on.
+/// `nomi run` with `args` in `root`, offline with `cache`, with the tests'
+/// Node binary's directory first on the PATH.
 fn nomi_run(cache: &Path, root: &Path, args: &[&str]) -> Command {
-    let node = Command::new("node")
-        .args(["-p", "process.execPath"])
-        .output()
-        .unwrap();
-    let node = PathBuf::from(String::from_utf8(node.stdout).unwrap().trim());
+    let node = nomi_testkit::node();
     let mut path = OsString::from(node.parent().unwrap());
     path.push(":");
     path.push(std::env::var_os("PATH").unwrap_or_default());
