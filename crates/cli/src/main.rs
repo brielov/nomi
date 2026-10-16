@@ -14,8 +14,7 @@ use nomi_engine::format::{self, Mode};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::{
-    Context, Vfs, Web, bump, diff, init, install, javascript, make, publish, remove, run, tree,
-    update,
+    Context, Vfs, Web, bump, diff, init, install, make, publish, remove, run, tree, update,
 };
 
 /// One toolchain for Elm: compiler, formatter, language server, test runner
@@ -278,39 +277,20 @@ fn build(args: Build) -> bool {
         platform,
         ffi,
     } = args;
-    let module = output.as_deref().is_some_and(|o| make::has_ext(".mjs", o));
-    let output = match output.as_deref().map(make::Output::parse) {
-        Some(None) if module => output.map(|o| make::Output::Js(o.into())),
-        Some(None) => {
-            eprintln!("error: --output takes a file ending in .js, .mjs or .html, or /dev/null");
-            return false;
-        }
-        output => output.flatten(),
-    };
-    let target = javascript::Target {
-        platform: match platform {
-            None | Some(PlatformName::Browser) => Platform::Browser,
-            Some(PlatformName::Node) => Platform::Node,
-        },
-        format: if module {
-            javascript::Format::EsModule
-        } else {
-            javascript::Format::Iife
-        },
-        dom: javascript::Dom::Native,
-        ffi: None,
+    let platform = platform.map(|platform| match platform {
+        PlatformName::Browser => Platform::Browser,
+        PlatformName::Node => Platform::Node,
+    });
+    let Some(make) = make::Make::build(paths, output.as_deref(), platform) else {
+        eprintln!("error: --output takes a file ending in .js, .mjs or .html, or /dev/null");
+        return false;
     };
     let make = make::Make {
-        paths,
-        personality: Personality::Nomi,
         style: style(report),
         kind: make::kind(debug, optimize),
-        target,
-        platform_by_main: platform.is_none(),
-        resolve: Resolve::Nomi,
         ffi,
-        output,
         docs,
+        ..make
     };
     in_project(|cx, console| make::run(cx, console, &make))
 }

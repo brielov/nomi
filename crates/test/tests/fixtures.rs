@@ -67,15 +67,7 @@ impl Http for Offline {
 
     fn post(&self, url: &str) -> Result<Vec<u8>, HttpError> {
         if url.ends_with("/all-packages") {
-            let mut index = serde_json::Map::new();
-            for package in packages::manifest() {
-                let versions = index.entry(package.name).or_insert(serde_json::json!([]));
-                versions
-                    .as_array_mut()
-                    .unwrap()
-                    .push(package.version.into());
-            }
-            return Ok(serde_json::to_vec(&index).unwrap());
+            return Ok(packages::all_packages());
         }
         if url.contains("/all-packages/since/") {
             return Ok(b"[]".to_vec());

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
@@ -25,7 +25,7 @@ use crate::check::{
 use crate::console::{Console, Personality};
 use crate::graph::{Env, RootMain};
 use crate::names::{Building, ModuleInterface, Packages};
-use crate::objects::{Dependencies, Memo};
+use crate::objects::{Dependencies, Memo, PackageBuild};
 use crate::packages::Resolve;
 use crate::paths::{Cache, Root};
 use crate::project::{self, Project, check_source_dirs};
@@ -133,6 +133,44 @@ impl Make {
         }
     }
 
+    /// What `nomi build` asks for of `paths`, its other flags unset: code
+    /// written to `output`, an ES module where it ends in `.mjs`, for
+    /// `platform` or, without one, the platform the roots' `main`s choose;
+    /// `None` where `output` names no file code is written to.
+    pub fn build(
+        paths: Vec<PathBuf>,
+        output: Option<&str>,
+        platform: Option<Platform>,
+    ) -> Option<Make> {
+        let module = output.is_some_and(|o| has_ext(".mjs", o));
+        let output = match output {
+            Some(o) if module => Some(Output::Js(o.into())),
+            Some(o) => Some(Output::parse(o)?),
+            None => None,
+        };
+        Some(Make {
+            paths,
+            personality: Personality::Nomi,
+            style: Style::Terminal,
+            kind: Ok(javascript::Kind::Dev),
+            target: javascript::Target {
+                platform: platform.unwrap_or(Platform::Browser),
+                format: if module {
+                    javascript::Format::EsModule
+                } else {
+                    javascript::Format::Iife
+                },
+                dom: javascript::Dom::Native,
+                ffi: None,
+            },
+            platform_by_main: platform.is_none(),
+            resolve: Resolve::Nomi,
+            ffi: None,
+            output,
+            docs: None,
+        })
+    }
+
     /// What `make` reports where there is no project.
     fn no_outline(&self) -> Report {
         match self.personality {
@@ -141,6 +179,17 @@ impl Make {
                 project::no_outline("to check")
             }
             Personality::Nomi => project::no_outline("to build"),
+        }
+    }
+
+    /// What the build makes before it writes anything.
+    fn goal(&self) -> Goal {
+        if self.documenting() {
+            Goal::Docs
+        } else if self.generating() {
+            Goal::Optimize
+        } else {
+            Goal::Check
         }
     }
 
@@ -165,20 +214,29 @@ impl Make {
 /// where the time went follows on standard error.
 pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: &Make) -> bool {
     let started = Instant::now();
-    let goal = if make.documenting() {
-        Goal::Docs
-    } else if make.generating() {
-        Goal::Optimize
-    } else {
-        Goal::Check
-    };
-    let ok = build(cx, console, make, goal)
-        .is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean));
+    // The packages' builds are freed before the code is generated, which
+    // then takes their graphs rather than copying them.
+    let built = build(cx, console, make, make.goal(), &Shared::new(cx.cache, None));
+    let ok = built.is_some_and(|clean| write(cx.vfs, console, cx.dir, make, clean));
     trim(cx.cache);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
     }
     ok
+}
+
+/// Makes what `make` asks for as [`run`] does, with what the command's
+/// other builds share; the modules checked rather than taken from the
+/// artifact cache, if nothing was wrong.
+pub(crate) fn made(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    make: &Make,
+    shared: &Shared,
+) -> Option<Vec<PathBuf>> {
+    let mut clean = build(cx, console, make, make.goal(), shared)?;
+    let ran = std::mem::take(&mut clean.built.ran);
+    write(cx.vfs, console, cx.dir, make, clean).then_some(ran)
 }
 
 /// The interfaces of the modules of a project around the directory,
@@ -194,7 +252,7 @@ pub fn interfaces(
     } else {
         Goal::Optimize
     };
-    let built = build(cx, console, make, goal);
+    let built = build(cx, console, make, goal, &Shared::new(cx.cache, None));
     trim(cx.cache);
     let clean = built?;
     let interfaces = match &clean.built.made {
@@ -204,9 +262,35 @@ pub fn interfaces(
     write(cx.vfs, console, cx.dir, make, clean).then_some(interfaces)
 }
 
+/// What the builds of one command share: the artifact cache, each
+/// package's build, and where their reports name paths from.
+#[derive(Debug)]
+pub(crate) struct Shared<'a> {
+    pub artifacts: Artifacts,
+    pub memo: Mutex<Memo>,
+    /// Each member package built, by name, once in a command: its
+    /// workspace resolves once, and a command builds them for one goal,
+    /// or a workspace's optimized for all.
+    pub members: Mutex<BTreeMap<Name, Arc<PackageBuild>>>,
+    /// The workspace's root, which a workspace's build names every
+    /// module's path from, in place of each project's own directory.
+    pub root: Option<&'a Path>,
+}
+
+impl<'a> Shared<'a> {
+    pub(crate) fn new(cache: &Cache, root: Option<&'a Path>) -> Shared<'a> {
+        Shared {
+            artifacts: Artifacts::new(cache),
+            memo: Mutex::new(Memo::new()),
+            members: Mutex::new(BTreeMap::new()),
+            root,
+        }
+    }
+}
+
 /// Trims the artifact cache as a build ends, as `go build` trims its own:
 /// at most once a day, and a trim that fails costs only disk space.
-fn trim(cache: &Cache) {
+pub(crate) fn trim(cache: &Cache) {
     let _ = Artifacts::new(cache).trim();
 }
 
@@ -225,11 +309,10 @@ struct Clean {
 }
 
 /// The project at `root`, loaded, and what it builds with.
-struct Loaded {
-    compat: Compat,
-    outline: Outline,
-    env: Env,
-    sources: Sources,
+pub(crate) struct Loaded {
+    pub compat: Compat,
+    pub outline: Outline,
+    pub sources: Sources,
 }
 
 /// Builds `goal` for `make` of the project around the directory, showing
@@ -239,6 +322,7 @@ fn build(
     console: &mut dyn Console,
     make: &Make,
     goal: Goal,
+    shared: &Shared,
 ) -> Option<Clean> {
     let dir = cx.dir;
     let personality = make.personality;
@@ -264,16 +348,17 @@ fn build(
     let Loaded {
         compat,
         outline,
-        env,
         sources,
     } = match load(cx, &root, personality, make.resolve) {
         Ok(loaded) => loaded,
         Err((report, compat)) => return unready(console, dir, Checked::Project(report), compat),
     };
+    let env = match env_of(root.dir(), &outline, compat, sources.foreigns.clone()) {
+        Ok(env) => env.with_cwd(dir),
+        Err(report) => return unready(console, dir, Checked::Project(report), compat),
+    };
     let root = root.dir().to_owned();
     let snapshot = cx.vfs.snapshot();
-    let artifacts = Artifacts::new(cx.cache);
-    let memo = Mutex::new(Memo::new());
     let members = match &sources.members {
         None => BTreeMap::new(),
         Some(members) => {
@@ -282,12 +367,11 @@ fn build(
                 compat,
                 personality,
                 packages: &sources.packages,
-                artifacts: &artifacts,
-                memo: &memo,
+                shared,
                 goal,
             };
             match build.run(members) {
-                Ok(built) => built,
+                Ok(built) => built.builds,
                 Err(checked) => return unready(console, &members.root, checked, compat),
             }
         }
@@ -299,8 +383,8 @@ fn build(
         compat,
         sources.packages,
         members,
-        Some(&artifacts),
-        &memo,
+        Some(&shared.artifacts),
+        &shared.memo,
         sources.direct,
     );
     let built = timings::time(Phase::Modules, || {
@@ -311,7 +395,7 @@ fn build(
             paths: &make.paths,
             personality,
             packages: Packages::Building(&building),
-            artifacts: Some(&artifacts),
+            artifacts: Some(&shared.artifacts),
         };
         build
             .run(goal)
@@ -330,7 +414,7 @@ fn build(
     shown(
         console,
         make,
-        &root,
+        shared.root.unwrap_or(&root),
         compat,
         &outline,
         built_packages,
@@ -387,7 +471,7 @@ fn shown(
 /// The project at `root`, and what it builds with, every release
 /// downloaded; or the report on why not, in the words of the release it
 /// names, where it names one.
-fn load(
+pub(crate) fn load(
     cx: &Context<'_, impl Http + Sync>,
     root: &Root,
     personality: Personality,
@@ -399,16 +483,9 @@ fn load(
     let fail = |report| (report, compat);
     check_source_dirs(root.dir(), &project.outline).map_err(fail)?;
     let sources = check::sources(cx, &project, personality, resolve).map_err(fail)?;
-    let env = env_of(
-        root.dir(),
-        &project.outline,
-        compat,
-        sources.foreigns.clone(),
-    );
     Ok(Loaded {
         compat,
         outline: project.outline,
-        env: env.map_err(fail)?.with_cwd(cx.dir),
         sources,
     })
 }

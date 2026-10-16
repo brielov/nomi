@@ -7,25 +7,28 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Instant;
 
-use nomi_base::{Compat, Report};
+use nomi_base::{Compat, Platform, Report, lock};
 use nomi_project::outline::PkgOutline;
 use nomi_project::workspace::{Member, Workspace, WorkspaceError};
-use nomi_project::{Manifest, ModuleName, Name, Outline, Version, report};
-use nomi_registry::{SolverProblem, WorkspaceProblem};
+use nomi_project::{Entry, Manifest, ModuleName, Name, Outline, Version, report};
+use nomi_registry::{Http, SolverProblem, WorkspaceProblem};
 
-use crate::artifacts::Artifacts;
-use crate::check::{Build, Checked, Goal, Made, env_of, packages_problem};
-use crate::console::Personality;
+use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_problem};
+use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
+use crate::make::{self, Make, Shared};
 use crate::names::{Building, Packages};
-use crate::objects::{self, Memo, PackageBuild};
+use crate::objects::{self, PackageBuild};
+use crate::packages::Resolve;
 use crate::paths::{ELM_JSON, NOMI_TOML, Root};
 use crate::project::{Project, elm_json, package_outline};
 use crate::report::one_line;
-use crate::{Snapshot, Vfs, vfs};
+use crate::timings;
+use crate::{Context, Snapshot, Vfs, javascript, run, vfs};
 
 /// The workspace around `dir`, if there is one: the nearest of its
 /// ancestors whose `nomi.toml` has a `[workspace]`, unless the project
@@ -324,24 +327,36 @@ pub(crate) struct MemberBuild<'a> {
     pub personality: Personality,
     /// The registry's packages of the project, and their directories.
     pub packages: &'a [(Name, PathBuf)],
-    pub artifacts: &'a Artifacts,
-    pub memo: &'a Mutex<Memo>,
+    pub shared: &'a Shared<'a>,
     /// What the project's build makes: optimizing, it needs a member's
     /// graph and types as well as its exposed interfaces.
     pub goal: Goal,
 }
 
+/// Member packages built.
+#[derive(Debug, Default)]
+pub(crate) struct MembersBuilt {
+    pub builds: BTreeMap<Name, Arc<PackageBuild>>,
+    /// The modules checked rather than taken from the artifact cache.
+    pub ran: Vec<PathBuf>,
+}
+
 impl MemberBuild<'_> {
-    /// Each of `members` built in order, by name; or what was wrong with
-    /// the first that failed.
-    pub(crate) fn run(
-        &self,
-        members: &Members,
-    ) -> Result<BTreeMap<Name, Arc<PackageBuild>>, Checked> {
-        let mut built = BTreeMap::new();
+    /// Each of `members` built in order, or taken from the command's
+    /// builds before; or what was wrong with the first that failed.
+    pub(crate) fn run(&self, members: &Members) -> Result<MembersBuilt, Checked> {
+        let mut built = MembersBuilt::default();
         for member in &members.packages {
-            let build = self.member(members, member, &built)?;
-            built.insert(member.outline.name.clone(), Arc::new(build));
+            let name = &member.outline.name;
+            let known = lock(&self.shared.members).get(name).cloned();
+            let build = if let Some(build) = known {
+                build
+            } else {
+                let build = Arc::new(self.member(members, member, &mut built)?);
+                lock(&self.shared.members).insert(name.clone(), build.clone());
+                build
+            };
+            built.builds.insert(name.clone(), build);
         }
         Ok(built)
     }
@@ -352,7 +367,7 @@ impl MemberBuild<'_> {
         &self,
         members: &Members,
         member: &MemberPackage,
-        built: &BTreeMap<Name, Arc<PackageBuild>>,
+        built: &mut MembersBuilt,
     ) -> Result<PackageBuild, Checked> {
         let compat = self.compat;
         let pkg = &member.outline;
@@ -360,7 +375,7 @@ impl MemberBuild<'_> {
         if exposed.is_empty() {
             return Ok(PackageBuild::default());
         }
-        let reached = self.reached(pkg, built).map_err(Checked::Project)?;
+        let reached = self.reached(pkg, &built.builds).map_err(Checked::Project)?;
         let direct: Vec<(Name, Vec<ModuleName>)> = (pkg.deps.keys())
             .filter_map(|name| {
                 let outline = (reached.get(name).map(|(_, outline)| outline)).or_else(|| {
@@ -377,9 +392,9 @@ impl MemberBuild<'_> {
         let building = Building::new(
             compat,
             sources.collect(),
-            built.clone(),
-            Some(self.artifacts),
-            self.memo,
+            built.builds.clone(),
+            Some(&self.shared.artifacts),
+            &self.shared.memo,
             direct,
         );
         let build = Build {
@@ -389,13 +404,14 @@ impl MemberBuild<'_> {
             paths: &[],
             personality: self.personality,
             packages: Packages::Building(&building),
-            artifacts: Some(self.artifacts),
+            artifacts: Some(&self.shared.artifacts),
         };
         let goal = match self.goal {
             Goal::Optimize => Goal::Optimize,
             Goal::Check | Goal::Docs => Goal::Check,
         };
-        let modules = (build.run(goal)).expect("nothing revises the files while make builds");
+        let mut modules = (build.run(goal)).expect("nothing revises the files while make builds");
+        built.ran.append(&mut modules.ran);
         if let Err(why) = building.finish() {
             return Err(Checked::Project(packages_problem(&why)));
         }
@@ -443,6 +459,165 @@ impl MemberBuild<'_> {
         }
         Ok(reached)
     }
+}
+
+/// How a member's build went.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Built, checking these modules rather than taking them from the
+    /// artifact cache.
+    Built(Vec<PathBuf>),
+    /// Not built, and what was wrong shown.
+    Failed,
+    /// Not built, as a member package it depends on wasn't.
+    Blocked,
+}
+
+/// Builds every member of `workspace` in order, a package's exposed
+/// modules and then each entry of a member's `nomi.toml`, as `kind` asks,
+/// with one artifact cache and one build of each package; shows what was
+/// wrong, naming paths from the root, and how each member went, in the
+/// members' order. A member is blocked when a member package it depends
+/// on fails, and says nothing, as a module whose import failed doesn't.
+/// With `NOMI_TIMINGS`, where the time went follows on standard error.
+pub fn build(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    workspace: &Workspace,
+    kind: javascript::Kind,
+) -> Vec<Outcome> {
+    let started = Instant::now();
+    let shared = Shared::new(cx.cache, Some(workspace.root()));
+    let members = workspace.members();
+    let mut outcomes: Vec<Outcome> = Vec::with_capacity(members.len());
+    for member in members {
+        let blocked = workspace.deps(member).any(|dep| {
+            let place = (members.iter().position(|m| m.dir == dep.dir))
+                .expect("a member's dependency is a member");
+            !matches!(outcomes[place], Outcome::Built(_))
+        });
+        outcomes.push(if blocked {
+            Outcome::Blocked
+        } else {
+            built(cx, console, &shared, workspace, member, kind)
+        });
+    }
+    make::trim(cx.cache);
+    if timings::on() {
+        console.err(&timings::report(started.elapsed()));
+    }
+    outcomes
+}
+
+/// Builds `member` of `workspace`: a package's exposed modules as its
+/// dependents see them, then each of its entries.
+fn built(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    shared: &Shared,
+    workspace: &Workspace,
+    member: &Member,
+    kind: javascript::Kind,
+) -> Outcome {
+    let dir = workspace.root().join(&member.dir);
+    let cx = Context { dir: &dir, ..*cx };
+    let mut ran = match &member.outline {
+        Outline::Pkg(pkg) => match package(&cx, console, shared, workspace.root(), pkg) {
+            Some(ran) => ran,
+            None => return Outcome::Failed,
+        },
+        Outline::App(_) => Vec::new(),
+    };
+    for entry in member.manifest.iter().flat_map(|m| &m.entries) {
+        let made = match entry_make(&dir, entry, kind) {
+            Ok(make) => make::made(&cx, console, &make, shared),
+            Err(report) => {
+                console::report(console, &report, Compat::LATEST);
+                None
+            }
+        };
+        match made {
+            Some(mut more) => ran.append(&mut more),
+            None => return Outcome::Failed,
+        }
+    }
+    Outcome::Built(ran)
+}
+
+/// The member package `pkg`, in the directory, built into `shared` as
+/// its dependents see it; the modules checked, or `None` once what was
+/// wrong is shown, its paths named from `root`.
+fn package(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    shared: &Shared,
+    root: &Path,
+    pkg: &PkgOutline,
+) -> Option<Vec<PathBuf>> {
+    let mut fail = |checked, compat| {
+        check::show(console, root, &checked, compat, Style::Terminal);
+        None
+    };
+    let project = Root::new(cx.dir.to_owned());
+    let loaded = match make::load(cx, &project, Personality::Nomi, Resolve::Nomi) {
+        Ok(loaded) => loaded,
+        Err((report, compat)) => return fail(Checked::Project(report), compat),
+    };
+    let mut members = (loaded.sources.members).unwrap_or_else(|| Members {
+        root: root.to_owned(),
+        packages: Vec::new(),
+    });
+    members.packages.push(MemberPackage {
+        dir: cx.dir.to_owned(),
+        outline: pkg.clone(),
+    });
+    let build = MemberBuild {
+        snapshot: &cx.vfs.snapshot(),
+        compat: loaded.compat,
+        personality: Personality::Nomi,
+        packages: &loaded.sources.packages,
+        shared,
+        goal: Goal::Optimize,
+    };
+    match build.run(&members) {
+        Ok(built) => Some(built.ran),
+        Err(checked) => fail(checked, loaded.compat),
+    }
+}
+
+/// What building `entry` of the member in `dir` asks for, as `kind` asks:
+/// what `nomi build` makes of its `main`, platform and FFI module, written
+/// to its `output` or, without one, to a file of its own in `elm-stuff`.
+fn entry_make(dir: &Path, entry: &Entry, kind: javascript::Kind) -> Result<Make, Report> {
+    let output = entry.output.clone().unwrap_or_else(|| {
+        let extension = match entry.platform {
+            Some(Platform::Browser) => "js",
+            Some(Platform::Node) | None => "mjs",
+        };
+        let path = run::default_output(dir, &dir.join(&entry.main), extension);
+        path.to_string_lossy().into_owned()
+    });
+    let make = Make::build(
+        vec![entry.main.clone().into()],
+        Some(&output),
+        entry.platform,
+    )
+    .ok_or_else(|| bad_output(&entry.main, &output))?;
+    Ok(Make {
+        kind: Ok(kind),
+        ffi: entry.ffi.as_ref().map(PathBuf::from),
+        ..make
+    })
+}
+
+fn bad_output(main: &str, output: &str) -> Report {
+    one_line(
+        "BAD OUTPUT",
+        &format!(
+            "The entry {main} is written to {output}, but nomi writes code only to a file \
+             ending in .js, .mjs or .html, or to /dev/null."
+        ),
+    )
 }
 
 fn missing_member(dir: &Path) -> Report {

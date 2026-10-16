@@ -202,18 +202,11 @@ fn build(
 /// What `program` builds, from `nomi.toml`'s entry where it names one.
 fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built, Report> {
     let root = Root::find(cx.vfs, cx.dir).ok_or_else(|| no_outline("to run"))?;
-    // Kept by the module's path in the project, so that no two share one.
-    let default_output = |main: &Path| {
-        let mut name = relative(main, root.dir());
-        if !(name.components()).all(|c| matches!(c, Component::Normal(_))) {
-            name = main.file_name().unwrap_or(main.as_os_str()).into();
-        }
-        (root.dir().join("elm-stuff/nomi/run").join(name)).with_extension("mjs")
-    };
+    let output_of = |main: &Path| root.dir().join(default_output(root.dir(), main, "mjs"));
     let chosen = match program {
         Program::Module(main) => Built {
             main: main.clone(),
-            output: default_output(&cx.dir.join(main)),
+            output: output_of(&cx.dir.join(main)),
             ffi: None,
             dir: cx.dir.to_owned(),
         },
@@ -227,7 +220,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                     return Err(not_a_module(&entry.main, output));
                 }
                 Some(output) => root.dir().join(output),
-                None => default_output(&root.dir().join(&entry.main)),
+                None => output_of(&root.dir().join(&entry.main)),
             };
             Built {
                 main: entry.main.into(),
@@ -238,6 +231,20 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
         }
     };
     Ok(chosen)
+}
+
+/// Where the program whose `main` is the module at `main`, in the
+/// project at `root`, is written when nothing names its output, from the
+/// root: by the module's path in the project, so that no two share one,
+/// with the extension `extension`.
+pub(crate) fn default_output(root: &Path, main: &Path, extension: &str) -> PathBuf {
+    let mut name = relative(main, root);
+    if !(name.components()).all(|c| matches!(c, Component::Normal(_))) {
+        name = main.file_name().unwrap_or(main.as_os_str()).into();
+    }
+    Path::new("elm-stuff/nomi/run")
+        .join(name)
+        .with_extension(extension)
 }
 
 /// The entry of the `nomi.toml` at `root` whose `main` is `chosen`, from

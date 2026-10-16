@@ -72,6 +72,15 @@ pub fn manifest() -> Vec<Package> {
     manifest.package
 }
 
+/// What the package website's `all-packages` lists of the fixtures: each
+/// package by name, and its one release.
+pub fn all_packages() -> Vec<u8> {
+    let index: serde_json::Map<String, serde_json::Value> = (manifest().into_iter())
+        .map(|package| (package.name, serde_json::json!([package.version])))
+        .collect();
+    serde_json::to_vec(&index).expect("a JSON object encodes")
+}
+
 /// The release of the package `name`, `<author>/<project>`, among the
 /// fixtures, which hold one of each.
 pub fn release(name: &str) -> Package {
