@@ -73,7 +73,6 @@ mod tests {
             main: "src/Main.elm".to_owned(),
             output: None,
             platform,
-            ffi: None,
             args: Vec::new(),
             static_dir: None,
             port,

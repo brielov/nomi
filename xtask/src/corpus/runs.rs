@@ -296,7 +296,6 @@ fn scripts(
             compat,
             kind,
             target: javascript::Target::default(),
-            ffi: None,
             package: "author/project",
             packages: sources,
         };

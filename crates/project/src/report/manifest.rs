@@ -78,9 +78,8 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
                     "The `{}` key is for Node entries, but this entry runs in the browser:",
                     key.as_str()
                 ),
-                "The `args` are the command-line arguments `nomi run` gives a Node program, \
-                 and the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A \
-                 browser program has neither."
+                "The `args` are the command-line arguments `nomi run` gives a Node program. \
+                 A browser program has none."
                     .to_owned(),
             ),
         },
@@ -133,7 +132,6 @@ fn how_to_write(key: Key) -> &'static str {
         Key::Main => "For example: main = \"src/Main.elm\"",
         Key::Output => "For example: output = \"dist/main.mjs\"",
         Key::Platform => "For example: platform = \"node\"",
-        Key::Ffi => "For example: ffi = \"src/ffi.mjs\"",
         Key::Args => "For example: args = [\"--port\", \"3000\"]",
         Key::Static => "For example: static = \"public\"",
         Key::Port => "For example: port = 8000",

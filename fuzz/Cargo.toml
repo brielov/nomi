@@ -44,12 +44,5 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "ffi"
-path = "fuzz_targets/ffi.rs"
-test = false
-doc = false
-bench = false
-
 # Built apart from the workspace, with libFuzzer's instrumentation.
 [workspace]

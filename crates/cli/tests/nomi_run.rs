@@ -124,23 +124,12 @@ fn an_entry_runs_with_its_arguments_and_exits_with_its_code() {
 }
 
 #[test]
-fn a_chosen_entry_writes_its_output_and_imports_its_ffi_module() {
+fn a_chosen_entry_writes_its_output() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
-    let program = PROGRAM
-        .replace("import Nomi\n", "import Json.Decode\nimport Json.Encode\nimport Nomi\nimport Nomi.Ffi\n")
-        .replace(
-            "say \"no code\"",
-            "Nomi.Ffi.task \"twice\" (Json.Encode.int 21) Json.Decode.int |> Task.mapError (\\_ -> \"ffi\") |> Task.andThen (\\n -> say (String.fromInt n))",
-        );
     let nomi_toml = "[[entry]]\nmain = \"src/Other.elm\"\nplatform = \"browser\"\n\n\
-                     [[entry]]\nmain = \"src/Main.elm\"\noutput = \"dist/main.mjs\"\nffi = \"src/ffi.mjs\"\n";
-    let (_work, root) = project(&program, Some(nomi_toml));
-    fs::write(
-        root.join("src/ffi.mjs"),
-        "export async function twice(n) { return n * 2; }\n",
-    )
-    .unwrap();
+                     [[entry]]\nmain = \"src/Main.elm\"\noutput = \"dist/main.mjs\"\n";
+    let (_work, root) = project(PROGRAM, Some(nomi_toml));
     let unchosen = nomi_run(cache.path(), &root, &["--", "3"])
         .output()
         .unwrap();
@@ -150,11 +139,11 @@ fn a_chosen_entry_writes_its_output_and_imports_its_ffi_module() {
         "{unchosen:?}"
     );
     // From another directory, by its path from there.
-    let ran = nomi_run(cache.path(), &root.join("src"), &["./Main.elm"])
+    let ran = nomi_run(cache.path(), &root.join("src"), &["./Main.elm", "--", "4"])
         .output()
         .unwrap();
-    assert_eq!(ran.status.code(), Some(0), "{ran:?}");
-    assert_eq!(stdout(&ran), "42: ()\n");
+    assert_eq!(ran.status.code(), Some(4), "{ran:?}");
+    assert_eq!(stdout(&ran), "4: ()\n");
     assert!(root.join("dist/main.mjs").is_file());
 }
 
@@ -211,7 +200,7 @@ here:
 
 3| platfrom = \"node\"
    ^^^^^^^^
-I know `main`, `output`, `platform`, `ffi`, `args`, `static` and `port` here.
+I know `main`, `output`, `platform`, `args`, `static` and `port` here.
 
 "
     );
@@ -441,17 +430,15 @@ fn a_taken_port_assigned_moves_to_the_next_free_one() {
 
 /// A program that says it is waiting, then waits with a finalizer; or,
 /// given `exit` and a code, waits until a file `go` appears in the
-/// directory it runs in, then exits with that code; given `slow`, waits
-/// with a finalizer that takes a minute and hears no signal meanwhile;
-/// given `helper`, first starts a process that prints `helper` and runs
-/// on with its standard streams.
+/// directory it runs in, then exits with that code; given `slow`, serves
+/// with a minute's drain and a finalizer that sleeps that minute, so a
+/// signal stops it no sooner.
 const GATED: &str = r#"module Main exposing (main)
 
-import Json.Decode
-import Json.Encode
 import Nomi
-import Nomi.Ffi
+import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Process
+import Nomi.Server as Server
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -464,62 +451,50 @@ main =
             case env.args of
                 [ "exit", code ] ->
                     say "waiting"
-                        |> Task.andThen (\_ -> ffi "gate")
-                        |> Task.mapError (\_ -> "no gate")
+                        |> Task.andThen (\_ -> gate 6000 env.fs)
                         |> Task.andThen (\_ -> Nomi.Process.exit (Maybe.withDefault 1 (String.toInt code)))
 
                 [ "slow" ] ->
-                    say "waiting"
-                        |> Task.andThen (\_ -> Process.sleep 60000)
-                        |> Nomi.Task.ensure (ffi "hold" |> Task.onError (\_ -> Task.succeed ()))
-
-                [ "helper" ] ->
-                    ffi "helper"
-                        |> Task.mapError (\_ -> "no helper")
-                        |> Task.andThen (\_ -> wait)
+                    let
+                        config =
+                            Server.defaults
+                    in
+                    Server.listen
+                        { config | port_ = 0, drainMilliseconds = 60000, onListen = \_ -> say "waiting" }
+                        (\_ -> Task.succeed (Server.empty 204))
+                        env.net
+                        |> Task.mapError Server.errorToString
+                        |> Nomi.Task.ensure (Process.sleep 60000)
 
                 _ ->
-                    wait
+                    say "waiting"
+                        |> Task.andThen (\_ -> Process.sleep 60000)
+                        |> Nomi.Task.ensure (say "finalized")
 
 
-wait : Task x ()
-wait =
-    say "waiting"
-        |> Task.andThen (\_ -> Process.sleep 60000)
-        |> Nomi.Task.ensure (say "finalized")
+{-| Waits until `go` exists, looking every 10 ms, and gives up after
+`tries` looks, so a test that fails before writing it leaves nothing
+waiting.
+-}
+gate : Int -> Fs -> Task String ()
+gate tries fs =
+    Fs.exists "go" fs
+        |> Task.andThen
+            (\go ->
+                if go then
+                    Task.succeed ()
 
+                else if tries <= 0 then
+                    Task.fail "no go within a minute"
 
-ffi : String -> Task Nomi.Ffi.Error ()
-ffi name =
-    Nomi.Ffi.task name Json.Encode.null (Json.Decode.succeed ())
+                else
+                    Process.sleep 10 |> Task.andThen (\_ -> gate (tries - 1) fs)
+            )
 
 
 say : String -> Task x ()
 say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
-"#;
-
-/// [`GATED`]'s FFI module. The gate gives up after a minute, so a test
-/// that fails before writing `go` leaves nothing waiting.
-const GATE: &str = r#"import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-
-export async function gate() {
-  const deadline = Date.now() + 60_000;
-  while (!existsSync("go")) {
-    if (Date.now() > deadline) throw new Error("no go within a minute");
-    await new Promise((r) => setTimeout(r, 10));
-  }
-}
-
-// Blocks the thread, so the program's signal handlers can't run.
-export async function hold() {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
-}
-
-export async function helper() {
-  spawn("sh", ["-c", "echo helper; exec sleep 300"], { stdio: "inherit" });
-}
 "#;
 
 /// A workspace of two applications of [`GATED`], `apps/api` and
@@ -533,10 +508,13 @@ fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
     )
     .unwrap();
     for (dir, args) in [("apps/api", api), ("apps/worker", worker)] {
-        let entry =
-            format!("[[entry]]\nmain = \"src/Main.elm\"\nffi = \"src/ffi.mjs\"\nargs = {args}\n");
+        let entry = format!("[[entry]]\nmain = \"src/Main.elm\"\nargs = {args}\n");
         app(&root.join(dir), GATED, Some(&entry));
-        fs::write(root.join(dir).join("src/ffi.mjs"), GATE).unwrap();
+        fs::write(
+            root.join(dir).join("elm.json"),
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        )
+        .unwrap();
     }
     (work, root)
 }
@@ -605,12 +583,32 @@ fn an_entry_that_fails_stops_the_others_and_gives_nomi_its_code() {
     assert_eq!(run.ended(), Some(3));
 }
 
+#[cfg(unix)]
 #[test]
 fn nomi_exits_once_its_programs_have_though_a_process_they_started_holds_their_output() {
+    use std::os::unix::fs::PermissionsExt as _;
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
-    let (_work, root) = gated("[\"helper\"]", "[\"wait\"]");
-    let mut run = spawn_in(cache.path(), &root, &[]);
+    let (work, root) = gated("[\"helper\"]", "[\"wait\"]");
+    // A `node` that, for api, first starts a helper on its standard
+    // streams, as a program starting a process of its own would.
+    let bin = work.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    fs::write(
+        bin.join("node"),
+        format!(
+            "#!/bin/sh\ncase \"$*\" in *helper*) (echo helper; exec sleep 300) & ;; esac\nexec '{}' \"$@\"\n",
+            nomi_testkit::node().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(bin.join("node"), fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = bin.into_os_string();
+    path.push(":");
+    path.push(nomi_testkit::path_with_node());
+    let mut run = nomi_run(cache.path(), &root, &[]);
+    run.env("PATH", path);
+    let mut run = Group::spawn(run.stdout(Stdio::piped()).stderr(Stdio::piped()));
     let stdout = run.stdout();
     expect(&stdout, "[apps/api]    helper");
     run.signal(Signal::TERM);

@@ -17,7 +17,6 @@ fn entries_with_every_key() {
 main = "src/Api.elm"
 output = "dist/api.mjs"
 platform = "node"
-ffi = "src/ffi.mjs"
 
 [[entry]]
 main = "src/Web.elm"
@@ -32,7 +31,6 @@ platform = "browser"
                     main: "src/Api.elm".to_owned(),
                     output: Some("dist/api.mjs".to_owned()),
                     platform: Some(Platform::Node),
-                    ffi: Some("src/ffi.mjs".to_owned()),
                     args: Vec::new(),
                     static_dir: None,
                     port: None,
@@ -41,7 +39,6 @@ platform = "browser"
                     main: "src/Web.elm".to_owned(),
                     output: Some("dist/web.js".to_owned()),
                     platform: Some(Platform::Browser),
-                    ffi: None,
                     args: Vec::new(),
                     static_dir: None,
                     port: None,
@@ -58,7 +55,6 @@ fn an_entry_with_main_alone() {
         main: "src/Main.elm".to_owned(),
         output: None,
         platform: None,
-        ffi: None,
         args: Vec::new(),
         static_dir: None,
         port: None,
@@ -117,7 +113,6 @@ port = 8080
                 main: "src/Api.elm".to_owned(),
                 output: None,
                 platform: Some(Platform::Node),
-                ffi: None,
                 args: vec!["--port".to_owned(), "3000".to_owned()],
                 static_dir: None,
                 port: None,
@@ -126,7 +121,6 @@ port = 8080
                 main: "src/Web.elm".to_owned(),
                 output: None,
                 platform: Some(Platform::Browser),
-                ffi: None,
                 args: Vec::new(),
                 static_dir: Some("public".to_owned()),
                 port: Some(8080),
@@ -190,7 +184,7 @@ here:
 
 3| outptu = "dist/main.mjs"
    ^^^^^^
-I know `main`, `output`, `platform`, `ffi`, `args`, `static` and `port` here.
+I know `main`, `output`, `platform`, `args`, `static` and `port` here.
 
 "#,
     ),
@@ -611,29 +605,24 @@ entries, but this entry runs in the browser:
 
 4| args = ["-v"]
           ^^^^^^
-The `args` are the command-line arguments `nomi run` gives a Node program, and
-the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A browser
-program has neither.
+The `args` are the command-line arguments `nomi run` gives a Node program. A
+browser program has none.
 
 "#,
     ),
     (
-        "ffi on a browser entry",
+        "an ffi module, which nomi has no place for",
         r#"[[entry]]
-main = "src/Web.elm"
+main = "src/Main.elm"
 ffi = "src/ffi.mjs"
-platform = "browser"
 "#,
-        r#"-- WRONG PLATFORM ---------------------------------------------------- nomi.toml
+        r#"-- UNKNOWN KEY ------------------------------------------------------- nomi.toml
 
-I ran into a problem with your nomi.toml file. The `ffi` key is for Node
-entries, but this entry runs in the browser:
+I ran into a problem with your nomi.toml file. I do not know the `ffi` key here:
 
 3| ffi = "src/ffi.mjs"
-         ^^^^^^^^^^^^^
-The `args` are the command-line arguments `nomi run` gives a Node program, and
-the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A browser
-program has neither.
+   ^^^
+I know `main`, `output`, `platform`, `args`, `static` and `port` here.
 
 "#,
     ),

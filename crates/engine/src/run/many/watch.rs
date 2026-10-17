@@ -149,7 +149,7 @@ enum Live {
 struct Sources {
     /// Its source directories.
     dirs: Vec<PathBuf>,
-    /// Its entries' mains and FFI modules.
+    /// Its entries' mains.
     files: Vec<PathBuf>,
 }
 
@@ -162,10 +162,7 @@ impl Sources {
             dirs: (member.outline.source_dirs().iter())
                 .map(|d| lexical(&dir.join(d)))
                 .collect(),
-            files: entries
-                .flat_map(|e| [Some(&e.main), e.ffi.as_ref()].into_iter().flatten())
-                .map(|path| lexical(&dir.join(path)))
-                .collect(),
+            files: entries.map(|e| lexical(&dir.join(&e.main))).collect(),
         }
     }
 
@@ -288,7 +285,7 @@ impl Watch {
 
     /// The paths watched besides the root's `nomi.toml`: each member's
     /// manifests and source directories, with those of the member
-    /// packages they depend on, and its entries' mains and FFI modules.
+    /// packages they depend on, and its entries' mains.
     fn paths(&self) -> Vec<PathBuf> {
         let wanted = with_deps(&self.workspace, &self.dirs);
         let root = self.workspace.root();

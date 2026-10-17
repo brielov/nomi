@@ -1,5 +1,5 @@
 //! `nomi.toml`: what elm.json can't say, the entries a project builds,
-//! each a `main` with its output, platform and FFI module, and at a
+//! each a `main` with its output and platform, and at a
 //! workspace's root, its members. Read strictly: a key nomi doesn't know
 //! is an error, so a typo never passes silently.
 
@@ -41,7 +41,6 @@ pub enum Key {
     Main,
     Output,
     Platform,
-    Ffi,
     Args,
     Static,
     Port,
@@ -57,7 +56,6 @@ impl Key {
             Key::Main => "main",
             Key::Output => "output",
             Key::Platform => "platform",
-            Key::Ffi => "ffi",
             Key::Args => "args",
             Key::Static => "static",
             Key::Port => "port",
@@ -119,8 +117,6 @@ pub struct Entry {
     pub output: Option<String>,
     /// Where the program runs, unless `main`'s annotation decides.
     pub platform: Option<Platform>,
-    /// The JS module the program's `Ffi.task`s call.
-    pub ffi: Option<String>,
     /// The arguments `nomi run` gives a Node program when it runs every
     /// entry.
     pub args: Vec<String>,
@@ -182,7 +178,6 @@ const ENTRY: &[Key] = &[
     Key::Main,
     Key::Output,
     Key::Platform,
-    Key::Ffi,
     Key::Args,
     Key::Static,
     Key::Port,
@@ -223,7 +218,6 @@ impl Manifest {
                 | Key::Main
                 | Key::Output
                 | Key::Platform
-                | Key::Ffi
                 | Key::Args
                 | Key::Static
                 | Key::Port => unreachable!("the file's keys are among TOP"),
@@ -255,7 +249,6 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
     let mut main = None;
     let mut output = None;
     let mut platform = None;
-    let mut ffi = None;
     let mut args = Vec::new();
     let mut static_dir = None;
     let mut port = None;
@@ -282,10 +275,6 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
                 browser_key.get_or_insert_with(|| (key, value.span()));
                 static_dir = Some(string(key, value)?.to_owned());
             }
-            Key::Ffi => {
-                node_key.get_or_insert_with(|| (key, value.span()));
-                ffi = Some(string(key, value)?.to_owned());
-            }
             Key::Workspace | Key::Entry | Key::Members => {
                 unreachable!("an entry's keys are among ENTRY")
             }
@@ -311,7 +300,6 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
         main,
         output,
         platform,
-        ffi,
         args,
         static_dir,
         port,

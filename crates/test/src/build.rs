@@ -167,7 +167,6 @@ fn elm_make(
         platform: Some(Platform::Browser),
         output_name: OutputName::Given,
         resolve,
-        ffi: None,
         members_of: Some(project.root.clone()),
         output: Some(output),
         docs: None,

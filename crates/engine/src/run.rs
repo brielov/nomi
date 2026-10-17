@@ -24,7 +24,7 @@ use nomi_registry::Http;
 
 use crate::console::{self, Console};
 use crate::javascript::{Advice, Start, Target};
-use crate::make::{self, Code, FfiModule, Make, NamedIn, OutputName};
+use crate::make::{self, Code, Make, OutputName};
 use crate::paths::{NOMI_TOML, Root, lexical, relative};
 use crate::project::no_outline;
 use crate::report::one_line;
@@ -52,9 +52,7 @@ struct Built {
     /// What decides `output`'s extension: the platform, where nothing
     /// names it.
     output_name: OutputName,
-    /// The FFI module, its path from `dir`.
-    ffi: Option<FfiModule>,
-    /// What `main` and `ffi` are relative to.
+    /// What `main` is relative to.
     dir: PathBuf,
     /// Where it runs: by `main`'s type where nothing says.
     platform: Option<Platform>,
@@ -423,7 +421,6 @@ fn alone(
                 .into_owned(),
             output: None,
             platform: Some(Platform::Node),
-            ffi: None,
             args: Vec::new(),
             static_dir: None,
             port: None,
@@ -500,7 +497,6 @@ fn build(
     let make = Make::build(vec![built.main.clone()], Some(&output), built.platform)
         .expect("a program run is written to an ES module");
     let make = Make {
-        ffi: built.ffi.clone(),
         output_name: built.output_name,
         target: Target {
             start: Start::Entry,
@@ -536,7 +532,6 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
             main: main.clone(),
             output: output_of(&cx.dir.join(main), "mjs"),
             output_name: OutputName::Given,
-            ffi: None,
             dir: cx.dir.to_owned(),
             platform: Some(Platform::Node),
             args: Vec::new(),
@@ -555,10 +550,6 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 OutputName::Given
             };
             Built {
-                ffi: entry.ffi.map(|path| FfiModule {
-                    path: path.into(),
-                    named_in: NamedIn::Entry(entry.main.clone()),
-                }),
                 main: entry.main.into(),
                 output,
                 output_name,

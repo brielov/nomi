@@ -547,25 +547,6 @@ fn a_member_with_entries_takes_flags_as_the_root_does() {
     assert!(path.ends_with("apps/api/src/Main.elm"), "{report}");
 }
 
-/// An entry's FFI module needs Node, which nomi.toml gives the entry.
-#[test]
-fn an_entry_with_ffi_built_for_the_browser_is_told_to_say_node_in_nomi_toml() {
-    let (_work, root, cache) = fixture();
-    let web = root.join("apps/web");
-    let manifest = "[[entry]]\nmain = \"src/Main.elm\"\nffi = \"src/ffi.mjs\"\n";
-    fs::write(web.join("nomi.toml"), manifest).unwrap();
-    fs::write(web.join("src/ffi.mjs"), "").unwrap();
-    let built = in_fixture(&web, cache.path(), &["build"]);
-    assert!(!built.status.success(), "{built:?}");
-    let said = said(&built)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    assert!(said.contains("-- FFI NEEDS NODE"), "{said}");
-    assert!(said.contains("platform = \"node\" in nomi.toml"), "{said}");
-    assert!(!said.contains("--platform"), "{said}");
-}
-
 /// The package `name` at `version` in `dir`, depending on elm/core and
 /// on each of `deps` from 1.0.0, its one module `module` exposing each
 /// of `values`, an `Int` defined as given, after importing `imports`,

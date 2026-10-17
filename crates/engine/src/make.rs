@@ -12,8 +12,6 @@ use std::time::Instant;
 
 use nomi_base::diagnostic::doc::{Color, Doc, fill_sep, reflow, simple_note, text, vcat, words};
 use nomi_base::{Compat, Platform, Report};
-use nomi_codegen_js::ffi::{self, Ffi};
-use nomi_codegen_js::platform::ffi_specifier;
 use nomi_project::{ModuleName, Name, Outline};
 use nomi_registry::Http;
 
@@ -54,8 +52,6 @@ pub struct Make {
     /// Which packages the dependencies resolve to: nomi's commands, `nomi
     /// test` among them, know more than upstream's.
     pub resolve: Resolve,
-    /// The ES module whose functions `Nomi.Ffi` calls.
-    pub ffi: Option<FfiModule>,
     /// The project whose workspace's member packages the dependencies
     /// may name, where the project built is none of its members, as the
     /// project generated for a member's tests is.
@@ -64,23 +60,6 @@ pub struct Make {
     pub output: Option<Output>,
     /// Where to write a package's `docs.json`.
     pub docs: Option<PathBuf>,
-}
-
-/// An FFI module, and where it was named.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FfiModule {
-    /// Its path, from the directory.
-    pub path: PathBuf,
-    pub named_in: NamedIn,
-}
-
-/// Where an FFI module was named, which its reports point to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum NamedIn {
-    /// `--ffi`.
-    Flag,
-    /// The entry of `nomi.toml` whose `main` is this.
-    Entry(String),
 }
 
 /// What decides the output's extension and format.
@@ -161,7 +140,6 @@ impl Make {
             platform: Some(Platform::Browser),
             output_name: OutputName::Given,
             resolve: Resolve::Nomi,
-            ffi: None,
             members_of: None,
             output: Some(Output::DevNull),
             docs: None,
@@ -190,7 +168,7 @@ impl Make {
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target {
                 format: if module {
-                    javascript::Format::EsModule { ffi: None }
+                    javascript::Format::EsModule
                 } else {
                     javascript::Format::Iife
                 },
@@ -199,7 +177,6 @@ impl Make {
             platform,
             output_name: OutputName::Given,
             resolve: Resolve::Nomi,
-            ffi: None,
             members_of: None,
             output,
             docs: None,
@@ -694,11 +671,7 @@ fn generate(
             return Err(report::debug_remnants(&uses));
         }
     }
-    let mut made_for = made_for(make, &optimized, &mut target.path);
-    if let Some(ffi) = &make.ffi {
-        let ffi = ffi_module(vfs, dir, ffi, &made_for, &target)?;
-        made_for.format = javascript::Format::EsModule { ffi: Some(ffi) };
-    }
+    let made_for = made_for(make, &optimized, &mut target.path);
     let platform = made_for.platform;
     let bytes = timings::time(Phase::Generate, || {
         let types = dependencies.into_graph_and_types();
@@ -706,7 +679,6 @@ fn generate(
             compat,
             kind,
             target: made_for,
-            ffi: make.ffi.as_ref(),
             package: &package,
             packages,
         };
@@ -745,7 +717,7 @@ fn made_for(make: &Make, optimized: &Optimized, path: &mut PathBuf) -> javascrip
         OutputName::Given => {}
         OutputName::ByPlatform => {
             let (extension, format) = match made_for.platform {
-                Platform::Node => ("mjs", javascript::Format::EsModule { ffi: None }),
+                Platform::Node => ("mjs", javascript::Format::EsModule),
                 Platform::Browser => ("js", javascript::Format::Iife),
             };
             path.set_extension(extension);
@@ -927,103 +899,6 @@ fn target(output: Option<&Output>, roots: &[RootMain]) -> Result<Option<Target>,
             _ => Err(multiple_files_into_html()),
         },
     }
-}
-
-/// The FFI module at `path`, from `dir`, as the program made for
-/// `made_for` and written to `target` imports it; or why it can't.
-fn ffi_module(
-    vfs: &Vfs,
-    dir: &Path,
-    ffi: &FfiModule,
-    made_for: &javascript::Target,
-    target: &Target,
-) -> Result<Ffi, Report> {
-    if made_for.platform != Platform::Node {
-        return Err(ffi_off_node(&ffi.named_in));
-    }
-    if !matches!(made_for.format, javascript::Format::EsModule { .. }) || target.html.is_some() {
-        return Err(ffi_outside_module(&ffi.named_in));
-    }
-    let module = dir.join(&ffi.path);
-    let source = vfs.read(&module).map_err(|e| ffi_unreadable(ffi, &e))?;
-    Ok(Ffi {
-        specifier: ffi_specifier(&dir.join(&target.path), &module),
-        exports: ffi::exports(&source),
-        startup: ffi::Startup::default(),
-    })
-}
-
-/// That an FFI module, named in `named_in`, was given for a program built
-/// for the browser.
-fn ffi_off_node(named_in: &NamedIn) -> Report {
-    let (given, platform) = match named_in {
-        NamedIn::Flag => (
-            "An FFI module was given, but this program is built for the browser.".to_owned(),
-            "Build with --platform=node",
-        ),
-        NamedIn::Entry(main) => (
-            format!(
-                "The entry {main} has an FFI module, but its program is built for the browser."
-            ),
-            "Give the entry platform = \"node\" in nomi.toml",
-        ),
-    };
-    Report::doc(
-        "FFI NEEDS NODE",
-        None,
-        reflow(&given),
-        [reflow(&format!(
-            "Nomi.Ffi calls JavaScript on Node. {platform}, or give `main` the type \
-             `Nomi.Program`, which builds for Node by itself."
-        ))],
-    )
-}
-
-/// That `ffi` could not be read.
-fn ffi_unreadable(ffi: &FfiModule, error: &std::io::Error) -> Report {
-    let path = ffi.path.display();
-    if error.kind() != std::io::ErrorKind::NotFound {
-        return one_line(
-            "PROBLEM READING FFI MODULE",
-            &format!("I could not read {path}: {error}"),
-        );
-    }
-    let (named, from) = match &ffi.named_in {
-        NamedIn::Flag => (
-            format!("The FFI module given with --ffi, {path}, does not exist."),
-            "from the directory nomi runs in",
-        ),
-        NamedIn::Entry(main) => (
-            format!("The FFI module nomi.toml gives the entry {main}, {path}, does not exist."),
-            "from the directory of nomi.toml",
-        ),
-    };
-    Report::doc(
-        "FFI MODULE NOT FOUND",
-        None,
-        reflow(&named),
-        [reflow(&format!(
-            "Give the path of the ES module that exports the functions Nomi.Ffi.task calls, \
-             {from}."
-        ))],
-    )
-}
-
-/// That an FFI module, named in `named_in`, was given for output that
-/// isn't an ES module.
-fn ffi_outside_module(named_in: &NamedIn) -> Report {
-    let output = match named_in {
-        NamedIn::Flag => "--output=dist/main.mjs",
-        NamedIn::Entry(_) => "output = \"dist/main.mjs\" in nomi.toml, or no output",
-    };
-    Report::doc(
-        "FFI NEEDS AN ES MODULE",
-        None,
-        reflow("An FFI module was given, but the output is not an ES module, which can import it."),
-        [reflow(&format!(
-            "Write the program to a file ending in .mjs, as with {output}."
-        ))],
-    )
 }
 
 /// `MakeMultipleFilesIntoHtml`.

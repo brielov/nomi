@@ -116,7 +116,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 **R6. One source of truth per fact.**
 
 - `elm.json` owns source directories and dependencies for every project, so `elm`, elm-review, editors and nomi all read the same file.
-- `nomi.toml` holds only what elm.json can't express: workspace members, entries and platforms, FFI modules and server settings.
+- `nomi.toml` holds only what elm.json can't express: workspace members, entries and platforms, and server settings.
 - There is no lockfile for applications, because elm.json already pins exact versions.
 - One module computes every path.
 
@@ -269,7 +269,6 @@ members = ["apps/web", "apps/api", "packages/*"]
 main = "src/Main.elm"
 output = "dist/api.mjs"
 platform = "node"   # optional: `main : Nomi.Program` implies node
-ffi = "src/ffi.mjs"
 ```
 
 ## 8. Platforms, codegen and the server runtime
@@ -327,7 +326,7 @@ Elm's `Scheduler.js` already runs processes, bindings with kill functions and a 
 |---|---|
 | Structured concurrency | Every fiber has a parent scope. Closing a scope interrupts its children, then runs finalizers in LIFO order. `Process.spawn` keeps upstream semantics: it is attached to the program root and outlives its spawner. |
 | Interruption | Delivered at async boundaries and yield points, and masked in uninterruptible regions. Acquire is uninterruptible, and release runs exactly once. |
-| Exits | Success, typed failure, defect or interruption. A JS exception in a kernel call becomes a defect of that fiber; an FFI function's throw or rejection is the typed failure `Threw`. It is reported, never lost, and never crashes the process. |
+| Exits | Success, typed failure, defect or interruption. A JS exception in a kernel call becomes a defect of that fiber. It is reported, never lost, and never crashes the process. |
 | Fairness | Yield to the event loop every N steps. |
 | Bookkeeping | Finished fibers leave every table, and metrics are read before teardown. |
 | Lifecycle | SIGINT or SIGTERM interrupts the root fiber, finalizers run, and the process exits with 130 or 143. HTTP servers drain first: they stop accepting, let in-flight requests finish until a deadline, and only then interrupt what remains. |
@@ -345,11 +344,7 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
   - `Task.map2` and `Task.sequence` stay sequential as upstream defines them, so parallelism is always explicit.
 - **Capabilities.** `Env` carries opaque capability values (`fs`, `net`, `stdout`, `args`). They can be narrowed, as in `Fs.subdir "data" env.fs`, and faked in tests. The existing elm/* effects (`Http`, `Time.now`, `Process.sleep`) stay ambient for compatibility.
 - **HTTP.** A handler is fetch-shaped, `Request -> Task Never Response`. Each request runs on its own child fiber and is cancelled if the client disconnects. Node comes first; the shape leaves room for Bun, Deno and Workers adapters.
-- **FFI.**
-  - The Elm side is `Ffi.task : String -> Json.Encode.Value -> Decoder a -> Task Ffi.Error a`.
-  - The JS side is an async function exported from the module named in nomi.toml, called with an `AbortSignal` wired to interruption.
-  - Function names written as literals are checked against the exports at link time.
-  - Precedent: elm-concurrent-task and elm-pages' `BackendTask.Custom`.
+- **No FFI.** As in Elm, every effect comes from the platform's own packages, with typed APIs, and nothing else calls JavaScript; what a backend needs is nomi's to provide (plan MB).
 - **Node support.** The oldest maintained LTS and newer, verified by a feature probe at startup rather than version numbers.
 
 **Ergonomics risk.** Chains of `andThen` are verbose. Roc dropped `Task` for effectful functions with `!`, partly for this reason, and nomi can't add syntax without forking Elm. Mitigations:

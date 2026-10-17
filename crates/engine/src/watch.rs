@@ -316,25 +316,25 @@ mod tests {
         // A path watched from now on holds no changes yet.
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/B.elm"), "b").unwrap();
-        fs::write(root.join("src/ffi.mjs"), "1").unwrap();
+        fs::write(root.join("src/one.mjs"), "1").unwrap();
         fs::write(root.join("src/other.mjs"), "1").unwrap();
         fs::create_dir_all(root.join("public/css")).unwrap();
         fs::write(root.join("public/css/app.css"), "1").unwrap();
         snapshot.watch(
-            vec![root.join("src"), root.join("src/ffi.mjs")],
+            vec![root.join("src"), root.join("src/one.mjs")],
             vec![root.join("public")],
         );
         assert!(snapshot.changes().is_empty());
         // A file watched itself counts whatever its extension, as does
         // every file in a directory watched whole.
-        fs::write(root.join("src/ffi.mjs"), "22").unwrap();
+        fs::write(root.join("src/one.mjs"), "22").unwrap();
         fs::write(root.join("src/other.mjs"), "22").unwrap();
         fs::write(root.join("public/css/app.css"), "22").unwrap();
         assert_eq!(
             snapshot.changes(),
             [
                 change(Event::Changed, root, "public/css/app.css"),
-                change(Event::Changed, root, "src/ffi.mjs")
+                change(Event::Changed, root, "src/one.mjs")
             ]
         );
     }

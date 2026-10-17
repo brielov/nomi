@@ -2,7 +2,6 @@
 main = "src/Main.elm"
 output = "dist/api.mjs"
 platform = "node"
-ffi = "src/ffi.mjs"
 args = ["--port", "3000"]
 
 [[entry]]

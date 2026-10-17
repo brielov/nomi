@@ -127,7 +127,6 @@ pub fn javascript(
         compat,
         kind,
         target: Target::default(),
-        ffi: None,
         package: "author/project",
         packages: &sources,
     };

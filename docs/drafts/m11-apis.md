@@ -8,7 +8,7 @@ The signatures below are now those nomi/core, nomi/server and nomi/test ship as 
 
 | Package | Modules | Holds |
 |---|---|---|
-| `nomi/core` | `Nomi`, `Nomi.Task`, `Nomi.Fiber`, `Nomi.Ref`, `Nomi.Queue`, `Nomi.Fs`, `Nomi.Process`, `Nomi.Stdio`, `Nomi.Ffi` | programs, concurrency, capabilities, FFI |
+| `nomi/core` | `Nomi`, `Nomi.Task`, `Nomi.Fiber`, `Nomi.Ref`, `Nomi.Queue`, `Nomi.Fs`, `Nomi.Process`, `Nomi.Stdio` | programs, concurrency, capabilities |
 | `nomi/server` | `Nomi.Server` | HTTP serving |
 | `nomi/test` | `Nomi.Test`, `Nomi.Test.Runner` | effectful tests, fake capabilities, the virtual clock; `Runner` is the hook `nomi test` links, not for tests |
 
@@ -152,18 +152,6 @@ exit : Int -> Task x a                             -- finalizers run first; a co
 - **Decision: the capability comes last** (`Fs.read path env.fs`, `env.fs |> Fs.read path`), as elm/core puts the data structure last.
 - **Decision: paths are `String`s**, relative to the capability's root, `/`-separated on every platform.
 - `Net` is `Nomi`'s, `Env`'s field, so a program that never serves needs no nomi/server.
-
-## `Nomi.Ffi`
-
-```elm
-task : String -> Json.Encode.Value -> Json.Decode.Decoder a -> Task Error a
-
-type Error
-    = Threw String          -- the JS function threw or rejected
-    | BadResult String      -- the decoder failed
-```
-
-The JS side is an async function exported from the entry's `ffi` module, called as `f(arg, signal)`; interruption aborts `signal`. A name written as a literal is checked against the module's exports when linking.
 
 ## `Nomi.Server` (nomi/server)
 

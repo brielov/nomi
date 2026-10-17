@@ -18,7 +18,6 @@ pub(crate) enum Target {
     Format,
     Json,
     Manifest,
-    Ffi,
 }
 
 impl Target {
@@ -29,7 +28,6 @@ impl Target {
             Target::Format => "format",
             Target::Json => "json",
             Target::Manifest => "manifest",
-            Target::Ffi => "ffi",
         }
     }
 
@@ -40,7 +38,6 @@ impl Target {
             Target::Format => "crates/format/tests/format_fixtures/inputs",
             Target::Json => "crates/project/tests/json_seeds",
             Target::Manifest => "crates/project/tests/manifest_seeds",
-            Target::Ffi => "crates/codegen-js/tests/ffi_seeds",
         }
     }
 }

@@ -111,7 +111,6 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         platform: Some(Platform::Browser),
         output_name: OutputName::Given,
         resolve: Resolve::Upstream,
-        ffi: None,
         members_of: None,
         output,
         docs,

@@ -199,7 +199,7 @@ fn entries(snapshot: &Snapshot, cx: &Context<'_, impl Http>) -> Option<Result<Wo
 /// else code of the kind it asks for.
 fn making(make: &Make) -> Result<Making, Report> {
     let kind = make.kind.map_err(|_| make::cannot_optimize_and_debug())?;
-    let plain = make.docs.is_none() && make.ffi.is_none();
+    let plain = make.docs.is_none();
     match &make.output {
         None if plain && make.platform.is_none() => Ok(Making::Code(kind, make.style)),
         Some(Output::DevNull) if plain => Ok(Making::Check(make.style)),
@@ -288,7 +288,7 @@ fn which_member(verb: Verb, workspace: &Workspace) -> Report {
 fn flags_need_paths() -> Report {
     one_line(
         "FLAGS NEED MODULES",
-        "--output, --platform, --ffi and --docs apply to the modules named on the command \
+        "--output, --platform and --docs apply to the modules named on the command \
          line. Without them, nomi build builds each entry of nomi.toml as the entry says.",
     )
 }

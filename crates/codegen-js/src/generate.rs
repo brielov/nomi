@@ -27,9 +27,7 @@ const FUNCTIONS: &str = include_str!("functions.js");
 /// from `graph`, which holds every definition they may reach, for
 /// `target`. A Node program carries the runtime its kernels run on, and
 /// a Node entry in an ES module of one `main` probes Node for what the
-/// program needs before its kernels load, and starts it. A module's FFI
-/// module is imported first and is its scope's `ffi`, where its kernel
-/// finds it, once the module has checked what the FFI's startup asks.
+/// program needs before its kernels load, and starts it.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
@@ -41,13 +39,7 @@ pub fn generate(
     mains.sort_by(|a, b| homes(compat, &a.0, &b.0));
     let mut kernels = match &target.format {
         Format::Iife => Vec::new(),
-        Format::EsModule { ffi: None } => b"const scope = {};\n".to_vec(),
-        Format::EsModule { ffi: Some(ffi) } => format!(
-            "import * as __nomi_ffi from '{}';\n{}const scope = {{ ffi: __nomi_ffi }};\n",
-            ffi.specifier,
-            ffi.startup.js("__nomi_ffi")
-        )
-        .into_bytes(),
+        Format::EsModule => b"const scope = {};\n".to_vec(),
     };
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
@@ -64,7 +56,7 @@ pub fn generate(
             &target.format,
             mains.as_slice()
         ),
-        (Start::Entry, Platform::Node, Format::EsModule { .. }, [_])
+        (Start::Entry, Platform::Node, Format::EsModule, [_])
     );
     let runtime_end = kernels.len();
     let mut state = State {
@@ -96,7 +88,7 @@ pub fn generate(
     }
     let end: &[u8] = match target.format {
         Format::Iife => b"}(this));",
-        Format::EsModule { .. } => b"}(scope));\nexport const Elm = scope.Elm;\n",
+        Format::EsModule => b"}(scope));\nexport const Elm = scope.Elm;\n",
     };
     out.extend_from_slice(end);
     out
@@ -404,7 +396,6 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
-    use crate::ffi::{Exports, Ffi, Startup};
 
     const DEV: Mode = Mode::Dev { debug: None };
 
@@ -485,7 +476,7 @@ mod tests {
         let (graph, mains) = static_mains(&["Main"]);
         let iife = generate(Compat::V0_19_1, &DEV, &Target::default(), &graph, &mains);
         let module = Target {
-            format: Format::EsModule { ffi: None },
+            format: Format::EsModule,
             ..Target::default()
         };
         let module = generate(Compat::V0_19_1, &DEV, &module, &graph, &mains);
@@ -519,7 +510,7 @@ mod tests {
     #[test]
     fn a_node_entry_of_one_main_starts_it_and_any_other_module_starts_none() {
         let browser = Target {
-            format: Format::EsModule { ffi: None },
+            format: Format::EsModule,
             ..Target::default()
         };
         let node = Target {
@@ -557,27 +548,6 @@ mod tests {
         assert_eq!(
             built(&entry, &["Main", "Other"]),
             with_runtime(built(&browser, &["Main", "Other"]))
-        );
-        // A module with an FFI module imports it, and its scope holds it.
-        let ffi = Target {
-            format: Format::EsModule {
-                ffi: Some(Ffi {
-                    specifier: "../src/ffi.mjs".to_owned(),
-                    exports: Exports::default(),
-                    startup: Startup::default(),
-                }),
-            },
-            ..node
-        };
-        let plain = built(&node, &["Main"]);
-        assert_eq!(
-            built(&ffi, &["Main"]),
-            plain.replacen(
-                "const scope = {};\n",
-                "import * as __nomi_ffi from '../src/ffi.mjs';\n\
-                 const scope = { ffi: __nomi_ffi };\n",
-                1
-            )
         );
     }
 

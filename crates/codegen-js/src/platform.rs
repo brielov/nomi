@@ -2,28 +2,14 @@
 //! file. Upstream's is the browser's, an IIFE.
 
 use std::collections::BTreeSet;
-use std::ffi::OsStr;
-use std::fmt::Write;
-use std::path::{Component, Path};
 
 use nomi_base::Platform;
 
-use crate::ffi::Ffi;
 use crate::runtime::{self, Override};
 
 /// The kernel modules of the packages bundled with nomi, by short name,
 /// in order: each `packages/*/src/Elm/Kernel/*.js`.
-const BUNDLED_KERNELS: &[&str] = &[
-    "Nomi",
-    "NomiFfi",
-    "NomiFs",
-    "NomiServer",
-    "NomiStdio",
-    "NomiTest",
-];
-
-/// The kernel module that calls the FFI module's functions.
-pub const FFI_KERNEL: &str = "NomiFfi";
+const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiFs", "NomiServer", "NomiStdio", "NomiTest"];
 
 /// The kernel modules, by short name, a program for `platform` may not
 /// reach, with `dom`. Node has no DOM of its own. The browser lacks
@@ -51,9 +37,8 @@ pub enum Format {
     /// A function called on `this`, which it adds `Elm` to: upstream's.
     #[default]
     Iife,
-    /// An ES module exporting `Elm`; a module's `this` is undefined. It
-    /// imports `ffi`, its FFI module, first, where it has one.
-    EsModule { ffi: Option<Ffi> },
+    /// An ES module exporting `Elm`; a module's `this` is undefined.
+    EsModule,
 }
 
 /// Whether a program starts itself.
@@ -95,62 +80,6 @@ pub struct Target {
     pub dom: Dom,
     pub start: Start,
     pub advice: Advice,
-}
-
-impl Target {
-    /// The FFI module the program imports, if it has one.
-    pub fn ffi(&self) -> Option<&Ffi> {
-        match &self.format {
-            Format::EsModule { ffi } => ffi.as_ref(),
-            Format::Iife => None,
-        }
-    }
-}
-
-/// The specifier a module at `output` imports the file `module` by: the
-/// path from `output`'s directory, `./` or `../` first, with forward
-/// slashes, and each byte but a letter, digit, `-`, `.`, `_` or `~`
-/// percent-encoded, so neither the URL it resolves to nor the string it
-/// is written in can end early. Both paths are absolute, or relative to
-/// one directory that `output` is not above; `.` and `..` are resolved
-/// without the file system.
-pub fn ffi_specifier(output: &Path, module: &Path) -> String {
-    let from = lexical(output.parent().unwrap_or_else(|| Path::new("")));
-    let to = lexical(module);
-    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
-    let mut parts = match from.len() - common {
-        0 => vec![".".to_owned()],
-        up => vec!["..".to_owned(); up],
-    };
-    for part in &to[common..] {
-        let mut encoded = String::new();
-        for byte in part.as_encoded_bytes() {
-            match byte {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                    encoded.push(char::from(*byte));
-                }
-                _ => _ = write!(encoded, "%{byte:02X}"),
-            }
-        }
-        parts.push(encoded);
-    }
-    parts.join("/")
-}
-
-/// `path`'s components with `.` dropped and each `..` taking off the one
-/// before it, where there is one.
-fn lexical(path: &Path) -> Vec<&OsStr> {
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir if parts.last().is_some_and(|last| *last != "..") => {
-                parts.pop();
-            }
-            other => parts.push(other.as_os_str()),
-        }
-    }
-    parts
 }
 
 /// What the runtime needs from Node beyond the language, as
@@ -199,30 +128,6 @@ pub(crate) fn shim(module: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_ffi_module_is_imported_from_the_outputs_directory() {
-        let specifier =
-            |output: &str, module: &str| ffi_specifier(Path::new(output), Path::new(module));
-        assert_eq!(specifier("dist/main.mjs", "dist/ffi.mjs"), "./ffi.mjs");
-        assert_eq!(specifier("dist/main.mjs", "src/ffi.mjs"), "../src/ffi.mjs");
-        assert_eq!(specifier("main.mjs", "src/js/ffi.mjs"), "./src/js/ffi.mjs");
-        assert_eq!(specifier("a/b/c/main.mjs", "a/ffi.mjs"), "../../ffi.mjs");
-        assert_eq!(
-            specifier("./dist/../out/main.mjs", "out/./ffi.mjs"),
-            "./ffi.mjs"
-        );
-        assert_eq!(
-            specifier("/p/dist/main.mjs", "/p/src/ffi.mjs"),
-            "../src/ffi.mjs"
-        );
-        assert_eq!(specifier("dist/main.mjs", "../ffi.mjs"), "../../ffi.mjs");
-        assert_eq!(
-            specifier("main.mjs", "my lib/it's #1?%.mjs"),
-            "./my%20lib/it%27s%20%231%3F%25.mjs"
-        );
-        assert_eq!(specifier("main.mjs", "é.mjs"), "./%C3%A9.mjs");
-    }
 
     #[test]
     fn a_probe_checks_what_the_runtime_and_the_reached_kernels_need_once_each() {

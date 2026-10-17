@@ -11,7 +11,6 @@ use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, reflow, text};
 use nomi_base::{Compat, Platform, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
-use nomi_codegen_js::ffi::{self, Exports, Misspelt};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
@@ -26,7 +25,6 @@ use crate::Pool;
 use crate::artifacts::Hash;
 use crate::check::Optimized;
 use crate::graph::module_path;
-use crate::make::{FfiModule, NamedIn};
 use crate::paths::package_src;
 use crate::project::package_outline;
 
@@ -51,8 +49,6 @@ pub struct Program<'a> {
     pub compat: Compat,
     pub kind: Kind,
     pub target: Target,
-    /// Where `target`'s FFI module, where it has one, was named.
-    pub ffi: Option<&'a FfiModule>,
     /// The package the project's own modules are homes in.
     pub package: &'a str,
     /// The dependencies, each with the directory of its source, where the
@@ -71,8 +67,7 @@ pub fn program(
     let Program {
         compat,
         kind,
-        mut target,
-        ffi,
+        target,
         package,
         packages,
     } = program;
@@ -119,22 +114,10 @@ pub fn program(
     };
     let mut lacking = platform::unavailable(target.platform, target.dom).to_vec();
     lacking.extend(unknown.iter().map(|release| release.module));
-    if target.platform == Platform::Node && target.ffi().is_none() {
-        lacking.push(platform::FFI_KERNEL);
-    }
-    let checked = match (
-        unavailable(compat, &mode, &lacking, &graph, &mains),
-        &mut target.format,
-    ) {
-        (Some(path), _) => Err(not_available(target.platform, &path, &unknown)),
-        (None, Format::EsModule { ffi: Some(module) }) => {
-            ffi::check(compat, &mode, &module.exports, &graph, &mains)
-                .map(|startup| module.startup = startup)
-                .map_err(|misspelt| ffi_misspelt(&misspelt, &module.exports, ffi))
-        }
-        (None, _) => Ok(()),
+    let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
+        Some(path) => Err(not_available(target.platform, &path, &unknown)),
+        None => Ok(generate(compat, &mode, &target, &graph, &mains)),
     };
-    let js = checked.map(|()| generate(compat, &mode, &target, &graph, &mains));
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
     Pool::global().drop_later((graph, mode));
@@ -206,8 +189,7 @@ fn replace_kernels(
 }
 
 /// That `path`, from a `main` to a kernel, reaches what `platform` lacks,
-/// a kernel it replaces in a release in `unknown`, or, on Node, the FFI's
-/// kernel without an FFI module.
+/// or a kernel it replaces in a release in `unknown`.
 fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Report {
     let name = |global: &Global| {
         if global.is_kernel() {
@@ -242,24 +224,6 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
             ],
         );
     }
-    if platform == Platform::Node && *last.home.module == *platform::FFI_KERNEL {
-        return Report::doc(
-            "NO FFI MODULE",
-            None,
-            reflow(&format!(
-                "The `main` in {} calls JavaScript through Nomi.Ffi, but this build has no FFI \
-                 module to call:",
-                main.home.module
-            )),
-            [
-                text(&chain).color(Color::Red).indent(4),
-                reflow(
-                    "Give the ES module that exports the functions with --ffi, and build to a \
-                     file ending in .mjs, which imports it.",
-                ),
-            ],
-        );
-    }
     let (title, host, advice) = match platform {
         Platform::Node => (
             "NOT AVAILABLE ON NODE",
@@ -281,55 +245,6 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
             main.home.module
         )),
         [text(&chain).color(Color::Red).indent(4), reflow(advice)],
-    )
-}
-
-/// That calls in `misspelt` name functions the FFI module, which
-/// exports `exports` and was named as `named` says, does not export.
-fn ffi_misspelt(misspelt: &[Misspelt], exports: &Exports, named: Option<&FfiModule>) -> Report {
-    let calls = (misspelt.iter())
-        .map(|Misspelt { caller, name }| {
-            format!(
-                "{}.{} calls Nomi.Ffi.task \"{name}\"",
-                caller.home.module, caller.name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut docs = vec![text(&calls).color(Color::Red).indent(4)];
-    if exports.names.is_empty() {
-        docs.push(reflow("It exports nothing."));
-    } else {
-        let names = exports.names.iter().map(String::as_str).collect::<Vec<_>>();
-        docs.push(reflow("It exports:"));
-        docs.push(text(names.join(", ")).color(Color::Green).indent(4));
-    }
-    let module = match named {
-        Some(FfiModule {
-            path,
-            named_in: NamedIn::Entry(main),
-        }) => format!(
-            "{}, the FFI module nomi.toml gives the entry {main}",
-            path.display()
-        ),
-        Some(FfiModule {
-            named_in: NamedIn::Flag,
-            ..
-        })
-        | None => "the module given with --ffi".to_owned(),
-    };
-    docs.push(reflow(&format!(
-        "Check the name against {module}; a call names an export exactly, case included."
-    )));
-    Report::doc(
-        "UNKNOWN FFI FUNCTION",
-        None,
-        reflow(if misspelt.len() == 1 {
-            "This call names a function the FFI module does not export:"
-        } else {
-            "These calls name functions the FFI module does not export:"
-        }),
-        docs,
     )
 }
 

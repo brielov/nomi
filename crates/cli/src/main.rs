@@ -11,7 +11,7 @@ use nomi_base::Platform;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality, StdConsole};
 use nomi_engine::format::{self, Mode};
-use nomi_engine::make::{FfiModule, Make, NamedIn};
+use nomi_engine::make::Make;
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::scope::Verb;
@@ -228,10 +228,6 @@ struct Build {
     /// the browser.
     #[arg(long, value_enum)]
     platform: Option<PlatformName>,
-    /// The ES module whose exported async functions `Nomi.Ffi.task`
-    /// calls, imported by an `.mjs` output built for Node.
-    #[arg(long, value_name = "FILE")]
-    ffi: Option<PathBuf>,
 }
 
 /// The machine-readable report formats.
@@ -377,7 +373,6 @@ fn build(args: Build) -> bool {
         docs,
         report,
         platform,
-        ffi,
     } = args;
     let platform = platform.map(|platform| match platform {
         PlatformName::Browser => Platform::Browser,
@@ -390,10 +385,6 @@ fn build(args: Build) -> bool {
     let make = Make {
         style: style(report),
         kind: make::kind(debug, optimize),
-        ffi: ffi.map(|path| FfiModule {
-            path,
-            named_in: NamedIn::Flag,
-        }),
         docs,
         ..make
     };

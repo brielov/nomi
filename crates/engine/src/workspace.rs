@@ -23,7 +23,7 @@ use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_pro
 use crate::console::{Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
-use crate::make::{self, FfiModule, Make, NamedIn, OutputName, Shared};
+use crate::make::{self, Make, OutputName, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
@@ -1079,7 +1079,7 @@ fn package(
 
 /// What building `entry`, one of `entries` of the member in `dir`, asks
 /// for, as `making` asks: `nomi check` of its `main`, or what `nomi
-/// build` or `nomi run` makes of its `main`, platform and FFI module,
+/// build` or `nomi run` makes of its `main` and platform,
 /// written to its `output` or, without one, to [`default_output`].
 fn entry_make(
     dir: &Path,
@@ -1118,10 +1118,6 @@ fn entry_make(
         } else {
             OutputName::Given
         },
-        ffi: (entry.ffi.as_ref()).map(|path| FfiModule {
-            path: path.into(),
-            named_in: NamedIn::Entry(entry.main.clone()),
-        }),
         ..make
     })
 }
@@ -1199,7 +1195,6 @@ mod tests {
             main: main.to_owned(),
             output: None,
             platform: None,
-            ffi: None,
             args: Vec::new(),
             static_dir: None,
             port: None,
