@@ -10,7 +10,7 @@ use nomi_base::{Compat, Platform, Report};
 use nomi_engine::artifacts::Hash;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
-use nomi_engine::javascript::{Dom, Format, Kind, Target};
+use nomi_engine::javascript::{Dom, Kind, Target};
 use nomi_engine::make::{self, Make, Output};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
@@ -232,10 +232,8 @@ pub fn build<H: Http + Sync>(
     // stand-ins for the browser's globals let tests reach the DOM's.
     make.target = Target {
         platform: Platform::Node,
-        format: Format::Iife,
         dom: Dom::Polyfilled,
-        ffi: None,
-        quiet: false,
+        ..Target::default()
     };
     if !make::run(&env.at(&dir), &mut quiet, &make) {
         return Err(quiet.shown(console));

@@ -288,7 +288,7 @@ fn scripts(
         let js = javascript::program(
             compat,
             kind,
-            &javascript::Target::default(),
+            javascript::Target::default(),
             None,
             "author/project",
             sources,

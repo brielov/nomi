@@ -27,9 +27,13 @@ var _Http_toTask = F3(function(router, toTask, request)
 	{
 		var controller = new AbortController();
 		var timer;
+		// The response becomes a value on the fiber, where a throw in the
+		// program's code is the fiber's defect, not the process's crash.
 		function done(response) {
 			clearTimeout(timer);
-			controller.signal.aborted || callback(toTask(request.__$expect.__toValue(response)));
+			controller.signal.aborted || callback(_Runtime.andThen(_Runtime.succeed(response), function(response) {
+				return toTask(request.__$expect.__toValue(response));
+			}));
 		}
 
 		try {
@@ -41,7 +45,8 @@ var _Http_toTask = F3(function(router, toTask, request)
 		var init = _Http_configureRequest(request, controller.signal);
 		if (request.__$timeout.a)
 		{
-			timer = setTimeout(function() { done(__Http_Timeout_); controller.abort(); }, request.__$timeout.a);
+			// A host timer fires at once past 2^31 - 1 ms, where XMLHttpRequest's waits.
+			timer = setTimeout(function() { done(__Http_Timeout_); controller.abort(); }, Math.min(request.__$timeout.a, 2147483647));
 		}
 		fetch(request.__$url, init)
 			.then(function(response) {

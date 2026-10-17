@@ -833,7 +833,12 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
     )
     .ok_or_else(|| bad_output(&entry.main, &output))?;
     let target = javascript::Target {
-        quiet: making == Making::Run,
+        start: javascript::Start::Entry,
+        advice: if making == Making::Run {
+            javascript::Advice::Omitted
+        } else {
+            javascript::Advice::Given
+        },
         ..make.target.clone()
     };
     Ok(Make {

@@ -11,7 +11,7 @@ use nomi_base::diagnostic::Report;
 use nomi_base::diagnostic::doc::{Color, reflow, text};
 use nomi_base::{Compat, Platform, kernel};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
-use nomi_codegen_js::ffi::{self, Exports, Misspelt, Startup};
+use nomi_codegen_js::ffi::{self, Exports, Misspelt};
 use nomi_codegen_js::generate::generate;
 use nomi_codegen_js::kernel::{add_kernel, parse};
 use nomi_codegen_js::mode::{Mode, shorten_field_names};
@@ -30,7 +30,7 @@ use crate::make::{FfiModule, NamedIn};
 use crate::paths::package_src;
 use crate::project::package_outline;
 
-pub use nomi_codegen_js::platform::{Dom, Format, Target};
+pub use nomi_codegen_js::platform::{Advice, Dom, Format, Start, Target};
 
 /// How code is generated: `elm make`'s default, `--debug` or
 /// `--optimize`.
@@ -57,7 +57,7 @@ pub enum Kind {
 pub fn program(
     compat: Compat,
     kind: Kind,
-    target: &Target,
+    mut target: Target,
     ffi: Option<&FfiModule>,
     package: &str,
     packages: &[(Name, PathBuf)],
@@ -107,18 +107,22 @@ pub fn program(
     };
     let mut lacking = platform::unavailable(target.platform, target.dom).to_vec();
     lacking.extend(unknown.iter().map(|release| release.module));
-    if target.platform == Platform::Node && target.ffi.is_none() {
+    if target.platform == Platform::Node && target.ffi().is_none() {
         lacking.push(platform::FFI_KERNEL);
     }
-    let js = match unavailable(compat, &mode, &lacking, &graph, &mains) {
-        Some(path) => Err(not_available(target.platform, &path, &unknown)),
-        None => match &target.ffi {
-            Some(module) => ffi::check(compat, &mode, &module.exports, &graph, &mains)
-                .map_err(|misspelt| ffi_misspelt(&misspelt, &module.exports, ffi)),
-            None => Ok(Startup::default()),
+    let checked = match (
+        unavailable(compat, &mode, &lacking, &graph, &mains),
+        &mut target.format,
+    ) {
+        (Some(path), _) => Err(not_available(target.platform, &path, &unknown)),
+        (None, Format::EsModule { ffi: Some(module) }) => {
+            ffi::check(compat, &mode, &module.exports, &graph, &mains)
+                .map(|startup| module.startup = startup)
+                .map_err(|misspelt| ffi_misspelt(&misspelt, &module.exports, ffi))
         }
-        .map(|startup| generate(compat, &mode, target, &startup, &graph, &mains)),
+        (None, _) => Ok(()),
     };
+    let js = checked.map(|()| generate(compat, &mode, &target, &graph, &mains));
     // Every package's code is in the graph, so freeing it takes a while,
     // which a build need not wait for.
     Pool::global().drop_later((graph, mode));
@@ -193,9 +197,12 @@ fn replace_kernels(
 /// a kernel it replaces in a release in `unknown`, or, on Node, the FFI's
 /// kernel without an FFI module.
 fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Report {
-    let name = |global: &Global| match global.home.package.as_str() {
-        "elm/kernel" => format!("{}{}", kernel::MODULE_PREFIX, global.home.module),
-        _ => format!("{}.{}", global.home.module, global.name),
+    let name = |global: &Global| {
+        if global.is_kernel() {
+            format!("{}{}", kernel::MODULE_PREFIX, global.home.module)
+        } else {
+            format!("{}.{}", global.home.module, global.name)
+        }
     };
     let (main, rest) = path.split_first().expect("a path starts at a main");
     let last = path.last().unwrap_or(main);

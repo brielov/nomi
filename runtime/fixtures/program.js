@@ -1,5 +1,6 @@
-// A program for the lifecycle tests, picked by argv[2]. It prints "ready"
-// once it is waiting, so the test knows when to signal it.
+// A program for the lifecycle tests, picked by argv[2], on the synchronous
+// runtime programs run on. It prints "ready" once it is waiting, so the
+// test knows when to signal it.
 
 import { allowShutdown, main, requestExit } from "../src/main.js";
 import {
@@ -9,6 +10,7 @@ import {
   die,
   fail,
   forkDaemon,
+  join,
   Runtime,
   scoped,
   sleep,
@@ -17,7 +19,7 @@ import {
   yieldNow,
 } from "../src/fiber.js";
 
-const runtime = new Runtime();
+const runtime = new Runtime({ synchronous: true });
 const say = (line) => sync(() => console.log(line));
 const forever = async(() => {
   const handle = setInterval(() => {}, 1 << 30);
@@ -27,22 +29,31 @@ const resource = (name, release = say(`${name} released`)) =>
   acquireRelease(say(`${name} acquired`), () => release);
 const ready = (rest) => andThen(say("ready"), () => rest);
 
+const slowRelease = (allow) =>
+  andThen(sync(() => allowShutdown(runtime, allow)), () =>
+    scoped(andThen(resource("slow", andThen(sleep(400), () => say("slow released"))), () => ready(forever))),
+  );
+
 const scenarios = {
   // Waits until signalled; both resources are released, last first.
   wait: () => scoped(andThen(resource("a"), () => andThen(resource("b"), () => ready(forever)))),
   // A finalizer that never ends: the deadline cuts it short.
   hang: () => scoped(andThen(resource("stuck", andThen(say("releasing"), () => forever)), () => ready(forever))),
   // A finalizer slower than the deadline, which the program lengthened.
-  allowed: () =>
-    andThen(sync(() => allowShutdown(runtime, 2_000)), () =>
-      scoped(andThen(resource("slow", andThen(sleep(400), () => say("slow released"))), () => ready(forever))),
-    ),
+  allowed: () => slowRelease(2_000),
+  // As `allowed`, by more than a host timer can wait.
+  allowedLong: () => slowRelease(2 ** 32),
   // Ends on its own; the daemon it left is interrupted and released.
   daemon: () =>
     andThen(forkDaemon(scoped(andThen(resource("daemon"), () => forever))), () =>
       // Let the daemon start first.
       andThen(yieldNow, () => andThen(say("main done"), () => succeed())),
     ),
+  // Ends on its own, leaving a daemon that waits on another: interrupting
+  // the first ends the second before the shutdown reaches it.
+  dependent: () => andThen(forkDaemon(forever), (first) => andThen(forkDaemon(join(first)), () => say("main done"))),
+  // A finalizer that dies while a signal stops the program.
+  broken: () => scoped(andThen(resource("a", die(new Error("release broke"))), () => ready(forever))),
   // Asks to exit 3 and waits; its resource is released first.
   exit: () => scoped(andThen(resource("a"), () => andThen(sync(() => requestExit(runtime, 3)), () => forever))),
   ok: () => say("hello"),

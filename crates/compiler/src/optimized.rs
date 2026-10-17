@@ -83,6 +83,9 @@ pub struct Global {
 }
 
 impl Global {
+    /// The package kernel modules' globals are in.
+    const KERNEL: &str = "elm/kernel";
+
     /// `toKernelGlobal`: the kernel module `short` (without `Elm.Kernel.`)
     /// as a global, named `$`, or `#0` in 0.19.3.
     pub fn kernel(compat: nomi_base::Compat, short: &str) -> Global {
@@ -93,11 +96,17 @@ impl Global {
         };
         Global {
             home: Home {
-                package: "elm/kernel".into(),
+                package: Self::KERNEL.into(),
                 module: short.into(),
             },
             name: name.to_owned(),
         }
+    }
+
+    /// Whether this is a kernel module's, as [`Global::kernel`] makes.
+    #[inline]
+    pub fn is_kernel(&self) -> bool {
+        self.home.package == Self::KERNEL
     }
 }
 

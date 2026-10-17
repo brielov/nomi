@@ -327,7 +327,7 @@ Elm's `Scheduler.js` already runs processes, bindings with kill functions and a 
 |---|---|
 | Structured concurrency | Every fiber has a parent scope. Closing a scope interrupts its children, then runs finalizers in LIFO order. `Process.spawn` keeps upstream semantics: it is attached to the program root and outlives its spawner. |
 | Interruption | Delivered at async boundaries and yield points, and masked in uninterruptible regions. Acquire is uninterruptible, and release runs exactly once. |
-| Exits | Success, typed failure, defect or interruption. A JS exception in a kernel or FFI call becomes a defect of that fiber. It is reported, never lost, and never crashes the process. |
+| Exits | Success, typed failure, defect or interruption. A JS exception in a kernel call becomes a defect of that fiber; an FFI function's throw or rejection is the typed failure `Threw`. It is reported, never lost, and never crashes the process. |
 | Fairness | Yield to the event loop every N steps. |
 | Bookkeeping | Finished fibers leave every table, and metrics are read before teardown. |
 | Lifecycle | SIGINT or SIGTERM interrupts the root fiber, finalizers run, and the process exits with 130 or 143. HTTP servers drain first: they stop accepting, let in-flight requests finish until a deadline, and only then interrupt what remains. |

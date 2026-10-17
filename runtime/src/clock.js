@@ -10,7 +10,11 @@ export class RealClock {
     return Date.now();
   }
 
-  /** A delay that isn't positive fires once the event loop has had its turn, without a timer's millisecond. */
+  /**
+   * A delay that isn't positive fires once the event loop has had its turn,
+   * without a timer's millisecond; one over 2^31 - 1 ms fires at once, as a
+   * host timer, and upstream's `Process.sleep` in a browser, does.
+   */
   setTimer(ms, fire) {
     if (!(ms > 0)) {
       const handle = setImmediate(fire);

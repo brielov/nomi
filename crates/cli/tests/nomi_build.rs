@@ -108,6 +108,23 @@ fn build(cache: &Path, root: &Path, args: &[&str]) {
     assert!(built.status.success(), "{built:?}");
 }
 
+/// `nomi build` in `root` of its one entry, `src/Main.elm` for Node
+/// written to `dist/main.mjs`, which must succeed.
+fn build_entry(cache: &Path, root: &Path) {
+    fs::write(
+        root.join("nomi.toml"),
+        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"node\"\noutput = \"dist/main.mjs\"\n",
+    )
+    .unwrap();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let built = offline(program, cache)
+        .current_dir(root)
+        .arg("build")
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "{built:?}");
+}
+
 /// What `node script` in `root` writes to standard output, once it
 /// succeeds.
 fn node(root: &Path, script: &str) -> String {
@@ -179,9 +196,10 @@ attempt(50);
     assert!(node_js.contains("var _Runtime = "));
 }
 
-/// A worker built for Node into an `.mjs` file starts when run, and with
-/// nothing live exits 0 on its own; built for the browser, the module
-/// runs nothing.
+/// A worker built for Node as an entry starts when run, and with nothing
+/// live exits 0 on its own. Built into an `.mjs` file for Node or the
+/// browser without an entry, the module runs nothing: a Node host that
+/// imports it starts it, and keeps its signals.
 #[test]
 fn a_node_entry_starts_its_main_and_a_plain_module_runs_nothing() {
     nomi_testkit::require_node();
@@ -199,14 +217,26 @@ main =
         }
 ",
     );
+    build_entry(cache.path(), &root);
+    assert_eq!(node(&root, "dist/main.mjs"), "started: ()\n");
+    build(cache.path(), &root, &["--output=dist/plain.mjs"]);
+    assert_eq!(node(&root, "dist/plain.mjs"), "");
     build(
         cache.path(),
         &root,
-        &["--platform=node", "--output=dist/entry.mjs"],
+        &["--platform=node", "--output=dist/node.mjs"],
     );
-    assert_eq!(node(&root, "dist/entry.mjs"), "started: ()\n");
-    build(cache.path(), &root, &["--output=dist/plain.mjs"]);
-    assert_eq!(node(&root, "dist/plain.mjs"), "");
+    assert_eq!(node(&root, "dist/node.mjs"), "");
+    let host = "const { Elm } = await import('./dist/node.mjs');
+console.log('imported');
+Elm.Main.init();
+console.log('signal handlers:', process.listenerCount('SIGINT') + process.listenerCount('SIGTERM'));
+";
+    fs::write(root.join("host.mjs"), host).unwrap();
+    assert_eq!(
+        node(&root, "host.mjs"),
+        "imported\nstarted: ()\nsignal handlers: 0\n"
+    );
 }
 
 /// Every file under `dir`, by its path from `dir`, with its contents.
@@ -354,6 +384,9 @@ fn unknown_release_fails(
     assert!(!root.join("dist/node.js").exists());
 }
 
+/// The `elm.json` of an application on elm/time.
+const TIME_APP: &str = r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#;
+
 /// A worker that sleeps `sleep` ms, takes three ticks of `Time.every
 /// every`, then reads `Time.now`, logging each step and whether the
 /// program's clock had passed it. Host timers keep whole milliseconds,
@@ -430,16 +463,8 @@ fn a_node_program_sleeps_and_ticks_on_the_real_clock() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = project(&clocked_worker(50, 5));
-    fs::write(
-        root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
-    )
-    .unwrap();
-    build(
-        cache.path(),
-        &root,
-        &["--platform=node", "--output=dist/main.mjs"],
-    );
+    fs::write(root.join("elm.json"), TIME_APP).unwrap();
+    build_entry(cache.path(), &root);
     let started = std::time::Instant::now();
     let mut node = Command::new("node")
         .arg("dist/main.mjs")
@@ -461,6 +486,55 @@ fn a_node_program_sleeps_and_ticks_on_the_real_clock() {
         String::from_utf8_lossy(&ran.stdout),
         "slept: True\ntick 1: True\ntick 2: True\ntick 3: True\nnow: True\n"
     );
+}
+
+/// A worker taking 51 ticks of `Time.every 0`, then logging whether the
+/// last 50 took 25 ms or more.
+const EVERY_0_WORKER: &str = "module Main exposing (main)
+
+import Time
+
+
+type alias Model =
+    { first : Int, ticks : Int }
+
+
+main : Program () Model Time.Posix
+main =
+    Platform.worker
+        { init = \\_ -> ( Model 0 0, Cmd.none )
+        , update = update
+        , subscriptions = \\model -> if model.ticks < 51 then Time.every 0 identity else Sub.none
+        }
+
+
+update : Time.Posix -> Model -> ( Model, Cmd msg )
+update time model =
+    let
+        ticks =
+            model.ticks + 1
+    in
+    if ticks == 1 then
+        ( Model (Time.posixToMillis time) ticks, Cmd.none )
+
+    else if ticks == 51 then
+        ( Debug.log \"took 25 ms or more\" (Time.posixToMillis time - model.first >= 25) |> always { model | ticks = ticks }, Cmd.none )
+
+    else
+        ( { model | ticks = ticks }, Cmd.none )
+";
+
+/// `Time.every 0` ticks at most once a millisecond, as upstream's
+/// `setInterval` does on Node, rather than as fast as the event loop
+/// turns.
+#[test]
+fn a_node_program_ticking_every_0_ms_waits_a_millisecond_a_tick() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = project(EVERY_0_WORKER);
+    fs::write(root.join("elm.json"), TIME_APP).unwrap();
+    build_entry(cache.path(), &root);
+    assert_eq!(node(&root, "dist/main.mjs"), "took 25 ms or more: True\n");
 }
 
 /// A worker logging each tick of a `Time.every 20`.
@@ -490,16 +564,8 @@ fn a_ticking_node_worker_runs_until_a_signal_and_exits_with_its_code() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = project(TICKING_WORKER);
-    fs::write(
-        root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "elm/time": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
-    )
-    .unwrap();
-    build(
-        cache.path(),
-        &root,
-        &["--platform=node", "--output=dist/main.mjs"],
-    );
+    fs::write(root.join("elm.json"), TIME_APP).unwrap();
+    build_entry(cache.path(), &root);
     // Node itself: a version manager's `node` may exit 128 plus the
     // signal for a child the signal killed.
     let node = Command::new("node")
@@ -552,6 +618,7 @@ const HTTP_APP: &str = r#"{"type": "application", "source-directories": ["src"],
 /// A worker that makes each request in turn against the server at its
 /// flags, writing each `Result` to `log`, then cancels a request that is
 /// receiving its body and asks the server whether its connection closed.
+/// Meanwhile, a request whose response function crashes answers nothing.
 const HTTP_WORKER: &str = r#"port module Main exposing (main)
 
 import Bytes.Decode
@@ -579,7 +646,7 @@ type alias Model =
 main : Program String Model Msg
 main =
     Platform.worker
-        { init = \base -> update (Got "start") (Model base (requests base) True)
+        { init = \base -> Tuple.mapSecond (\cmd -> Cmd.batch [ cmd, throwing base ]) (update (Got "start") (Model base (requests base) True))
         , update = update
         , subscriptions = \model -> if model.tracking then Http.track "hang" Progress else Sub.none
         }
@@ -619,6 +686,11 @@ metadata response =
             Err "not good"
 
 
+throwing : String -> Cmd Msg
+throwing base =
+    get base "/text" Nothing Nothing (Http.expectStringResponse (got "crashed") (\_ -> Debug.todo "boom"))
+
+
 requests : String -> List (Cmd Msg)
 requests base =
     [ Http.get { url = base ++ "/text", expect = Http.expectString (got "get") }
@@ -632,6 +704,7 @@ requests base =
     , Http.get { url = base ++ "/text", expect = Http.expectWhatever (got "whatever") }
     , Http.get { url = base ++ "/missing", expect = Http.expectString (got "bad status") }
     , get base "/slow" (Just 50) Nothing (Http.expectString (got "timeout"))
+    , get base "/later" (Just 3.0e9) Nothing (Http.expectString (got "longer than a host timer"))
     , Http.get { url = base ++ "/reset", expect = Http.expectString (got "network error") }
     , Http.get { url = "not a url", expect = Http.expectString (got "bad url") }
     , get base "/hang" Nothing (Just "hang") (Http.expectString (got "cancelled"))
@@ -681,6 +754,8 @@ const server = http.createServer((req, res) => {
       return res.end('no');
     case '/slow':
       return;
+    case '/later':
+      return setTimeout(() => res.end('later'), 50);
     case '/reset':
       return req.socket.destroy();
     case '/hang':
@@ -704,8 +779,10 @@ server.listen(0, '127.0.0.1', () => {
 
 /// elm/http on Node gives the `Result` the browser's kernel gives: for a
 /// GET and a POST, each `expect`, the response's metadata, a bad status,
-/// a timeout, a dropped connection and a bad URL. A cancelled request
-/// closes its connection and answers nothing.
+/// a timeout, a dropped connection and a bad URL. A timeout longer than a
+/// host timer waits waits. A cancelled request closes its connection and
+/// answers nothing. A response function that throws is a defect of its
+/// request's fiber, which the program outlives.
 #[test]
 fn a_node_program_makes_http_requests() {
     nomi_testkit::require_node();
@@ -726,10 +803,20 @@ bytes: Ok "hello"
 whatever: Ok ()
 bad status: Err (BadStatus 404)
 timeout: Err Timeout
+longer than a host timer: Ok "later"
 network error: Err NetworkError
 bad url: Err (BadUrl "not a url")
 progress: Receiving { received = 5, size = Just 10 }
 closed: Ok "closed"
 "#;
-    assert_eq!(node(&root, "driver.cjs"), expected);
+    let ran = Command::new("node")
+        .arg("driver.cjs")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(ran.status.success(), "{ran:?}");
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), expected);
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(stderr.contains("died with a defect"), "{stderr}");
+    assert!(stderr.contains("boom"), "{stderr}");
 }

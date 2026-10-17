@@ -27,7 +27,7 @@ pub fn prologue() -> &'static str {
 /// function, without their `import` lines and `export` keywords,
 /// returning what they export. A form it doesn't read is an error naming
 /// the module and the line.
-pub fn namespace(name: &str, modules: &[(&str, &str)]) -> Result<String, String> {
+fn namespace(name: &str, modules: &[(&str, &str)]) -> Result<String, String> {
     let mut code = String::new();
     let mut exports = Vec::new();
     for (i, (file, text)) in modules.iter().enumerate() {

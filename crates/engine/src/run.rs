@@ -24,7 +24,7 @@ use nomi_registry::Http;
 
 use crate::artifacts::Hash;
 use crate::console::{self, Console, Personality};
-use crate::javascript::Target;
+use crate::javascript::{Advice, Start, Target};
 use crate::make::{self, Code, FfiModule, Make, NamedIn};
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
@@ -571,7 +571,8 @@ fn build(
         ffi: built.ffi.clone(),
         output_by_platform: built.output_by_platform,
         target: Target {
-            quiet: true,
+            start: Start::Entry,
+            advice: Advice::Omitted,
             ..make.target
         },
         ..make

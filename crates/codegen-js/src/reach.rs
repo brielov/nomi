@@ -23,9 +23,9 @@ pub(crate) enum Deps<'a> {
     Manager(EffectsType),
 }
 
-/// What `node`, `global`'s definition, needs; `None` when it isn't
-/// written at all, as the debugger's kernel isn't outside `--debug`.
-pub(crate) fn deps_of<'a>(debug: bool, global: &Global, node: &'a Node) -> Option<Deps<'a>> {
+/// What `node`, `global`'s definition, needs in `mode`; `None` when it
+/// isn't written at all, as the debugger's kernel isn't outside `--debug`.
+pub(crate) fn deps_of<'a>(mode: &Mode, global: &Global, node: &'a Node) -> Option<Deps<'a>> {
     Some(match node {
         Node::Define(_, deps)
         | Node::DefineTailFunc { deps, .. }
@@ -33,7 +33,7 @@ pub(crate) fn deps_of<'a>(debug: bool, global: &Global, node: &'a Node) -> Optio
         | Node::PortIncoming(_, deps)
         | Node::PortOutgoing(_, deps) => Deps::Set(deps),
         Node::Kernel(_, deps) => {
-            if global.home.module == "Debugger" && !debug {
+            if global.home.module == "Debugger" && !mode.is_debug() {
                 return None;
             }
             Deps::Set(deps)
@@ -92,14 +92,14 @@ pub(crate) fn manager_functions(effects: EffectsType) -> &'static [&'static str]
 /// What a program reaches, in the order a breadth-first walk from its
 /// `main`s found it, each with the global it was first reached from.
 #[derive(Debug)]
-pub struct Reached<'a> {
-    pub order: Vec<&'a Global>,
+pub(crate) struct Reached<'a> {
+    pub(crate) order: Vec<&'a Global>,
     parents: HashMap<&'a Global, Option<&'a Global>>,
 }
 
 impl<'a> Reached<'a> {
     /// The globals from a `main` to `global`, each reaching the next.
-    pub fn path(&self, global: &'a Global) -> Vec<&'a Global> {
+    fn path(&self, global: &'a Global) -> Vec<&'a Global> {
         let mut path = vec![global];
         let mut at = global;
         while let Some(Some(parent)) = self.parents.get(at) {
@@ -111,10 +111,10 @@ impl<'a> Reached<'a> {
     }
 }
 
-/// `reach`: what `mains` reach in `graph`, written as `debug` says.
-pub fn reach<'a>(
+/// `reach`: what `mains` reach in `graph`, written in `mode`.
+pub(crate) fn reach<'a>(
     compat: Compat,
-    debug: bool,
+    mode: &Mode,
     graph: &'a GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Reached<'a> {
@@ -140,7 +140,7 @@ pub fn reach<'a>(
         visit(&mut parents, &mut queue, &main, None);
     }
     while let Some((global, node)) = queue.pop_front() {
-        let Some(deps) = deps_of(debug, global, node) else {
+        let Some(deps) = deps_of(mode, global, node) else {
             continue;
         };
         order.push(global);
@@ -161,30 +161,21 @@ pub fn unavailable(
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Option<Vec<Global>> {
-    unavailable_of(compat, mode.is_debug(), lacking, graph, mains)
-}
-
-/// [`unavailable`], written as `debug` says.
-fn unavailable_of(
-    compat: Compat,
-    debug: bool,
-    lacking: &[&str],
-    graph: &GlobalGraph,
-    mains: &[(Home, Main)],
-) -> Option<Vec<Global>> {
     if lacking.is_empty() {
         return None;
     }
-    let reached = reach(compat, debug, graph, mains);
-    let kernel = reached.order.iter().find(|global| {
-        global.home.package == "elm/kernel" && lacking.contains(&&*global.home.module)
-    })?;
+    let reached = reach(compat, mode, graph, mains);
+    let kernel = reached
+        .order
+        .iter()
+        .find(|global| global.is_kernel() && lacking.contains(&&*global.home.module))?;
     Some(reached.path(kernel).into_iter().cloned().collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debug::Types;
     use crate::platform::{Dom, unavailable};
     use nomi_base::Platform;
     use nomi_compiler::optimized::{Chunk, Expr};
@@ -233,11 +224,13 @@ mod tests {
         vec![(Home::author_project("Main"), Main::Static)]
     }
 
+    const DEV: Mode = Mode::Dev { debug: None };
+
     #[test]
     fn each_global_reached_keeps_the_chain_from_its_main() {
         let graph = graph();
         let mains = mains();
-        let reached = reach(Compat::V0_19_1, false, &graph, &mains);
+        let reached = reach(Compat::V0_19_1, &DEV, &graph, &mains);
         let utils = kernel("Utils");
         assert_eq!(
             reached.path(&utils),
@@ -266,13 +259,15 @@ mod tests {
             .nodes
             .insert(global("Page", "title"), define(&[debugger]));
         let mains = mains();
-        let reaches = |debug| {
-            reach(Compat::V0_19_1, debug, &graph, &mains)
+        let reaches = |mode: &Mode| {
+            reach(Compat::V0_19_1, mode, &graph, &mains)
                 .order
                 .contains(&&kernel("Nomi"))
         };
-        assert!(!reaches(false));
-        assert!(reaches(true));
+        assert!(!reaches(&DEV));
+        assert!(reaches(&Mode::Dev {
+            debug: Some(Types::default())
+        }));
     }
 
     #[test]
@@ -280,7 +275,7 @@ mod tests {
         let graph = graph();
         let mains = mains();
         let lacking =
-            |table: &[&str]| unavailable_of(Compat::V0_19_1, false, table, &graph, &mains);
+            |table: &[&str]| super::unavailable(Compat::V0_19_1, &DEV, table, &graph, &mains);
         assert_eq!(
             lacking(unavailable(Platform::Node, Dom::Native)),
             Some(vec![

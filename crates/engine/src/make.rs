@@ -183,13 +183,11 @@ impl Make {
             target: javascript::Target {
                 platform: platform.unwrap_or(Platform::Browser),
                 format: if module {
-                    javascript::Format::EsModule
+                    javascript::Format::EsModule { ffi: None }
                 } else {
                     javascript::Format::Iife
                 },
-                dom: javascript::Dom::Native,
-                ffi: None,
-                quiet: false,
+                ..javascript::Target::default()
             },
             platform_by_main: platform.is_none(),
             output_by_platform: false,
@@ -612,17 +610,18 @@ fn write(
             let mut made_for = made_for(make, &optimized, &mut target.path);
             if let Some(ffi) = &make.ffi {
                 match ffi_module(vfs, dir, ffi, &made_for, &target) {
-                    Ok(ffi) => made_for.ffi = Some(ffi),
+                    Ok(ffi) => made_for.format = javascript::Format::EsModule { ffi: Some(ffi) },
                     Err(report) => return fail(console, report),
                 }
             }
+            let platform = made_for.platform;
             let package = env.owner().package_name();
             let bytes = timings::time(Phase::Generate, || {
                 let types = dependencies.into_graph_and_types();
                 let js = javascript::program(
                     compat,
                     kind,
-                    &made_for,
+                    made_for,
                     make.ffi.as_ref(),
                     &package,
                     &packages,
@@ -645,7 +644,7 @@ fn write(
             let shown = from.map_or_else(|| target.path.clone(), |from| relative(&path, from));
             diagram = Some(gen_diagram(&target.names, &shown.to_string_lossy()));
             code = Some(Code {
-                platform: made_for.platform,
+                platform,
                 mains: target.names,
                 output: path,
             });
@@ -669,15 +668,18 @@ fn write(
 /// What `make` generates code for, `optimized` being the program: the
 /// platform its `main` chooses where `make` lets it, with that
 /// platform's extension for `path` and its format where `make` leaves
-/// them to it.
+/// them to it. A nomi/core `Program` is an entry, as it only runs as one.
 fn made_for(make: &Make, optimized: &Optimized, path: &mut PathBuf) -> javascript::Target {
     let mut made_for = make.target.clone();
-    if make.platform_by_main && javascript::runs_on_node(optimized) {
-        made_for.platform = Platform::Node;
+    if javascript::runs_on_node(optimized) {
+        made_for.start = javascript::Start::Entry;
+        if make.platform_by_main {
+            made_for.platform = Platform::Node;
+        }
     }
     if make.output_by_platform {
         let (extension, format) = match made_for.platform {
-            Platform::Node => ("mjs", javascript::Format::EsModule),
+            Platform::Node => ("mjs", javascript::Format::EsModule { ffi: None }),
             Platform::Browser => ("js", javascript::Format::Iife),
         };
         path.set_extension(extension);
@@ -872,7 +874,7 @@ fn ffi_module(
     if made_for.platform != Platform::Node {
         return Err(ffi_off_node());
     }
-    if made_for.format != javascript::Format::EsModule || target.html.is_some() {
+    if !matches!(made_for.format, javascript::Format::EsModule { .. }) || target.html.is_some() {
         return Err(ffi_outside_module());
     }
     let module = dir.join(&ffi.path);
@@ -880,6 +882,7 @@ fn ffi_module(
     Ok(Ffi {
         specifier: ffi_specifier(&dir.join(&target.path), &module),
         exports: ffi::exports(&source),
+        startup: ffi::Startup::default(),
     })
 }
 

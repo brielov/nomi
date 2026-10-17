@@ -125,7 +125,7 @@ pub fn javascript(
     let js = javascript::program(
         compat,
         kind,
-        &Target::default(),
+        Target::default(),
         None,
         "author/project",
         &sources,

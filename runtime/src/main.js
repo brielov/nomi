@@ -17,6 +17,9 @@ import { ExitKind, Runtime } from "./fiber.js";
 
 const SIGNALS = { SIGINT: 130, SIGTERM: 143 };
 
+// The longest delay a host timer waits; past it, `setTimeout` fires at once.
+const LONGEST_DELAY = 2 ** 31 - 1;
+
 // Each running lifecycle, by the runtime it runs.
 const lifecycles = new WeakMap();
 
@@ -88,7 +91,10 @@ function lifecycle(runtime, proc, deadline, stop) {
   };
   const armDeadline = (code) => {
     if (deadlineTimer !== null) return;
-    deadlineTimer = setTimeout(() => forceExit(code, `shutdown took longer than ${deadline} ms`), deadline);
+    deadlineTimer = setTimeout(
+      () => forceExit(code, `shutdown took longer than ${deadline} ms`),
+      Math.min(deadline, LONGEST_DELAY),
+    );
   };
   const handlers = Object.entries(SIGNALS).map(([signal, code]) => {
     const handler = () => {
@@ -129,21 +135,29 @@ function lifecycle(runtime, proc, deadline, stop) {
 /**
  * The code the process exits with once the program ended with `exit`, and
  * what the user should see, if anything, as `console.error`'s arguments. A
- * signal, or an exit the program requested, decides the code alone.
+ * signal, or an exit the program requested, decides the code alone; a
+ * defect, as a finalizer's while stopping, is still shown.
  */
 function outcome(exit, stopping) {
-  if (stopping !== null) return { code: stopping, message: null };
+  if (stopping !== null) {
+    const message = exit.$ === ExitKind.DEFECT ? defect(exit) : null;
+    return { code: stopping, message };
+  }
   switch (exit.$) {
     case ExitKind.SUCCESS:
       return { code: 0, message: null };
     case ExitKind.FAIL:
       return { code: 1, message: ["nomi: the program failed:", exit.error] };
     case ExitKind.DEFECT:
-      return { code: 1, message: ["nomi: the program died with a defect:", exit.defect] };
+      return { code: 1, message: defect(exit) };
     case ExitKind.INTERRUPTED:
       return { code: 1, message: ["nomi: the program was interrupted"] };
     default:
       // A fiber ends in one of the four; anything else is a runtime bug.
       throw new TypeError(`not an exit: ${exit.$}`);
   }
+}
+
+function defect(exit) {
+  return ["nomi: the program died with a defect:", exit.defect];
 }

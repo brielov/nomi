@@ -15,10 +15,9 @@ use nomi_compiler::optimized::{Chunk, Def, EffectsType, Expr, Global, GlobalGrap
 
 use crate::builder::{self, Expr as Js, LValue, Stmt};
 use crate::expression::{Generator, code_to_expr, code_to_stmt_list};
-use crate::ffi::Startup;
 use crate::mode::Mode;
 use crate::name::Name;
-use crate::platform::{Format, Target, probe, shim};
+use crate::platform::{Advice, Format, Start, Target, probe, shim};
 use crate::reach::{deps_of, identity, manager_functions};
 use crate::runtime;
 
@@ -27,41 +26,45 @@ const FUNCTIONS: &str = include_str!("functions.js");
 /// `generate`: the program of `mains`, each a module and its `main`,
 /// from `graph`, which holds every definition they may reach, for
 /// `target`. A Node program carries the runtime its kernels run on, and
-/// a Node module of one `main` is an entry, which probes Node for what
-/// the program needs before its kernels load, and starts it. A module's
-/// FFI module is imported first and is its scope's `ffi`, where its
-/// kernel finds it, once the module has checked what `startup` asks.
+/// a Node entry in an ES module of one `main` probes Node for what the
+/// program needs before its kernels load, and starts it. A module's FFI
+/// module is imported first and is its scope's `ffi`, where its kernel
+/// finds it, once the module has checked what the FFI's startup asks.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
     target: &Target,
-    startup: &Startup,
     graph: &GlobalGraph,
     mains: &[(Home, Main)],
 ) -> Vec<u8> {
     let mut mains: Vec<&(Home, Main)> = mains.iter().collect();
     mains.sort_by(|a, b| homes(compat, &a.0, &b.0));
-    let mut kernels = match (target.format, &target.ffi) {
-        (Format::Iife, _) => Vec::new(),
-        (Format::EsModule, None) => b"const scope = {};\n".to_vec(),
-        (Format::EsModule, Some(ffi)) => format!(
+    let mut kernels = match &target.format {
+        Format::Iife => Vec::new(),
+        Format::EsModule { ffi: None } => b"const scope = {};\n".to_vec(),
+        Format::EsModule { ffi: Some(ffi) } => format!(
             "import * as __nomi_ffi from '{}';\n{}const scope = {{ ffi: __nomi_ffi }};\n",
             ffi.specifier,
-            startup.js("__nomi_ffi")
+            ffi.startup.js("__nomi_ffi")
         )
         .into_bytes(),
     };
     kernels.extend_from_slice(b"(function(scope){\n'use strict';");
     kernels.extend_from_slice(FUNCTIONS.as_bytes());
-    if !target.quiet {
+    if target.advice == Advice::Given {
         kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
     }
     if target.platform == Platform::Node {
         kernels.extend_from_slice(runtime::prologue().as_bytes());
     }
     let entry = matches!(
-        (target.platform, target.format, mains.as_slice()),
-        (Platform::Node, Format::EsModule, [_])
+        (
+            target.start,
+            target.platform,
+            &target.format,
+            mains.as_slice()
+        ),
+        (Start::Entry, Platform::Node, Format::EsModule { .. }, [_])
     );
     let runtime_end = kernels.len();
     let mut state = State {
@@ -82,7 +85,7 @@ pub fn generate(
     let mut out = state.kernels;
     if entry {
         let kernels = (state.seen.iter())
-            .filter(|global| global.home.package == "elm/kernel")
+            .filter(|global| global.is_kernel())
             .map(|global| global.home.module.as_str());
         let probe = probe(kernels);
         out.splice(runtime_end..runtime_end, probe.bytes());
@@ -93,7 +96,7 @@ pub fn generate(
     }
     let end: &[u8] = match target.format {
         Format::Iife => b"}(this));",
-        Format::EsModule => b"}(scope));\nexport const Elm = scope.Elm;\n",
+        Format::EsModule { .. } => b"}(scope));\nexport const Elm = scope.Elm;\n",
     };
     out.extend_from_slice(end);
     out
@@ -147,7 +150,7 @@ impl State<'_> {
 
     /// `addGlobalHelp`: what the node needs, then the node.
     fn add_global_help(&mut self, global: &Global, node: &Node) {
-        let Some(deps) = deps_of(self.generator.mode.is_debug(), global, node) else {
+        let Some(deps) = deps_of(self.generator.mode, global, node) else {
             return;
         };
         let compat = self.generator.compat;
@@ -401,14 +404,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::*;
-    use crate::ffi::{Exports, Ffi};
+    use crate::ffi::{Exports, Ffi, Startup};
 
     const DEV: Mode = Mode::Dev { debug: None };
-
-    /// Nothing to check of an FFI module.
-    const NONE: Startup = Startup {
-        names: BTreeMap::new(),
-    };
 
     fn global(module: &str, name: &str) -> Global {
         Global {
@@ -431,15 +429,8 @@ mod tests {
 
     /// The program's code past the helpers and the note.
     fn program(compat: Compat, mode: &Mode, graph: &GlobalGraph, mains: &[(Home, Main)]) -> String {
-        let js = String::from_utf8(generate(
-            compat,
-            mode,
-            &Target::default(),
-            &NONE,
-            graph,
-            mains,
-        ))
-        .unwrap();
+        let js =
+            String::from_utf8(generate(compat, mode, &Target::default(), graph, mains)).unwrap();
         let start = js
             .find("assets.');")
             .map_or(0, |at| at + "assets.');".len());
@@ -492,19 +483,12 @@ mod tests {
     #[test]
     fn a_module_wraps_the_same_function_and_exports_elm() {
         let (graph, mains) = static_mains(&["Main"]);
-        let iife = generate(
-            Compat::V0_19_1,
-            &DEV,
-            &Target::default(),
-            &NONE,
-            &graph,
-            &mains,
-        );
+        let iife = generate(Compat::V0_19_1, &DEV, &Target::default(), &graph, &mains);
         let module = Target {
-            format: Format::EsModule,
+            format: Format::EsModule { ffi: None },
             ..Target::default()
         };
-        let module = generate(Compat::V0_19_1, &DEV, &module, &NONE, &graph, &mains);
+        let module = generate(Compat::V0_19_1, &DEV, &module, &graph, &mains);
         let iife = String::from_utf8(iife).unwrap();
         let body = iife.strip_suffix("}(this));").unwrap();
         assert_eq!(
@@ -517,11 +501,11 @@ mod tests {
     fn a_quiet_program_leaves_out_the_advice_to_optimize() {
         let (graph, mains) = static_mains(&["Main"]);
         let built = |target: &Target| {
-            let js = generate(Compat::V0_19_1, &DEV, target, &NONE, &graph, &mains);
+            let js = generate(Compat::V0_19_1, &DEV, target, &graph, &mains);
             String::from_utf8(js).unwrap()
         };
         let quiet = Target {
-            quiet: true,
+            advice: Advice::Omitted,
             ..Target::default()
         };
         let note = perf_note(Compat::V0_19_1, &DEV);
@@ -533,18 +517,22 @@ mod tests {
     }
 
     #[test]
-    fn a_node_module_of_one_main_starts_it_and_of_more_starts_none() {
+    fn a_node_entry_of_one_main_starts_it_and_any_other_module_starts_none() {
         let browser = Target {
-            format: Format::EsModule,
+            format: Format::EsModule { ffi: None },
             ..Target::default()
         };
         let node = Target {
             platform: Platform::Node,
             ..browser.clone()
         };
+        let entry = Target {
+            start: Start::Entry,
+            ..node.clone()
+        };
         let built = |target: &Target, modules: &[&str]| {
             let (graph, mains) = static_mains(modules);
-            let js = generate(Compat::V0_19_1, &DEV, target, &NONE, &graph, &mains);
+            let js = generate(Compat::V0_19_1, &DEV, target, &graph, &mains);
             String::from_utf8(js).unwrap()
         };
         // Node's is the browser's with the runtime after the warning, and
@@ -557,19 +545,28 @@ mod tests {
         let module = with(built(&browser, &["Page.Home"]), &probe([]));
         let (body, end) = module.split_at(module.rfind("}(scope));").unwrap());
         assert_eq!(
-            built(&node, &["Page.Home"]),
+            built(&entry, &["Page.Home"]),
             format!("{body}{}{end}", shim("Page.Home"))
         );
+        // A module that isn't an entry only exports its `main`, so a host
+        // that imports it starts it, with its flags.
         assert_eq!(
-            built(&node, &["Main", "Other"]),
+            built(&node, &["Page.Home"]),
+            with_runtime(built(&browser, &["Page.Home"]))
+        );
+        assert_eq!(
+            built(&entry, &["Main", "Other"]),
             with_runtime(built(&browser, &["Main", "Other"]))
         );
         // A module with an FFI module imports it, and its scope holds it.
         let ffi = Target {
-            ffi: Some(Ffi {
-                specifier: "../src/ffi.mjs".to_owned(),
-                exports: Exports::default(),
-            }),
+            format: Format::EsModule {
+                ffi: Some(Ffi {
+                    specifier: "../src/ffi.mjs".to_owned(),
+                    exports: Exports::default(),
+                    startup: Startup::default(),
+                }),
+            },
             ..node
         };
         let plain = built(&node, &["Main"]);

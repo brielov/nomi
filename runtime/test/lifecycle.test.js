@@ -74,6 +74,13 @@ test("a program can lengthen its shutdown deadline", posixSignals, async () => {
   assert.equal(stderr, "");
 });
 
+test("a deadline longer than a host timer can wait still waits", posixSignals, async () => {
+  const { code, stdout, stderr } = await run("allowedLong", { signals: ["SIGTERM"], deadline: 200 });
+  assert.equal(code, 143);
+  assert.deepEqual(stdout.slice(-1), ["slow released"]);
+  assert.equal(stderr, "");
+});
+
 test("a second signal exits at once", posixSignals, async () => {
   const { code, stderr, ms } = await run("hang", { signals: ["SIGINT", "SIGINT"], deadline: 5_000 });
   assert.equal(code, 130);
@@ -85,6 +92,21 @@ test("when the program ends, the fibers it spawned are interrupted", async () =>
   const { code, stdout } = await run("daemon");
   assert.equal(code, 0);
   assert.deepEqual(stdout, ["daemon acquired", "main done", "daemon released"]);
+});
+
+test("the program's end interrupts daemons that wait on each other without waiting for the deadline", async () => {
+  const { code, stdout, stderr, ms } = await run("dependent", { deadline: 5_000 });
+  assert.equal(code, 0);
+  assert.deepEqual(stdout, ["main done"]);
+  assert.equal(stderr, "");
+  assert.ok(ms < 4_000, `${ms} ms`);
+});
+
+test("a finalizer's defect while a signal stops the program is printed, and the signal's code kept", posixSignals, async () => {
+  const { code, stdout, stderr } = await run("broken", { signals: ["SIGTERM"] });
+  assert.equal(code, 143);
+  assert.deepEqual(stdout, ["a acquired", "ready"]);
+  assert.match(stderr, /defect: Error: release broke/);
 });
 
 test("the exit code follows the program's exit", async () => {

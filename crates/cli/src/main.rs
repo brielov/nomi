@@ -192,8 +192,9 @@ struct Build {
     #[arg(long, value_name = "FORMAT")]
     report: Option<ReportFormat>,
     /// Where the code runs: by default Node for a nomi/core
-    /// `Program`, else the browser. Under Node, an `.mjs` output of
-    /// one `main` starts it when run.
+    /// `Program`, else the browser. Under Node, an `.mjs` output of a
+    /// `Program` starts it when run; any other exports `Elm`, as in
+    /// the browser.
     #[arg(long, value_enum)]
     platform: Option<PlatformName>,
     /// The ES module whose exported async functions `Nomi.Ffi.task`

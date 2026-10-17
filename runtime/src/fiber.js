@@ -479,10 +479,10 @@ export class Runtime {
         if (fibers.length === 0) return resolve();
         let left = fibers.length;
         const reaper = () => --left === 0 && sweep();
-        for (const fiber of fibers) {
-          fiber.reapers.add(reaper);
-          this.#interrupt(fiber);
-        }
+        // Every reaper goes in first: on a synchronous runtime, one
+        // interrupt can end a later fiber before the loop reaches it.
+        for (const fiber of fibers) fiber.reapers.add(reaper);
+        for (const fiber of fibers) this.#interrupt(fiber);
       };
       sweep();
     });

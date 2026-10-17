@@ -121,14 +121,14 @@ main =
         }
 ",
     );
+    // An entry, which starts its `main` when run.
+    fs::write(
+        root.join("nomi.toml"),
+        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"node\"\noutput = \"dist/main.mjs\"\n",
+    )
+    .unwrap();
     let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
-    let args = [
-        "build",
-        "src/Main.elm",
-        "--platform=node",
-        "--output=dist/main.mjs",
-    ];
-    let built = run(program, cache.path(), &root, &args, "");
+    let built = run(program, cache.path(), &root, &["build"], "");
     assert!(built.status.success(), "{built:?}");
     assert!(!cache.path().join("packages/releases/nomi").exists());
     let ran = Command::new("node")

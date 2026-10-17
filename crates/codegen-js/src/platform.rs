@@ -46,13 +46,35 @@ pub fn overrides(platform: Platform) -> &'static [Override] {
 }
 
 /// The shape of a program's file.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Format {
     /// A function called on `this`, which it adds `Elm` to: upstream's.
     #[default]
     Iife,
-    /// An ES module exporting `Elm`; a module's `this` is undefined.
-    EsModule,
+    /// An ES module exporting `Elm`; a module's `this` is undefined. It
+    /// imports `ffi`, its FFI module, first, where it has one.
+    EsModule { ffi: Option<Ffi> },
+}
+
+/// Whether a program starts itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Start {
+    /// Its host imports it and starts what it exports: upstream's.
+    #[default]
+    Library,
+    /// It is run as a program: on Node, an ES module of one `main` starts
+    /// it, and handles the process's signals.
+    Entry,
+}
+
+/// Whether a program built for development advises optimizing it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Advice {
+    /// It warns once it loads: upstream's.
+    #[default]
+    Given,
+    /// It doesn't, as a program restarted on each change would repeat it.
+    Omitted,
 }
 
 /// Where a program finds the browser's globals its DOM kernels use.
@@ -71,11 +93,18 @@ pub struct Target {
     pub platform: Platform,
     pub format: Format,
     pub dom: Dom,
-    /// The FFI module an ES module imports, if it has one.
-    pub ffi: Option<Ffi>,
-    /// Whether the program leaves out its advice to optimize, which a
-    /// program restarted on each change would repeat.
-    pub quiet: bool,
+    pub start: Start,
+    pub advice: Advice,
+}
+
+impl Target {
+    /// The FFI module the program imports, if it has one.
+    pub fn ffi(&self) -> Option<&Ffi> {
+        match &self.format {
+            Format::EsModule { ffi } => ffi.as_ref(),
+            Format::Iife => None,
+        }
+    }
 }
 
 /// The specifier a module at `output` imports the file `module` by: the
@@ -144,7 +173,7 @@ fn kernel_needs(kernel: &str) -> &'static [&'static str] {
 /// kernels, which may use what they need as they load: the runtime's
 /// probe of what it and `kernels`, by short name, need from Node, which
 /// exits naming the first Node lacks.
-pub fn probe<'a>(kernels: impl IntoIterator<Item = &'a str>) -> String {
+pub(crate) fn probe<'a>(kernels: impl IntoIterator<Item = &'a str>) -> String {
     let mut needs: BTreeSet<&str> = RUNTIME_NEEDS.iter().copied().collect();
     needs.extend(kernels.into_iter().flat_map(kernel_needs));
     let list = needs
@@ -157,11 +186,10 @@ pub fn probe<'a>(kernels: impl IntoIterator<Item = &'a str>) -> String {
 /// The lines that end a Node entry's function, where the program's
 /// runtime is, and start its `main`, in `module`: one lifecycle on the
 /// runtime, which handles signals, then `init`, which passes a worker no
-/// flags. A
-/// nomi/core program's `init` starts the runtime's `main` itself and
-/// marks itself so; any other `main` is a worker, whose lifecycle starts
-/// here.
-pub fn shim(module: &str) -> String {
+/// flags. A nomi/core program's `init` starts the runtime's `main` itself
+/// and marks itself so; any other `main` is a worker, whose lifecycle
+/// starts here.
+pub(crate) fn shim(module: &str) -> String {
     format!(
         "if (!scope.Elm.{module}.init.program) _Runtime.worker(_Scheduler_runtime);\n\
          scope.Elm.{module}.init();\n"

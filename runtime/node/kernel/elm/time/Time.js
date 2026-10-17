@@ -9,7 +9,8 @@ import Elm.Kernel.Scheduler exposing (binding, succeed)
 
 // elm/time's clock on the fiber runtime's: `now` reads it, and an
 // interval is a loop that sleeps on it and starts `task` on a daemon each
-// time it wakes. The time zone functions are upstream's.
+// time it wakes, at least a millisecond apart, as upstream's
+// `setInterval` is on Node. The time zone functions are upstream's.
 
 function _Time_now(millisToPosix)
 {
@@ -18,7 +19,7 @@ function _Time_now(millisToPosix)
 
 var _Time_setInterval = F2(function(interval, task)
 {
-	var tick = _Runtime.andThen(_Runtime.sleep(interval), function() {
+	var tick = _Runtime.andThen(_Runtime.sleep(interval > 1 ? interval : 1), function() {
 		return _Runtime.andThen(_Runtime.forkDaemon(task), function() {
 			return tick;
 		});

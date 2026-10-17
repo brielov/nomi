@@ -641,6 +641,17 @@ test("shutdown also ends the fibers its finalizers start", async () => {
   assert.deepEqual(runtime.stats, { started: 2, finished: 2 });
 });
 
+test("shutdown on a synchronous runtime ends when one interrupt ends another root fiber", async () => {
+  const runtime = new Runtime({ synchronous: true });
+  const a = runtime.fork(never());
+  // Interrupting `a` ends `b` during that same drain, before shutdown reaches it.
+  const b = runtime.fork(join(a));
+  await runtime.shutdown();
+  assert.deepEqual(a.exit, Exit.interrupt());
+  assert.deepEqual(b.exit, Exit.interrupt());
+  assert.equal(runtime.root.fibers.size, 0);
+});
+
 test("acquire is uninterruptible and release runs exactly once", () => {
   const { runtime, flush } = manual();
   const log = [];

@@ -13,12 +13,14 @@ use nomi_compiler::optimized::{Choice, Decider, Def, Expr, Global, GlobalGraph, 
 use crate::mode::Mode;
 use crate::reach::reach;
 
-/// An entry's FFI module: the specifier it is imported by, and what it
-/// exports.
+/// An entry's FFI module: the specifier it is imported by, what it
+/// exports, and what the program checks of it when it starts, which
+/// [`check`] finds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ffi {
     pub specifier: String,
     pub exports: Exports,
+    pub startup: Startup,
 }
 
 /// An ES module's exports, as a lexical scan of its source finds them.
@@ -51,8 +53,8 @@ pub struct Misspelt {
 /// checked against `exports`: the calls whose literal name it lacks, or
 /// what the module is left to check when it starts. A call's name is a
 /// literal when its first argument is a string without escapes, partial
-/// applications included; a name passed through a helper or a pipeline
-/// into `task` is not.
+/// applications and pipelines into `task` included, as the optimizer
+/// turns `|>` and `<|` into calls; a name passed through a helper is not.
 pub fn check(
     compat: Compat,
     mode: &Mode,
@@ -61,7 +63,7 @@ pub fn check(
     mains: &[(Home, Main)],
 ) -> Result<Startup, Vec<Misspelt>> {
     let mut calls = Calls::default();
-    for global in reach(compat, mode.is_debug(), graph, mains).order {
+    for global in reach(compat, mode, graph, mains).order {
         match &graph.nodes[global] {
             Node::Define(expr, _) | Node::PortIncoming(expr, _) | Node::PortOutgoing(expr, _) => {
                 calls.expr(global, expr);
