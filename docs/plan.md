@@ -16,7 +16,8 @@ One binary, `nomi`, that replaces three tools and then adds capabilities on top:
 | MQ | Code quality | architecture.md §13, behavior unchanged | — |
 | M11 | Server platform | Node kernels, `nomi/*` packages, fiber runtime | 0.5 |
 | M12 | Workspaces | one resolution; packages shared by web and api | 0.6 |
-| MP | Raw performance | multiples ahead of upstream; the least work for every operation | 0.7 |
+| MB | Backend platform | the Elm way: every effect a typed `nomi/*` API, no FFI; streams, processes, sockets, crypto, databases | 0.7 |
+| MP | Raw performance | multiples ahead of upstream; the least work for every operation | 0.8 |
 
 The frontend-plus-backend goal is reachable at M11: two projects can already share code through `source-directories` (R7). M12 makes sharing first-class.
 
@@ -1414,11 +1415,20 @@ Defaults taken, each open to review: two apps can't pin different versions of on
 
 **Exit:** the example workspace builds, tests and serves under `nomi run --watch`, independent members still build with plain elm, and the language server works across members.
 
-## MP: Raw performance, release 0.7
+## MB: Backend platform, release 0.7
+
+Goal: backend Elm done the Elm way. Elm has no FFI: every effect comes from the platform's own packages, with typed APIs, and packages are pure Elm. M11 shipped `Nomi.Ffi` instead of designing what a backend needs, so MB removes it and builds the platform it stood in for: the low-level blocks an ecosystem grows on in pure Elm (bytes and streams, processes, sockets, files), and, as Bun does, batteries a backend reaches for every day (crypto, SQL and key-value drivers, object storage). Node is the host, so whatever MB ships is written on Node's built-in modules, never npm or native addons.
+
+MB comes before MP, so that MP measures the platform as it will stay. B.1 removes the FFI; B.2 is the design, agreed with the maintainer before any API is built; the steps after it are refined from the agreed design.
+
+- [ ] **B.1** `platform: remove the FFI`. `Nomi.Ffi`, its kernel, codegen's export scan and import, `nomi build --ffi`, nomi.toml's `ffi`, the FFI reports, watch and fuzz targets, tests and docs go; DECISIONS.md says why. **Check:** CI green; nothing in the tree names the FFI but this plan's history and DECISIONS; nomi.toml with `ffi` is an unknown key at its span.
+- [ ] **B.2** `design: the backend platform`. A draft in `docs/drafts/mb-apis.md`: the bytes and streams model every module shares; capabilities, which `Env` carries and which stay ambient; how `nomi/test` fakes each; the modules in tiers, from processes, files, sockets and an HTTP server with streaming bodies and WebSockets to crypto, encodings, compression, SQLite, Postgres, Redis and S3, each with its Elm API and what Node gives to build it on; package boundaries and versions. **Check:** the maintainer agrees the draft; its decisions move into architecture.md §8 and the steps after this one are written from it.
+
+## MP: Raw performance, release 0.8
 
 Goal: nomi does the least work its job allows. M8b beat elm and elm-format on every cell; MP aims to beat them by multiples, and to make what has no upstream (the editor, tests, watch, the server runtime, workspaces) as lean: fewer cycles and instructions, fewer allocations and bytes copied, less peak and retained memory, better algorithms, shorter critical paths, and nothing busy while idle. Every trick is in scope (allocators, arenas, data layout, SIMD, LTO, PGO, better algorithms) as long as the code stays safe Rust, output stays byte-identical, a profile picked the change and a measurement kept it.
 
-MP follows M12 and covers all of MQ's, M11's and M12's code; measuring what exists can start once MQ ends. P.1–P.4 build the measurements; P.5 onward are areas, each refined into small steps, one root cause a commit, once P.4's cost map ranks it. Experiments that lose are recorded too.
+MP follows MB and covers all of MQ's, M11's, M12's and MB's code; measuring what exists can start once MQ ends. P.1–P.4 build the measurements; P.5 onward are areas, each refined into small steps, one root cause a commit, once P.4's cost map ranks it. Experiments that lose are recorded too.
 
 **Where it starts.** [benchmarks.md](benchmarks.md) records M8b's 204 of 204 cells (exosphere cold under 0.19.3: 1.47 s wall, 5.29 s CPU, 702 MiB; warm 136 ms; docspell cold 1.11 s; elm-material-icons `--docs` 468 ms), and 9.22b the language server's (exosphere's first diagnostics 2.65 s, saves 27 ms, completion 30 ms, 890 MiB). MQ has moved all of them, and nothing yet measures allocations, live or retained heap, idle cost, hardware counters or latency tails. What is already in place is measured, not proposed again: mimalloc, the one-word interned `Text`, FxHash, HIR arenas, the chunked union-find, shared alias bodies, lazy interfaces, artifact reuse and DAG scheduling. `NOMI_TIMINGS` sums `Instant` durations across threads: it locates work but isn't CPU time.
 
@@ -1453,7 +1463,7 @@ MP follows M12 and covers all of MQ's, M11's and M12's code; measuring what exis
 - [ ] **P.18** `perf: workspaces and tooling`. Modules M12's members share built once; xtask and testkit on the full corpus, whose graphs run peaks at 8.6 GB.
 - [ ] **P.19** `perf: SIMD and data layout`. With P.6–P.18's profiles: safe vectorized scanning (`memchr`/`memmem`, auto-vectorization checked in the assembly) in the lexer, `LineIndex`, literal, comment and GLSL scanning, JSON escaping and hashing; arenas, recycled buffers, compact ids, inline small collections and sorted vectors where measured sizes call for them. Stable Rust and the minimum version, no intrinsics and no `unsafe`, portable to CPUs without vector units; an architecture-specific gain counts only on hardware it was measured on.
 - [ ] **P.20** `bench: final numbers`. The full matrix against the frozen baseline and the pinned upstream tools: before and after, spread, allocations and retention, attribution, replay commands, and what was tried and rejected. Deterministic work-count and scaling checks guard each kind of regression found; wall-clock budgets stay out of shared CI.
-- [ ] **P.21** `release: 0.7`.
+- [ ] **P.21** `release: 0.8`.
 
 **Exit:** each user-facing operation has a measured cost map, failures, incrementality, long sessions and idle time included; every landed change has its before and after against the same baseline; every dominant cost has been investigated and what remains is accounted for; and output, diagnostics, every ratchet and corpus suite, and the runtime's properties are unchanged.
 
