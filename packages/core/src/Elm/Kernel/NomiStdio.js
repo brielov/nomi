@@ -95,10 +95,12 @@ var _NomiStdio_stdin = _NomiStdio_reader(function(reader) {
 	stream.resume();
 });
 
-// A reader of `text`, which ends after it.
+// A reader of `text`, which ends after it; it keeps `text`, so a test can
+// script it anew.
 function _NomiStdio_script(text)
 {
 	var reader = _NomiStdio_reader(function() {});
+	reader.script = text;
 	_NomiStdio_take(reader, text);
 	_NomiStdio_take(reader, null);
 	return reader;
@@ -126,8 +128,6 @@ function _NomiStdio_captured(writer)
 	return writer.captured;
 }
 
-// Waits until the stream has taken the text. Output a reader closed, as a
-// pipe into `head`, is dropped: printing can't fail.
 // The writer `Nomi.log` writes to on a runtime other than the process's
 // stderr, which is a test's captured stderr on that test's runtime.
 var _NomiStdio_logs = new WeakMap();
@@ -141,6 +141,8 @@ function _NomiStdio_log(text)
 	});
 }
 
+// Waits until the stream has taken the text. Output a reader closed, as a
+// pipe into `head`, is dropped: printing can't fail.
 var _NomiStdio_print = F2(function(text, writer)
 {
 	var stream = writer.stream;

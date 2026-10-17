@@ -45,11 +45,12 @@ void __Platform_export;
 
 // The task asks the program's lifecycle to stop it and exit with `code`,
 // then waits to be interrupted; the runtime has no lifecycle outside a
-// program, and the task dies there.
+// program, and the task dies there. A code past what a process can exit
+// with is 255, not the failure's code wrapped around to another, or to 0.
 function _Nomi_exitWith(code)
 {
 	return _Runtime.wait(function(resume) {
-		if (!_Runtime.requestExit(__Scheduler_runtime, code))
+		if (!_Runtime.requestExit(__Scheduler_runtime, code >= 0 && code <= 255 ? code : 255))
 		{
 			resume(_Runtime.die(new Error('Nomi.Process.exit is for a Nomi.program')));
 		}

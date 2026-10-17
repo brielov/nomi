@@ -2,7 +2,7 @@ module Nomi.Server exposing
     ( listen, Config, defaults, Error(..), errorToString
     , Request, method, Method(..), path, query, header
     , body, jsonBody, BodyError(..)
-    , Response, text, json, empty, withHeader
+    , Response, text, json, empty, withHeader, addHeader
     , request, respond
     )
 
@@ -36,7 +36,7 @@ its response; `case ( method req, path req ) of` routes:
 
 # Responses
 
-@docs Response, text, json, empty, withHeader
+@docs Response, text, json, empty, withHeader, addHeader
 
 
 # Testing
@@ -65,6 +65,11 @@ connections.
 Each request runs on a fiber of its own. A client that disconnects before
 its response is written interrupts it, so its finalizers run; a handler
 that dies, as `Debug.todo` does, answers 500 and writes a line to stderr.
+Once the server stops accepting, the responses it still writes close their
+connections, and a request arriving on one meanwhile is answered 503.
+
+Under `nomi test` a server listens on the test's runtime, whose clock
+waits while a request is on the wire: see `Nomi.Test`.
 
     Nomi.program <|
         \env ->
@@ -83,9 +88,9 @@ unwrap handle req =
 
 
 {-| Where to listen, how long requests in flight may run on once the
-program is asked to stop, and what to do once the server listens. A
-`host` of `"0.0.0.0"` listens on every interface, and a `port_` of 0 on a
-port the system picks.
+program is asked to stop, the most bytes a request's body may hold, and
+what to do once the server listens. A `host` of `"0.0.0.0"` listens on
+every interface, and a `port_` of 0 on a port the system picks.
 
 `onListen` runs with the port the server took, once it is bound and
 before it answers a request:
@@ -107,44 +112,58 @@ type alias Config =
     { port_ : Int
     , host : String
     , drainMilliseconds : Int
+    , maxBodyBytes : Int
     , onListen : Int -> Task Never ()
     }
 
 
-{-| Port 8080 on `127.0.0.1`, draining for 5 seconds, doing nothing once it
-listens.
+{-| Port 8080 on `127.0.0.1`, draining for 5 seconds, bodies up to 1 MiB,
+doing nothing once it listens.
 -}
 defaults : Config
 defaults =
     { port_ = 8080
     , host = "127.0.0.1"
     , drainMilliseconds = 5000
+    , maxBodyBytes = 1024 * 1024
     , onListen = \_ -> Task.succeed ()
     }
 
 
-{-| Why a server could not listen: the port is taken, or the process may
-not listen on it.
+{-| Why a server could not listen, with the address it was given: the
+address is taken, or the process may not listen on it.
 -}
 type Error
-    = AddressInUse
-    | PermissionDenied
-    | OtherError String
+    = AddressInUse { host : String, port_ : Int }
+    | PermissionDenied { host : String, port_ : Int }
+    | Other String
 
 
-{-| The error as a sentence.
+{-| The error as one line: the address, then what went wrong with it.
 -}
 errorToString : Error -> String
 errorToString error =
     case error of
-        AddressInUse ->
-            "the address is already in use"
+        AddressInUse address ->
+            addressToString address ++ ": address already in use"
 
-        PermissionDenied ->
-            "permission to listen on the address was denied"
+        PermissionDenied address ->
+            addressToString address ++ ": permission denied"
 
-        OtherError message ->
+        Other message ->
             message
+
+
+addressToString : { host : String, port_ : Int } -> String
+addressToString { host, port_ } =
+    (if String.contains ":" host then
+        "[" ++ host ++ "]"
+
+     else
+        host
+    )
+        ++ ":"
+        ++ String.fromInt port_
 
 
 
@@ -216,8 +235,10 @@ query =
     Elm.Kernel.NomiServer.query
 
 
-{-| The value of the header with the name, in any case. Repeated headers
-are joined with commas.
+{-| The value of the header with the name, in any case. A header sent
+more than once is read as Node reads it: its values joined with `, `, or
+with `; ` for `Cookie`, and only the first kept of those that can't
+repeat, as `Content-Type`, `Authorization` and `Host`.
 -}
 header : String -> Request -> Maybe String
 header =
@@ -228,9 +249,9 @@ header =
 -- BODIES
 
 
-{-| Why a request's body could not be read: it is larger than 1 MiB, it is
-not the JSON expected, with the decoder's message, or the client went away
-before sending all of it.
+{-| Why a request's body could not be read: it is larger than the
+server's `maxBodyBytes`, it is not the JSON expected, with the decoder's
+message, or the client went away before sending all of it.
 -}
 type BodyError
     = TooLarge
@@ -300,7 +321,8 @@ empty status =
     Response { status = status, headers = [], body = "" }
 
 
-{-| Adds the header, replacing any of the same name, in any case.
+{-| Adds the header after those the response has, removing any of the
+same name, in any case.
 
     Nomi.Server.text 200 "<p>hi</p>"
         |> Nomi.Server.withHeader "Content-Type" "text/html"
@@ -312,7 +334,21 @@ withHeader name value (Response response) =
         other ( existing, _ ) =
             String.toLower existing /= String.toLower name
     in
-    Response { response | headers = ( name, value ) :: List.filter other response.headers }
+    Response { response | headers = List.filter other response.headers ++ [ ( name, value ) ] }
+
+
+{-| Adds the header after those the response has, keeping any of the same
+name, for a header sent more than once. Headers go out in the order added,
+except that those of one name go together, where the first of them was:
+
+    Nomi.Server.empty 204
+        |> Nomi.Server.addHeader "Set-Cookie" "theme=dark"
+        |> Nomi.Server.addHeader "Set-Cookie" "lang=en"
+
+-}
+addHeader : String -> String -> Response -> Response
+addHeader name value (Response response) =
+    Response { response | headers = response.headers ++ [ ( name, value ) ] }
 
 
 
@@ -321,7 +357,7 @@ withHeader name value (Response response) =
 
 {-| A request with the method, target, headers and body, as a client
 would send it, for testing a handler. The target is the path and the
-query:
+query, and its headers are read as a server reads them:
 
     Nomi.Server.request
         { method = Post
@@ -366,7 +402,11 @@ methodName m =
 
 {-| Answers the request with the handler as `listen` does, on a fiber of
 its own, and gives the response written: a handler that dies answers 500
-and logs a line, which a test reads with `Nomi.Test.stderr`.
+and logs a line, which a test reads with `Nomi.Test.stderr`, and so does a
+response `listen` couldn't write, as a status past 999 or a line break in a
+header. The request's body may hold `defaults`'s `maxBodyBytes`. The
+response's headers are in the order `listen` writes them: the order they
+were added, those of one name together where the first of them was.
 
     Nomi.Server.respond handle (Nomi.Server.request { method = Get, target = "/hello/you", headers = [], body = "" })
         |> Task.map (Expect.equal { status = 200, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "hello, you" })

@@ -16,6 +16,9 @@ keeps the code it was stopping with. Inside `Nomi.Task.uninterruptible`
 nothing stops the region, so the process exits when the shutdown deadline
 passes.
 
+A code runs from 0 to 255; one outside them exits 255, so a failure never
+wraps around to another code, or to success.
+
     Nomi.Process.exit 2
 
 -}

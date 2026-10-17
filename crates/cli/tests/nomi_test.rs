@@ -84,9 +84,10 @@ pure =
 /// Effectful tests of the virtual clock and the fakes: an hour's sleep
 /// and three ticks of a second, with `advance`; two tests each sleeping a
 /// second from 0; one that leaves a ticking daemon behind, logging each
-/// tick; a program given files and arguments, whose output is read; and
-/// one whose stderr has what it printed there and logged.
-const CLOCK: &str = r#"module Clock exposing (aFreshCopy, aLeftover, anHourAndThreeTicks, anotherFreshCopy, filesAndArgs, logged, oneClock, otherClock)
+/// tick; a program given files and arguments, whose output is read; one
+/// whose stderr has what it printed there and logged; and two given input
+/// and variables, each reading the input from its start.
+const CLOCK: &str = r#"module Clock exposing (aFreshCopy, aLeftover, anHourAndThreeTicks, anotherFreshCopy, filesAndArgs, input, inputAgain, logged, oneClock, otherClock)
 
 import Expect exposing (Expectation)
 import Nomi exposing (Env)
@@ -94,7 +95,8 @@ import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs
 import Nomi.Stdio as Stdio
 import Nomi.Task
-import Nomi.Test exposing (advance, effect, effectWith, stderr, stdout, withArgs, withFiles)
+import Dict
+import Nomi.Test exposing (advance, effect, effectWith, stderr, stdout, withArgs, withFiles, withStdin, withVars)
 import Process
 import Task exposing (Task)
 import Test exposing (Test)
@@ -218,6 +220,30 @@ aFreshCopy =
                     )
                 |> Task.mapError Fs.errorToString
                 |> Task.map (Expect.equal ( True, False ))
+
+
+typed : Env
+typed =
+    Nomi.Test.env |> withVars [ ( "A", "1" ), ( "B", "2" ) ] |> withVars [ ( "B", "3" ) ] |> withStdin "one\ntwo"
+
+
+input : Test
+input =
+    effectWith typed "a test reads the input and variables it is given" <| readTyped
+
+
+inputAgain : Test
+inputAgain =
+    effectWith typed "another test reads the same input from its start" <| readTyped
+
+
+readTyped : Env -> Task String Expectation
+readTyped env =
+    Task.map3 (\a b c -> ( [ a, b, c ], Dict.toList env.vars ))
+        (Stdio.line env.stdin)
+        (Stdio.line env.stdin)
+        (Stdio.line env.stdin)
+        |> Task.map (Expect.equal ( [ Just "one", Just "two", Nothing ], [ ( "A", "1" ), ( "B", "3" ) ] ))
 
 
 anotherFreshCopy : Test
@@ -397,11 +423,13 @@ const SERVING_ELM_JSON: &str = r#"{
 "#;
 
 /// Handlers in effectful tests: a request made in the test reads as a
-/// received one, a handler that dies answers 500 and logs to the test's
-/// stderr, and a server listening in a test, whose client disconnects,
-/// interrupts the request on the test's runtime, so its finalizer logs
-/// there too.
-const SERVING: &str = r#"module Serving exposing (aDefect, aDisconnect, aRequest)
+/// received one, its repeated headers as Node reads them; a handler that
+/// dies, or gives a response Node won't write, answers 500 and logs to the
+/// test's stderr; headers added twice are both written; a server listening
+/// in a test, whose client disconnects, interrupts the request on the
+/// test's runtime, so its finalizer logs there too; and one listening
+/// leaves the test's clock free to move.
+const SERVING: &str = r#"module Serving exposing (aDefect, aDisconnect, aRequest, aSleepBesideAServer, addedHeaders, repeatedHeaders, unwritable)
 
 import Expect
 import Http
@@ -414,6 +442,7 @@ import Nomi.Test exposing (effect, stderr)
 import Process
 import Task exposing (Task)
 import Test exposing (Test)
+import Time
 
 
 aRequest : Test
@@ -425,7 +454,7 @@ aRequest =
                 (Server.respond echo (Server.request { method = Get, target = "/", headers = [], body = String.repeat 1048577 "a" }))
                 |> Task.map
                     (Expect.equal
-                        ( { status = 200, headers = [ ( "X-Echo", "yes" ), ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "True a/b c 1 1, 2 hi" }
+                        ( { status = 200, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ), ( "X-Echo", "yes" ) ], body = "True a/b c 1 1, 2 hi" }
                         , { status = 413, headers = [], body = "" }
                         )
                     )
@@ -478,6 +507,73 @@ aDisconnect =
                     )
                 |> Task.andThen (\events -> stderr env |> Task.map (Tuple.pair events))
                 |> Task.map (Expect.equal ( [ "started", "released" ], "released\n" ))
+
+
+repeatedHeaders : Test
+repeatedHeaders =
+    effect "a request made in a test reads repeated headers as Node does" <|
+        \_ ->
+            let
+                headers =
+                    [ ( "Cookie", "a=1" ), ( "cookie", "b=2" ), ( "Content-Type", "a" ), ( "content-type", "b" ) ]
+
+                read req =
+                    Task.succeed (Server.text 200 (Debug.toString ( Server.header "cookie" req, Server.header "Content-Type" req )))
+            in
+            Server.respond read (Server.request { method = Get, target = "/", headers = headers, body = "" })
+                |> Task.map (.body >> Expect.equal "(Just \"a=1; b=2\",Just \"a\")")
+
+
+unwritable : Test
+unwritable =
+    effect "a response Node won't write answers 500, as listen does" <|
+        \env ->
+            Task.map2 Tuple.pair
+                (Server.respond (\_ -> Task.succeed (Server.empty 999999)) (Server.request { method = Get, target = "/status", headers = [], body = "" }))
+                (Server.respond (\_ -> Task.succeed (Server.empty 200 |> Server.withHeader "X-Bad" "a\nb")) (Server.request { method = Get, target = "/header", headers = [], body = "" }))
+                |> Task.andThen (\responses -> stderr env |> Task.map (Tuple.pair responses))
+                |> Task.map
+                    (Expect.equal
+                        ( ( { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
+                          , { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
+                          )
+                        , "nomi: request GET /status died: RangeError [ERR_HTTP_INVALID_STATUS_CODE]: Invalid status code: 999999\nnomi: request GET /header died: TypeError [ERR_INVALID_CHAR]: Invalid character in header content [\"X-Bad\"]\n"
+                        )
+                    )
+
+
+addedHeaders : Test
+addedHeaders =
+    effect "headers are written in the order added, and one set replaces those of its name" <|
+        \_ ->
+            let
+                cookies =
+                    Server.empty 204 |> Server.addHeader "Set-Cookie" "a=1" |> Server.addHeader "X-Between" "1" |> Server.addHeader "set-cookie" "b=2"
+            in
+            Task.map2 Tuple.pair
+                (Server.respond (\_ -> Task.succeed cookies) (Server.request { method = Get, target = "/", headers = [], body = "" }))
+                (Server.respond (\_ -> Task.succeed (cookies |> Server.withHeader "SET-COOKIE" "c=3")) (Server.request { method = Get, target = "/", headers = [], body = "" }))
+                |> Task.map (Tuple.mapBoth .headers .headers >> Expect.equal ( [ ( "Set-Cookie", "a=1" ), ( "set-cookie", "b=2" ), ( "X-Between", "1" ) ], [ ( "X-Between", "1" ), ( "SET-COOKIE", "c=3" ) ] ))
+
+
+aSleepBesideAServer : Test
+aSleepBesideAServer =
+    effect "a server listening in a test leaves the test's clock free to move" <|
+        \env ->
+            Queue.unbounded
+                |> Task.andThen
+                    (\listening ->
+                        let
+                            defaults =
+                                Server.defaults
+                        in
+                        Fiber.fork (Server.listen { defaults | port_ = 0, onListen = \_ -> Queue.offer () listening } (\_ -> Task.succeed (Server.empty 204)) env.net)
+                            |> Task.andThen (\_ -> Queue.take listening)
+                            |> Task.andThen (\_ -> Process.sleep 1000)
+                            |> Task.andThen (\_ -> Nomi.Task.timeout 1000 (Process.sleep 3600000))
+                            |> Task.andThen (\timedOut -> Time.now |> Task.map (Tuple.pair timedOut))
+                    )
+                |> Task.map (Expect.equal ( Nothing, Time.millisToPosix 2000 ))
 
 
 get : String -> Task Http.Error ()
@@ -648,7 +744,7 @@ fn each_effectful_test_has_a_virtual_clock_and_fakes_of_its_own() {
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
     let completed = completed(&out);
-    assert_eq!(completed.len(), 8, "{out}");
+    assert_eq!(completed.len(), 10, "{out}");
     for (label, status, duration) in &completed {
         assert_eq!(status, "pass", "{label}: {out}");
         // An hour and three seconds of the test's clock take no real time.
@@ -687,7 +783,7 @@ fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_i
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
     let completed = completed(&out);
-    assert_eq!(completed.len(), 3, "{out}");
+    assert_eq!(completed.len(), 7, "{out}");
     for (label, status, _) in &completed {
         assert_eq!(status, "pass", "{label}: {out}");
     }

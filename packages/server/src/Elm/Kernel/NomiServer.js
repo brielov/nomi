@@ -4,7 +4,7 @@ import Elm.Kernel.List exposing (fromArray, toArray)
 import Elm.Kernel.NomiStdio exposing (log)
 import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
 import Maybe exposing (Just, Nothing)
-import Nomi.Server as Server exposing (AddressInUse, PermissionDenied, OtherError, TooLarge, Disconnected)
+import Nomi.Server as Server exposing (AddressInUse, PermissionDenied, Other, TooLarge, Disconnected)
 
 */
 
@@ -46,14 +46,17 @@ var _NomiServer_listen = F3(function(config, handle, net)
 });
 
 // A listening server on `runtime`, with the requests it received that no
-// fiber has taken yet, and the accept loop's `resume` while it waits for
-// one.
+// fiber has taken yet, the accept loop's `resume` while it waits for one,
+// and whether it stopped accepting. A port Node refuses, as 70000, fails
+// as an error does.
 function _NomiServer_open(config, runtime)
 {
 	return _Runtime.async(function(resume) {
-		var server = { http: _NomiServer_http.createServer(), runtime: runtime, requests: [], taker: null };
+		var server = { http: _NomiServer_http.createServer(), runtime: runtime, requests: [], taker: null, stopped: false };
+		var max = config.__$maxBodyBytes;
 		server.http.on('request', function(req, res) {
-			var request = { req: req, res: res, body: null, fiber: null, gone: false };
+			if (server.stopped) return _NomiServer_unavailable(res);
+			var request = { req: req, res: res, max: max, body: null, fiber: null, gone: false, server: server };
 			// The connection closed before the response was written: the
 			// client is gone, and its request is interrupted.
 			res.on('close', function() {
@@ -66,19 +69,28 @@ function _NomiServer_open(config, runtime)
 			taker ? taker(_Runtime.succeed(request)) : server.requests.push(request);
 		});
 		server.http.on('error', function(error) {
-			resume(_Runtime.fail(_NomiServer_error(error)));
+			resume(_Runtime.fail(_NomiServer_error(error, config)));
 		});
-		server.http.listen(config.__$port_, config.__$host, function() {
-			resume(_Runtime.succeed(server));
-		});
+		try
+		{
+			server.http.listen(config.__$port_, config.__$host, function() {
+				resume(_Runtime.succeed(server));
+			});
+		}
+		catch (error)
+		{
+			resume(_Runtime.fail(_NomiServer_error(error, config)));
+		}
 	});
 }
 
 // Takes each request as it comes and spawns its response in the draining
-// scope.
+// scope. It waits for the next one as for another fiber, not the host:
+// an idle server holds no test's clock, and a request in flight is held
+// by its client.
 function _NomiServer_accept(server, spawn, handle)
 {
-	var next = _Runtime.async(function(resume) {
+	var next = _Runtime.wait(function(resume) {
 		if (server.requests.length > 0)
 		{
 			resume(_Runtime.succeed(server.requests.shift()));
@@ -97,13 +109,24 @@ function _NomiServer_accept(server, spawn, handle)
 	return loop;
 }
 
-// Refuses new connections and closes the idle ones.
+// Refuses new connections and closes the idle ones. A request that comes
+// later on a connection still open, or that no fiber took, is answered
+// 503, and the responses still written close their connections, so no
+// client sends another on one the drain will close.
 function _NomiServer_stop(server)
 {
 	return _Runtime.sync(function() {
+		server.stopped = true;
 		server.http.close();
+		server.requests.splice(0).forEach(function(request) { _NomiServer_unavailable(request.res); });
 		return __Utils_Tuple0;
 	});
+}
+
+function _NomiServer_unavailable(res)
+{
+	res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Connection': 'close' });
+	res.end('the server is stopping');
 }
 
 // Closes the connections still open once the drain is over.
@@ -115,16 +138,17 @@ function _NomiServer_close(server)
 	});
 }
 
-function _NomiServer_error(error)
+function _NomiServer_error(error, config)
 {
+	var address = { __$host: config.__$host, __$port_: config.__$port_ };
 	switch (error.code)
 	{
 		case 'EADDRINUSE':
-			return __Server_AddressInUse;
+			return __Server_AddressInUse(address);
 		case 'EACCES':
-			return __Server_PermissionDenied;
+			return __Server_PermissionDenied(address);
 		default:
-			return __Server_OtherError(error.message);
+			return __Server_Other(error.message);
 	}
 }
 
@@ -141,8 +165,9 @@ function _NomiServer_respond(handle, request)
 			var headers = __List_toArray(response.__$headers);
 			for (var i = 0; i < headers.length; i++)
 			{
-				res.setHeader(headers[i].a, headers[i].b);
+				res.appendHeader(headers[i].a, headers[i].b);
 			}
+			request.server && request.server.stopped && res.setHeader('Connection', 'close');
 			res.statusCode = response.__$status;
 			res.end(response.__$body);
 			return __Utils_Tuple0;
@@ -179,16 +204,18 @@ function _NomiServer_died(request, defect)
 
 // TESTING
 
-// A request with no connection behind it, whose body is `text`.
+// A request with no connection behind it, whose body is `text`, its
+// headers read by Node's own rules for repeated ones.
 var _NomiServer_request = F4(function(method, target, headers, text)
 {
-	var fields = {};
+	var raw = [];
 	for (var list = headers; list.b; list = list.b) // WHILE_CONS
 	{
-		var name = list.a.a.toLowerCase();
-		fields[name] = name in fields ? fields[name] + ', ' + list.a.b : list.a.b;
+		raw.push(list.a.a, list.a.b);
 	}
-	return { req: { method: method, url: target, headers: fields }, text: text, body: null };
+	var message = new _NomiServer_http.IncomingMessage(null);
+	message._addHeaderLines(raw, raw.length);
+	return { req: { method: method, url: target, headers: message.headers }, text: text, body: null };
 });
 
 // Answers a request `_NomiServer_request` made as a server does, writing
@@ -196,33 +223,50 @@ var _NomiServer_request = F4(function(method, target, headers, text)
 var _NomiServer_answer = F2(function(handle, made)
 {
 	var received = _Runtime.sync(function() {
-		return { req: made.req, res: _NomiServer_recorder(), text: made.text, body: null };
+		return { req: made.req, res: _NomiServer_recorder(), max: _NomiServer_maxBody, text: made.text, body: null };
 	});
 	return _Runtime.andThen(received, function(request) {
 		return _Runtime.map(_NomiServer_respond(handle, request), function() {
 			var res = request.res;
-			var headers = [];
-			res.headers.forEach(function(header) { headers.push(__Utils_Tuple2(header[0], header[1])); });
+			var headers = res.headers.map(function(header) { return __Utils_Tuple2(header[0], header[1]); });
 			return { __$status: res.statusCode, __$headers: __List_fromArray(headers), __$body: res.body };
 		});
 	});
 });
 
-// What answering a request uses of `node:http`'s response, its headers
-// keyed by lower-case name, as Node keys them.
+// What answering a request uses of `node:http`'s response: its headers as
+// names and values, in the order Node writes them, which is the order
+// given with those of one name together, where the first came, a name
+// matched in any case. What Node refuses to write, it refuses with Node's
+// own error, so a test sees the defect `listen` would.
 function _NomiServer_recorder()
 {
-	var headers = new Map();
+	var named = function(name) {
+		return function(header) { return header[0].toLowerCase() !== name.toLowerCase(); };
+	};
 	return {
-		headers: headers,
+		headers: [],
 		statusCode: 200,
 		body: '',
 		headersSent: false,
 		destroyed: false,
-		setHeader: function(name, value) { headers.set(name.toLowerCase(), [name, value]); },
-		removeHeader: function(name) { headers.delete(name.toLowerCase()); },
-		getHeaderNames: function() { return Array.from(headers.keys()); },
-		end: function(body) { this.body = body; }
+		appendHeader: function(name, value) {
+			_NomiServer_http.validateHeaderName(name);
+			_NomiServer_http.validateHeaderValue(name, value);
+			var other = named(name);
+			var last = this.headers.findLastIndex(function(header) { return !other(header); });
+			this.headers.splice(last < 0 ? this.headers.length : last + 1, 0, [name, value]);
+		},
+		setHeader: function(name, value) {
+			this.removeHeader(name);
+			this.appendHeader(name, value);
+		},
+		removeHeader: function(name) { this.headers = this.headers.filter(named(name)); },
+		getHeaderNames: function() { return this.headers.map(function(header) { return header[0].toLowerCase(); }); },
+		end: function(body) {
+			new _NomiServer_http.ServerResponse(new _NomiServer_http.IncomingMessage(null)).writeHead(this.statusCode);
+			this.body = body;
+		}
 	};
 }
 
@@ -273,26 +317,26 @@ var _NomiServer_header = F2(function(name, request)
 
 // BODIES
 
-// The most a request's body may hold, in bytes.
+// The most a request made in a test may hold, in bytes: `defaults`'s.
 var _NomiServer_maxBody = 1024 * 1024;
 
 function _NomiServer_body(request)
 {
 	return _Runtime.fromPromise(function() {
-		return request.body || (request.body = request.text === undefined ? _NomiServer_read(request.req) : _NomiServer_given(request.text));
+		return request.body || (request.body = request.text === undefined ? _NomiServer_read(request.req, request.max) : _NomiServer_given(request.text, request.max));
 	});
 }
 
-// The body of a request made in a test, too large past what a server
-// reads.
-function _NomiServer_given(text)
+// The body of a request made in a test, too large past `max` bytes.
+function _NomiServer_given(text, max)
 {
-	return Buffer.byteLength(text) > _NomiServer_maxBody ? Promise.reject(__Server_TooLarge) : Promise.resolve(text);
+	return Buffer.byteLength(text) > max ? Promise.reject(__Server_TooLarge) : Promise.resolve(text);
 }
 
 // Reads the body of `req` as UTF-8, rejecting with a `BodyError`. A body
-// too large is read on and dropped, so the client still gets the response.
-function _NomiServer_read(req)
+// of more than `max` bytes is read on and dropped, so the client still
+// gets the response.
+function _NomiServer_read(req, max)
 {
 	return new Promise(function(resolve, reject) {
 		var chunks = [];
@@ -306,9 +350,9 @@ function _NomiServer_read(req)
 		function data(chunk)
 		{
 			size += chunk.length;
-			size > _NomiServer_maxBody ? tooLarge() : chunks.push(chunk);
+			size > max ? tooLarge() : chunks.push(chunk);
 		}
-		if (Number(req.headers['content-length']) > _NomiServer_maxBody)
+		if (Number(req.headers['content-length']) > max)
 		{
 			return tooLarge();
 		}

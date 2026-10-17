@@ -5,9 +5,13 @@ module Nomi.Fiber exposing
 
 {-| Tasks running concurrently, each on a fiber of its own.
 
-A fiber forked with `fork` is its parent's child: it is interrupted, at the
-latest, when the parent's task ends. One forked with `forkDaemon` outlives
-its parent, as `Process.spawn`'s processes do.
+A fiber forked with `fork` belongs to the innermost scope it is forked in,
+and is interrupted, at the latest, when that scope ends. The task of the
+fiber that forks it is a scope, and so is each task `Nomi.Task` runs
+apart: each of `both`'s, `all`'s and `race`'s tasks, the task `timeout`
+limits, the task `ensure` finalizes, and `acquireRelease`'s acquire and use
+together. One forked with `forkDaemon` outlives them all, as
+`Process.spawn`'s processes do.
 
 @docs Fiber, fork, forkDaemon
 
@@ -33,8 +37,15 @@ type Fiber x a
     = Fiber
 
 
-{-| Starts the task on a child fiber, interrupted when its parent's task
-ends.
+{-| Starts the task on a child fiber, interrupted when the innermost scope
+it is forked in ends. A fiber forked inside `timeout`'s task, say, is
+interrupted once that task ends, so joining it after the timeout joins an
+interrupted fiber:
+
+    -- `job` is interrupted when the timeout's task ends.
+    Nomi.Task.timeout 1000 (Fiber.fork job)
+
+Fork it outside, or with `forkDaemon`, to keep it running.
 -}
 fork : Task x a -> Task y (Fiber x a)
 fork =

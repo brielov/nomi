@@ -180,11 +180,12 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-/// A server on the port its argument names, or one it picks, printing
-/// which once it listens, answering `/json` with the
-/// field `n` of its JSON body plus one, or the `BodyError`, and any other
-/// path with what it reads of the request, in the body and the header
-/// `X-Echo`.
+/// A server on the port its first argument names, or one it picks,
+/// printing which once it listens, taking bodies up to the bytes its second
+/// names, or `defaults`'s; answering `/json` with the field `n` of its
+/// JSON body plus one, or the `BodyError`; `/header/<name>` with what it
+/// reads of that header; `/cookies` with two cookies; and any other path
+/// with what it reads of the request, in the body and the header `X-Echo`.
 const SERVER: &str = r#"module Main exposing (main)
 
 import Json.Decode as Decode
@@ -203,10 +204,10 @@ main =
                 defaults =
                     Server.defaults
 
-                port_ =
-                    List.head env.args |> Maybe.andThen String.toInt |> Maybe.withDefault 0
+                number i default =
+                    List.drop i env.args |> List.head |> Maybe.andThen String.toInt |> Maybe.withDefault default
             in
-            Server.listen { defaults | port_ = port_, onListen = listening env } handle env.net
+            Server.listen { defaults | port_ = number 0 0, maxBodyBytes = number 1 defaults.maxBodyBytes, onListen = listening env } handle env.net
                 |> Task.mapError Server.errorToString
 
 
@@ -222,6 +223,12 @@ handle req =
             Server.jsonBody (Decode.field "n" Decode.int) req
                 |> Task.map (\n -> Server.json 200 (Encode.object [ ( "n", Encode.int (n + 1) ) ]))
                 |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
+
+        [ "header", name ] ->
+            Task.succeed (Server.text 200 (Debug.toString (Server.header name req)))
+
+        [ "cookies" ] ->
+            Task.succeed (Server.empty 204 |> Server.addHeader "Set-Cookie" "a=1" |> Server.addHeader "X-Between" "1" |> Server.addHeader "Set-Cookie" "b=2")
 
         _ ->
             let
@@ -785,7 +792,73 @@ fn a_server_on_a_taken_port_fails_with_address_in_use() {
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
     assert_eq!(
         errors(&ran),
-        ["nomi: the program failed: the address is already in use"]
+        [format!(
+            "nomi: the program failed: 127.0.0.1:{port}: address already in use"
+        )]
+    );
+}
+
+#[test]
+fn a_server_on_a_port_node_refuses_fails_with_its_message() {
+    nomi_testkit::require_node();
+    let (_work, root) = built(SERVER);
+    let ran = node()
+        .args(["dist/main.mjs", "70000"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
+    assert_eq!(
+        errors(&ran),
+        [
+            "nomi: the program failed: options.port should be >= 0 and < 65536. Received type number (70000)."
+        ]
+    );
+}
+
+#[test]
+fn a_server_takes_bodies_up_to_its_max_body_bytes() {
+    nomi_testkit::require_node();
+    let serving = Serving::of(SERVER, &["16"]);
+    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": 1}        "#));
+    assert_eq!((status, body.as_str()), (200, r#"{"n":2}"#));
+    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": 1}         "#));
+    assert_eq!((status, body.as_str()), (400, "TooLarge"));
+}
+
+#[test]
+fn a_server_reads_repeated_headers_as_node_does_and_sends_each_added_one() {
+    nomi_testkit::require_node();
+    let serving = Serving::start();
+    for (name, read) in [
+        ("cookie", r#"Just "a=1; b=2""#),
+        ("content-type", r#"Just "a""#),
+        ("x-many", r#"Just "1, 2""#),
+    ] {
+        let sent = request(
+            "GET",
+            &format!("/header/{name}"),
+            "Cookie: a=1\r\nCookie: b=2\r\nContent-Type: a\r\nContent-Type: b\r\nX-Many: 1\r\nX-Many: 2\r\n",
+            b"",
+        );
+        let (_, _, body) = serving.send(&sent);
+        assert_eq!(body, read, "{name}");
+    }
+    let (status, headers, _) = serving.send(&request("GET", "/cookies", "", b""));
+    assert_eq!(status, 204);
+    // In the order added, those of one name together, as `respond` gives
+    // them.
+    let added: Vec<_> = (headers.iter())
+        .filter(|(name, _)| name == "set-cookie" || name == "x-between")
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    assert_eq!(
+        added,
+        [
+            ("set-cookie", "a=1"),
+            ("set-cookie", "b=2"),
+            ("x-between", "1")
+        ]
     );
 }
 
@@ -859,6 +932,41 @@ fn sigterm_refuses_new_connections_lets_a_response_in_flight_complete_and_exits_
     assert_eq!((status, body.as_str()), (200, "done"));
     assert_eq!(serving.exit(), (Some(143), vec![]));
     // Well before the drain's 30 seconds pass.
+    assert!(signalled.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn a_response_written_during_the_drain_closes_its_connection() {
+    nomi_testkit::require_node();
+    let mut serving = Serving::of(LIFECYCLE, &["30000"]);
+    let mut stream = serving.connect();
+    let head = b"POST /slow HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\n";
+    stream.write_all(head).unwrap();
+    serving.says("slow: ()");
+    serving.terminate();
+    let signalled = Instant::now();
+    while TcpStream::connect(("127.0.0.1", serving.port)).is_ok() {
+        assert!(
+            signalled.elapsed() < Duration::from_secs(10),
+            "still accepting"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // The body, and a request after it on the same connection, which the
+    // client mustn't be told it can send.
+    stream
+        .write_all(b"doneGET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).unwrap();
+    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(
+        head.to_ascii_lowercase().contains("\r\nconnection: close"),
+        "{answer}"
+    );
+    assert_eq!(body, "done");
+    assert_eq!(serving.exit(), (Some(143), vec![]));
     assert!(signalled.elapsed() < Duration::from_secs(20));
 }
 

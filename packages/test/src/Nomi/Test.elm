@@ -1,6 +1,6 @@
 module Nomi.Test exposing
     ( effect, effectWith
-    , env, withFiles, withArgs, stdout, stderr
+    , env, withFiles, withArgs, withVars, withStdin, stdout, stderr
     , advance
     )
 
@@ -11,12 +11,17 @@ moves only when every one of its fibers waits on a timer, or on `advance`,
 so `Process.sleep` and `Time.now` take no real time. What the test leaves
 running once its task ends is interrupted.
 
+A server can listen inside a test, on the test's runtime, with elm/http as
+its client. A request on the wire is the host's, which the clock waits
+for: while one is in flight, no timer fires, so a handler that sleeps or
+times out is tested with `Nomi.Server.respond` instead.
+
 @docs effect, effectWith
 
 
 # Environments
 
-@docs env, withFiles, withArgs, stdout, stderr
+@docs env, withFiles, withArgs, withVars, withStdin, stdout, stderr
 
 
 # Time
@@ -52,7 +57,8 @@ effect =
 
 
 {-| `effect`, with the test's `Env` made from the one given: each run of
-the test gets a copy of its file system, no input and new captured output.
+the test gets a copy of its file system, its input from the start, and new
+captured output.
 
     effectWith (Nomi.Test.env |> withArgs [ "config.json" ] |> withFiles [ ( "config.json", "{}" ) ])
         "the program reads the file it is given"
@@ -79,6 +85,7 @@ fresh template =
     Elm.Kernel.NomiTest.fresh
         (\fs stdin out err -> { template | fs = fs, stdin = stdin, stdout = out, stderr = err })
         template.fs
+        template.stdin
 
 
 {-| The `Env` an `effect` gets: no arguments or variables, an empty file
@@ -107,11 +114,31 @@ withFiles files environment =
     { environment | fs = Elm.Kernel.NomiTest.withFiles files environment.fs }
 
 
-{-| `env` with these arguments.
+{-| `env` with these arguments, in place of those it has.
 -}
 withArgs : List String -> Env -> Env
 withArgs args environment =
     { environment | args = args }
+
+
+{-| `env` with these variables, each a name and its value, beside those it
+has; a name it has already takes the value given.
+-}
+withVars : List ( String, String ) -> Env -> Env
+withVars vars environment =
+    { environment | vars = Dict.union (Dict.fromList vars) environment.vars }
+
+
+{-| `env` with this text as its input, in place of the input it has; the
+input ends after the text.
+
+    effectWith (Nomi.Test.env |> withStdin "milk\neggs\n") "the list is read to its end" <|
+        \env -> Main.shopping env |> Task.map (Expect.equal [ "milk", "eggs" ])
+
+-}
+withStdin : String -> Env -> Env
+withStdin text environment =
+    { environment | stdin = Elm.Kernel.NomiTest.stdin text }
 
 
 {-| What was printed to `env.stdout` so far.

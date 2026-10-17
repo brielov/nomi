@@ -1,6 +1,6 @@
 module Nomi.Fs exposing
     ( Fs
-    , read, readBytes, write, append, list, remove, makeDirectory, exists
+    , read, readBytes, write, writeBytes, append, list, remove, makeDirectory, exists
     , subdir, readOnly
     , Error(..), errorToString
     )
@@ -19,7 +19,7 @@ and `..` goes up, but never above the root. A path that would is
 
 # Files and directories
 
-@docs read, readBytes, write, append, list, remove, makeDirectory, exists
+@docs read, readBytes, write, writeBytes, append, list, remove, makeDirectory, exists
 
 
 # Narrowing
@@ -106,6 +106,13 @@ write =
     Elm.Kernel.NomiFs.write
 
 
+{-| Writes the bytes to the file, as `write` writes text.
+-}
+writeBytes : String -> Bytes -> Fs -> Task Error ()
+writeBytes =
+    Elm.Kernel.NomiFs.writeBytes
+
+
 {-| Adds the text to the end of the file, creating it if there is none.
 -}
 append : String -> String -> Fs -> Task Error ()
@@ -157,7 +164,8 @@ now under it, and neither `..` nor a symbolic link leads out of it.
     data env =
         Nomi.Fs.subdir "data" env.fs
 
-The directory needn't exist yet. A path whose `..`s climb out of the
+The directory needn't exist yet: its operations fail with `NotFound` until
+`makeDirectory` makes it, or a directory in it. A path whose `..`s climb out of the
 capability gives one whose every operation fails with `OutsideRoot` and
 that path.
 

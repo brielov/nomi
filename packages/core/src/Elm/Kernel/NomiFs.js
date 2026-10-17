@@ -33,23 +33,30 @@ function _NomiFs_memory(files)
 }
 
 // A new file system in memory holding what the one in memory `fs` holds
-// and `files` too, written from the directory `fs` starts from.
+// and `files` too, written from the directory `fs` starts from. A file
+// the disk couldn't hold there, out of the root or under another file,
+// makes the store `invalid`, and every operation on it a defect.
 var _NomiFs_copy = F2(function(files, fs)
 {
 	var store = _NomiFs_inMemory();
+	store.invalid = fs.store.invalid;
 	fs.store.entries.forEach(function(entry, key) {
 		store.entries.set(key, entry === _NomiFs_directory ? entry : entry.slice());
 	});
 	var root = [].concat.apply([], fs.root);
 	__List_toArray(files).forEach(function(file) {
-		var names = _NomiFs_names(file.a);
-		if (fs.outside !== null || names === null || names.length === 0) return;
-		names = root.concat(names);
-		for (var i = 1; i < names.length; i++)
+		var names = fs.outside === null ? _NomiFs_names(file.a) : null;
+		var invalid = names === null ? ' is outside the root' : names.length === 0 ? ' names no file' : null;
+		names = invalid === null ? root.concat(names) : [];
+		for (var i = 1; i < names.length && invalid === null; i++)
 		{
-			store.entries.has(_NomiFs_key(names.slice(0, i))) || store.entries.set(_NomiFs_key(names.slice(0, i)), _NomiFs_directory);
+			var entry = store.entries.get(_NomiFs_key(names.slice(0, i)));
+			if (entry === undefined) store.entries.set(_NomiFs_key(names.slice(0, i)), _NomiFs_directory);
+			else if (entry !== _NomiFs_directory) invalid = ' is under a file';
 		}
-		store.entries.set(_NomiFs_key(names), _NomiFs_encoder.encode(file.b));
+		if (invalid === null && store.entries.get(_NomiFs_key(names)) === _NomiFs_directory) invalid = ' is a directory';
+		if (invalid !== null) store.invalid = store.invalid || 'withFiles: ' + JSON.stringify(file.a) + invalid;
+		else store.entries.set(_NomiFs_key(names), _NomiFs_encoder.encode(file.b));
 	});
 	return _NomiFs_make(store, fs.root, fs.writable, fs.outside);
 });
@@ -115,17 +122,29 @@ var _NomiFs_readBytes = F2(function(path, fs)
 
 var _NomiFs_write = F3(function(path, text, fs)
 {
-	return _NomiFs_run(path, fs, _NomiFs_writes, function(store, names, signal) {
-		return store.write(fs.root, names, _NomiFs_encoder.encode(text), false, signal).then(_NomiFs_unit);
-	});
+	return _NomiFs_put(path, _NomiFs_encoder.encode(text), _NomiFs_truncate, fs);
+});
+
+var _NomiFs_writeBytes = F3(function(path, bytes, fs)
+{
+	return _NomiFs_put(path, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), _NomiFs_truncate, fs);
 });
 
 var _NomiFs_append = F3(function(path, text, fs)
 {
-	return _NomiFs_run(path, fs, _NomiFs_writes, function(store, names, signal) {
-		return store.write(fs.root, names, _NomiFs_encoder.encode(text), true, signal).then(_NomiFs_unit);
-	});
+	return _NomiFs_put(path, _NomiFs_encoder.encode(text), _NomiFs_appending, fs);
 });
+
+// What a store's `write` does with a file already there.
+var _NomiFs_truncate = 'truncate';
+var _NomiFs_appending = 'append';
+
+function _NomiFs_put(path, bytes, mode, fs)
+{
+	return _NomiFs_run(path, fs, _NomiFs_writes, function(store, names, signal) {
+		return store.write(fs.root, names, bytes, mode, signal).then(_NomiFs_unit);
+	});
+}
 
 var _NomiFs_list = F2(function(path, fs)
 {
@@ -156,6 +175,7 @@ var _NomiFs_makeDirectory = F2(function(path, fs)
 // Whatever goes wrong, including a path out of the root, is `False`.
 var _NomiFs_exists = F2(function(path, fs)
 {
+	if (fs.store.invalid) return _Runtime.die(new Error(fs.store.invalid));
 	var names = fs.outside === null ? _NomiFs_names(path) : null;
 	if (names === null) return _Runtime.succeed(false);
 	var exists = _Runtime.fromPromise(function() { return fs.store.exists(fs.root, names); });
@@ -175,6 +195,7 @@ function _NomiFs_unit()
 // names `path`.
 function _NomiFs_run(path, fs, writes, f)
 {
+	if (fs.store.invalid) return _Runtime.die(new Error(fs.store.invalid));
 	if (fs.outside !== null) return _Runtime.fail(__Fs_OutsideRoot(fs.outside));
 	var names = _NomiFs_names(path);
 	if (names === null) return _Runtime.fail(__Fs_OutsideRoot(path));
@@ -250,8 +271,8 @@ function _NomiFs_disk(base)
 				return _NomiFs_open(_NomiFs_promises.readFile(path, { flag: flags.O_RDONLY | _NomiFs_noFollow, signal: signal }));
 			});
 		},
-		write: function(root, names, bytes, append, signal) {
-			var flag = flags.O_WRONLY | flags.O_CREAT | (append ? flags.O_APPEND : flags.O_TRUNC) | _NomiFs_noFollow;
+		write: function(root, names, bytes, mode, signal) {
+			var flag = flags.O_WRONLY | flags.O_CREAT | (mode === _NomiFs_appending ? flags.O_APPEND : flags.O_TRUNC) | _NomiFs_noFollow;
 			return resolve(root, names, true).then(function(path) {
 				return _NomiFs_open(_NomiFs_promises.writeFile(path, bytes, { flag: flag, signal: signal }));
 			});
@@ -282,10 +303,12 @@ function _NomiFs_disk(base)
 }
 
 // The path `names` leads to from `root`, under `base`, whose real path
-// `baseReal` is: the real path of the longest part of it that exists,
+// the promise `baseReal` gives: the real path of the longest part of it that exists,
 // followed by the names that don't, or by the last name when `follow` is
 // false. That part must be inside the root, and each subdirectory the
-// root is made of inside the one before it, from `base`.
+// root is made of inside the one before it, from `base`. A root that
+// doesn't exist yet is names that don't, as in memory, so `makeDirectory`
+// makes it.
 function _NomiFs_resolve(baseReal, root, names, follow)
 {
 	var path = _NomiFs_path;
@@ -296,21 +319,29 @@ function _NomiFs_resolve(baseReal, root, names, follow)
 			return real;
 		});
 	};
-	var rootReal = root.reduce(function(dir, below) {
-		return dir.then(function(dir) { return within(dir, below); });
-	}, baseReal);
-	var existing = function(rootReal, n)
+	// `at`, a real path and the names past it that don't exist, followed
+	// down `below`: once a name is missing, every one after it is too.
+	var existing = function(at, below)
 	{
-		if (n === 0) return Promise.resolve(rootReal);
-		return within(rootReal, names.slice(0, n)).catch(function(error) {
-			if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
-			return existing(rootReal, n - 1).then(function(parent) { return path.join(parent, names[n - 1]); });
-		});
+		if (at.missing.length > 0) return Promise.resolve({ real: at.real, missing: at.missing.concat(below) });
+		var longest = function(n)
+		{
+			if (n === 0) return Promise.resolve({ real: at.real, missing: below });
+			return within(at.real, below.slice(0, n)).then(function(real) {
+				return { real: real, missing: below.slice(n) };
+			}, function(error) {
+				if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+				return longest(n - 1);
+			});
+		};
+		return longest(below.length);
 	};
-	return rootReal.then(function(rootReal) {
-		return follow
-			? existing(rootReal, names.length)
-			: existing(rootReal, names.length - 1).then(function(parent) { return path.join(parent, names[names.length - 1]); });
+	var last = follow ? [] : names.slice(-1);
+	var resolved = root.concat([follow ? names : names.slice(0, -1)]).reduce(function(at, below) {
+		return at.then(function(at) { return existing(at, below); });
+	}, baseReal.then(function(real) { return { real: real, missing: [] }; }));
+	return resolved.then(function(at) {
+		return path.join.apply(null, [at.real].concat(at.missing, last));
 	});
 }
 
@@ -372,12 +403,13 @@ function _NomiFs_inMemory()
 				return entry.slice();
 			});
 		},
-		write: function(root, names, bytes, append) {
+		write: function(root, names, bytes, mode) {
 			return at(root, names, function(names) {
 				var entry = lookup(names);
 				if (entry === _NomiFs_directory) throw _NomiFs_code('EISDIR');
-				var file = new Uint8Array(append && entry ? entry.length + bytes.length : bytes.length);
-				append && entry ? (file.set(entry), file.set(bytes, entry.length)) : file.set(bytes);
+				var append = mode === _NomiFs_appending && entry !== undefined;
+				var file = new Uint8Array(append ? entry.length + bytes.length : bytes.length);
+				append ? (file.set(entry), file.set(bytes, entry.length)) : file.set(bytes);
 				entries.set(_NomiFs_key(names), file);
 			});
 		},

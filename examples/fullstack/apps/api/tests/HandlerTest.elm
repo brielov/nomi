@@ -41,7 +41,7 @@ suite =
                     |> Task.map
                         (Expect.equal
                             { status = 400
-                            , headers = [ cors, ( "Content-Type", "text/plain; charset=utf-8" ) ]
+                            , headers = [ ( "Content-Type", "text/plain; charset=utf-8" ), cors ]
                             , body = """expected {"title": string}"""
                             }
                         )
@@ -52,9 +52,9 @@ suite =
                         (Expect.equal
                             { status = 204
                             , headers =
-                                [ cors
+                                [ ( "Access-Control-Allow-Methods", "GET, POST" )
                                 , ( "Access-Control-Allow-Headers", "Content-Type" )
-                                , ( "Access-Control-Allow-Methods", "GET, POST" )
+                                , cors
                                 ]
                             , body = ""
                             }
@@ -90,4 +90,4 @@ cors =
 
 json : Int -> String -> { status : Int, headers : List ( String, String ), body : String }
 json status body =
-    { status = status, headers = [ cors, ( "Content-Type", "application/json" ) ], body = body }
+    { status = status, headers = [ ( "Content-Type", "application/json" ), cors ], body = body }

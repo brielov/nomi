@@ -86,18 +86,25 @@ function _NomiTest_env(make)
 	return A5(make, __NomiFs_memory(__List_Nil), __NomiStdio_script(''), __NomiStdio_capture(), __NomiStdio_capture(), __Nomi_Net);
 }
 
-// `make` applied to a copy of `fs`, an input that has ended and two new
-// captured outputs, made when the task runs, so each run of a test has
-// its own. The test's runtime is its own, and `Nomi.log` on it writes to
-// the captured stderr.
-var _NomiTest_fresh = F2(function(make, fs)
+// `make` applied to a copy of `fs`, the text `stdin` was scripted with
+// from its start, and two new captured outputs, made when the task runs,
+// so each run of a test has its own. An input not scripted, as the
+// process's, is one that has ended. The test's runtime is its own, and
+// `Nomi.log` on it writes to the captured stderr.
+var _NomiTest_fresh = F3(function(make, fs, stdin)
 {
 	return _Runtime.withRuntime(function(runtime) {
 		var stderr = __NomiStdio_capture();
 		__NomiStdio_logs.set(runtime, stderr);
-		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), __NomiStdio_script(''), __NomiStdio_capture(), stderr));
+		var input = __NomiStdio_script(stdin.script === undefined ? '' : stdin.script);
+		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), input, __NomiStdio_capture(), stderr));
 	});
 });
+
+function _NomiTest_stdin(text)
+{
+	return __NomiStdio_script(text);
+}
 
 var _NomiTest_withFiles = F2(function(files, fs)
 {

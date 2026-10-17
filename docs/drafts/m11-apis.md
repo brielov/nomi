@@ -1,6 +1,8 @@
 # M11 API drafts
 
-Drafts for the review that opens M11: package names and APIs, judged by the server written against them at the end. Nothing here is implemented yet. Each **Decision** names what is open and the draft's choice.
+Drafts for the review that opened M11: package names and APIs, judged by the server written against them at the end. Each **Decision** names what was open and the draft's choice.
+
+The signatures below are now those nomi/core, nomi/server and nomi/test ship as 1.0.0; each module's documentation is the reference. Two parts are history, kept as the review saw them: the example, which `examples/todo-server` grew from, and "What writing it showed".
 
 ## Packages
 
@@ -8,7 +10,7 @@ Drafts for the review that opens M11: package names and APIs, judged by the serv
 |---|---|---|
 | `nomi/core` | `Nomi`, `Nomi.Task`, `Nomi.Fiber`, `Nomi.Ref`, `Nomi.Queue`, `Nomi.Fs`, `Nomi.Process`, `Nomi.Stdio`, `Nomi.Ffi` | programs, concurrency, capabilities, FFI |
 | `nomi/server` | `Nomi.Server` | HTTP serving |
-| `nomi/test` | `Nomi.Test` | effectful tests, fake capabilities, the virtual clock |
+| `nomi/test` | `Nomi.Test`, `Nomi.Test.Runner` | effectful tests, fake capabilities, the virtual clock; `Runner` is the hook `nomi test` links, not for tests |
 
 **Decision: three packages, not one per plan item.** `Env` names every capability's type, so capabilities can't leave the package that defines `Env` without a cycle; concurrency is what every capability returns. The server is apart because most programs (scripts, workers, CLIs) never serve, and `nomi/test` because only test dependencies need it. All three ship with the toolchain and version together.
 
@@ -31,6 +33,10 @@ type alias Env =
     , stdout : Stdio.Writer
     , stderr : Stdio.Writer
     }
+
+type Net                          -- the capability to listen, which Nomi.Server.listen takes
+
+log : String -> Task x ()         -- a line to stderr; under nomi test, the test's stderr
 ```
 
 - The task's failure is printed to stderr and the process exits 1; success exits 0; SIGINT and SIGTERM interrupt it (130, 143), finalizers first.
@@ -63,7 +69,8 @@ fromMaybe : x -> Maybe a -> Task x a
 ```elm
 type Fiber x a
 
-fork : Task x a -> Task y (Fiber x a)        -- a child: interrupted when its parent's scope ends
+fork : Task x a -> Task y (Fiber x a)        -- interrupted when the innermost scope it is forked in ends:
+                                             -- its parent's task, or a task Nomi.Task runs apart (timeout's, race's, ...)
 forkDaemon : Task x a -> Task y (Fiber x a)  -- outlives its parent, as Process.spawn does
 join : Fiber x a -> Task x a                 -- waits; a defect or interruption of the child is the joiner's
 await : Fiber x a -> Task y (Exit x a)
@@ -108,12 +115,14 @@ type Fs
 read : String -> Fs -> Task Error String
 readBytes : String -> Fs -> Task Error Bytes
 write : String -> String -> Fs -> Task Error ()
+writeBytes : String -> Bytes -> Fs -> Task Error ()
 append : String -> String -> Fs -> Task Error ()
 list : String -> Fs -> Task Error (List String)
 remove : String -> Fs -> Task Error ()
 makeDirectory : String -> Fs -> Task Error ()
 exists : String -> Fs -> Task x Bool
-subdir : String -> Fs -> Fs                        -- every path is now under it; `..` cannot leave it
+subdir : String -> Fs -> Fs                        -- every path is now under it; neither `..` nor a link leaves it;
+                                                   -- it needn't exist yet, and makeDirectory makes it
 readOnly : Fs -> Fs
 
 type Error
@@ -137,12 +146,12 @@ printLine : String -> Writer -> Task x ()
 
 
 -- Nomi.Process
-exit : Int -> Task x a                             -- finalizers run first
+exit : Int -> Task x a                             -- finalizers run first; a code outside 0 to 255 exits 255
 ```
 
 - **Decision: the capability comes last** (`Fs.read path env.fs`, `env.fs |> Fs.read path`), as elm/core puts the data structure last.
 - **Decision: paths are `String`s**, relative to the capability's root, `/`-separated on every platform.
-- `Net` is `Nomi.Server`'s; `Nomi` re-exposes it only as `Env`'s field type.
+- `Net` is `Nomi`'s, `Env`'s field, so a program that never serves needs no nomi/server.
 
 ## `Nomi.Ffi`
 
@@ -159,17 +168,17 @@ The JS side is an async function exported from the entry's `ffi` module, called 
 ## `Nomi.Server` (nomi/server)
 
 ```elm
-type Net
-
 listen : Config -> (Request -> Task Never Response) -> Net -> Task Error ()
 
 type alias Config =
     { port_ : Int
-    , host : String              -- "127.0.0.1"; "0.0.0.0" to listen everywhere
-    , drainMilliseconds : Int    -- how long in-flight requests may finish after SIGTERM
+    , host : String                  -- "127.0.0.1"; "0.0.0.0" to listen everywhere
+    , drainMilliseconds : Int        -- how long in-flight requests may finish after SIGTERM
+    , maxBodyBytes : Int             -- past it, a body is TooLarge
+    , onListen : Int -> Task Never () -- runs with the port taken, before the first request
     }
 
-defaults : Config                -- port 8080, 127.0.0.1, 10 seconds
+defaults : Config                    -- port 8080, 127.0.0.1, 5 seconds, 1 MiB, nothing on listening
 
 
 -- Requests
@@ -178,7 +187,7 @@ type Request
 method : Request -> Method
 path : Request -> List String           -- "/todos/3" is [ "todos", "3" ]
 query : String -> Request -> Maybe String
-header : String -> Request -> Maybe String   -- case-insensitive
+header : String -> Request -> Maybe String   -- case-insensitive; repeated ones read as Node reads them
 body : Request -> Task BodyError String
 jsonBody : Decoder a -> Request -> Task BodyError a
 
@@ -193,10 +202,14 @@ type Response
 text : Int -> String -> Response
 json : Int -> Json.Encode.Value -> Response
 empty : Int -> Response
-withHeader : String -> String -> Response -> Response
+withHeader : String -> String -> Response -> Response   -- replaces any of the name
+addHeader : String -> String -> Response -> Response    -- keeps them, as for Set-Cookie
 
 
-type Error = AddressInUse | PermissionDenied | OtherError String
+type Error
+    = AddressInUse { host : String, port_ : Int }
+    | PermissionDenied { host : String, port_ : Int }
+    | Other String
 
 errorToString : Error -> String
 
@@ -206,27 +219,34 @@ request : { method : Method, target : String, headers : List ( String, String ),
 respond : (Request -> Task Never Response) -> Request -> Task x { status : Int, headers : List ( String, String ), body : String }
 ```
 
-- `listen` runs until the program is interrupted, then drains: it stops accepting, lets in-flight requests run until `drainMilliseconds` pass, interrupts the rest and closes.
+- `listen` runs until the program is interrupted, then drains: it stops accepting, lets in-flight requests run until `drainMilliseconds` pass, interrupts the rest and closes. Responses written meanwhile close their connections; a request arriving on one is answered 503.
 - Each request runs on its own fiber in the server's scope. A client that disconnects interrupts it; a defect answers 500 and writes a log line to stderr.
 - **Decision: the handler is `Request -> Task Never Response`**, fetch-shaped, so every error becomes a response in the handler and the type says so.
 - **Decision: `port_`**, since `port` is an Elm keyword.
-- **Decision: a handler is tested with a request made in the test**, not a server and a client: `respond` answers it as `listen` would, a defect a 500 and a log line, and gives the response as a record `Expect.equal` compares. Interrupting `respond` is the client disconnecting. Both live in `Nomi.Server`, which alone sees inside `Response`, so nomi/test doesn't depend on nomi/server. A server can still listen inside a test, on the test's runtime, with elm/http as its client.
+- **Decision: errors read as `Nomi.Fs`'s.** `PermissionDenied` and `Other` are both modules' names, and `errorToString` gives what failed, then what went wrong: `127.0.0.1:8080: address already in use`.
+- **Decision: a handler is tested with a request made in the test**, not a server and a client: `respond` answers it as `listen` would, a defect a 500 and a log line, and gives the response as a record `Expect.equal` compares. Interrupting `respond` is the client disconnecting. Both live in `Nomi.Server`, which alone sees inside `Response`, so nomi/test doesn't depend on nomi/server. A server can still listen inside a test, on the test's runtime, with elm/http as its client; the test's clock waits while a request is on the wire.
 - **Decision: no router.** `case ( method req, path req ) of` is the router; the example below shows it reads well.
 
 ## `Nomi.Test` (nomi/test)
 
 ```elm
 effect : String -> (Env -> Task String Expectation) -> Test
+effectWith : Env -> String -> (Env -> Task String Expectation) -> Test   -- each run gets a copy of the Env
 env : Env                                    -- a memory file system, empty stdin, captured output
 withFiles : List ( String, String ) -> Env -> Env
 withArgs : List String -> Env -> Env
+withVars : List ( String, String ) -> Env -> Env
+withStdin : String -> Env -> Env
 stdout : Env -> Task x String                -- what was printed so far
+stderr : Env -> Task x String                -- with what Nomi.log wrote
 advance : Int -> Task x ()                   -- moves the virtual clock; Process.sleep and Time obey it
 ```
 
 Every effectful test runs under the virtual clock: time only moves when every fiber waits on a timer, or on `advance`.
 
 ## The example, written against the drafts
+
+History: the draft as reviewed. `examples/todo-server` is what it became.
 
 A small todo API: a JSON file for storage, a `Ref` for the live state, a background fiber that writes the file every five seconds when it changed, a timeout on a slow dependency, and a graceful shutdown that flushes once more.
 
@@ -381,9 +401,11 @@ encode todos =
 
 ## What writing it showed
 
+History: the review's findings, before any of it was built.
+
 - **Interruption is the hard part, as expected.** The first draft of `flush` cleared `dirty` and then wrote; the shutdown interrupting the flusher between the two would have lost the last changes, since the final flush then saw nothing dirty. `uninterruptible` fixed it, and nothing in the types pointed at it. The docs of `Fiber.interrupt` and `acquireRelease` should show this case.
 - **It reads acceptably.** The longest chain is `main`'s, and most of its length is `acquireRelease`'s three arguments. `Ref.modify` carried every read-and-write; `get` then `set` was never needed.
 - **`Process.sleep` takes a `Float`**, elm/core's type, so `flushEvery` does too; nomi's own APIs take `Int` milliseconds. Kept: changing elm/core is out, and an `Int` is what a server means.
 - **`Task Never Response` forced every error into a response** at the place it happened, which is what a server wants; `Server.jsonBody`'s `BodyError` was mapped to a 400 in one line.
 - **Errors become `String` at the edge** (`Server.errorToString`, `Fs.errorToString`), as `Task String ()` intends; nothing needed a custom program error.
-- **Missing:** a way to log without threading `env.stderr` everywhere. Draft: `Nomi.log : String -> Task x ()`, writing a line to stderr, the one ambient effect besides elm/*'s. It is not in the signatures above until the review agrees.
+- **Missing:** a way to log without threading `env.stderr` everywhere. Draft: `Nomi.log : String -> Task x ()`, writing a line to stderr, the one ambient effect besides elm/*'s. The review agreed, and it shipped.

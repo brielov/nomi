@@ -1,6 +1,7 @@
 module Nomi.Test.Runner exposing (run)
 
-{-| What `nomi test`'s runner calls; tests don't need it.
+{-| What `nomi test`'s runner calls. It is not for tests or programs:
+it is the hook nomi's runner links, and it changes as the runner does.
 
 @docs run
 

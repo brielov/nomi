@@ -21,10 +21,13 @@ use website::offline;
 /// the file system's table on `scratch/` or on a memory file system;
 /// `links` the cases only the disk has, in `scratch/links/`; `lines`
 /// reads standard input to its end; `fake-stdio` reads a scripted input
-/// into a captured output; `exit` exits 3 with finalizers to run.
+/// into a captured output; `bad-files` uses memory file systems given
+/// files the disk can't hold; `exit` exits 3 with finalizers to run, and
+/// `exit <code>` with the code.
 const PROGRAM: &str = r#"module Main exposing (main)
 
 import Bytes
+import Bytes.Encode
 import Nomi exposing (Env)
 import Nomi.Fake as Fake
 import Nomi.Fiber as Fiber
@@ -61,6 +64,15 @@ main =
                                     |> Task.andThen (\_ -> Fake.captured writer)
                             )
                         |> Task.andThen (\text -> Stdio.print text env.stdout)
+
+                [ "bad-files" ] ->
+                    [ [ ( "../x", "x" ) ], [ ( "", "x" ) ], [ ( "a", "x" ), ( "a/b", "y" ) ], [ ( "a/b", "y" ), ( "a", "x" ) ] ]
+                        |> List.map (\files -> Fake.fs files |> Task.andThen (\fs -> Fiber.fork (Fs.exists "a" fs) |> Task.andThen Fiber.await) |> Task.map Debug.toString)
+                        |> Task.sequence
+                        |> Task.andThen (\outcomes -> Stdio.print (String.concat (List.map (\line -> line ++ "\n") outcomes)) env.stdout)
+
+                [ "exit", code ] ->
+                    Nomi.Process.exit (String.toInt code |> Maybe.withDefault 0)
 
                 [ "exit" ] ->
                     Fiber.fork (Process.sleep 3600000 |> Nomi.Task.ensure (Stdio.printLine "child finalized" env.stdout))
@@ -101,6 +113,8 @@ cases fs =
     , outcome "makeDirectory a.txt" (Fs.makeDirectory "a.txt" fs)
     , outcome "makeDirectory a.txt/x" (Fs.makeDirectory "a.txt/x" fs)
     , outcome "write dir/sub/b.txt" (Fs.write "dir/sub/b.txt" "b" fs)
+    , outcome "writeBytes dir/sub/c.bin" (Fs.writeBytes "dir/sub/c.bin" (Bytes.Encode.encode (Bytes.Encode.string "héllo")) fs)
+    , outcome "read dir/sub/c.bin" (Fs.read "dir/sub/c.bin" fs)
     , outcome "list ." (Fs.list "." fs)
     , outcome "list dir/" (Fs.list "dir/" fs)
     , outcome "list a.txt" (Fs.list "a.txt" fs)
@@ -123,6 +137,13 @@ cases fs =
     , outcome "subdir ..: read a.txt" (Fs.read "a.txt" (Fs.subdir ".." fs))
     , outcome "subdir ..: exists a.txt" (Fs.exists "a.txt" (Fs.subdir ".." fs))
     , outcome "subdir missing: read x" (Fs.read "x" (Fs.subdir "missing" fs))
+    , outcome "subdir new/deeper: makeDirectory inner" (Fs.makeDirectory "inner" (Fs.subdir "new/deeper" fs))
+    , outcome "subdir new/deeper: write inner/x.txt" (Fs.write "inner/x.txt" "x" (Fs.subdir "new/deeper" fs))
+    , outcome "read new/deeper/inner/x.txt" (Fs.read "new/deeper/inner/x.txt" fs)
+    , outcome "subdir more: makeDirectory ." (Fs.makeDirectory "." (Fs.subdir "more" fs))
+    , outcome "subdir more: list ." (Fs.list "." (Fs.subdir "more" fs))
+    , outcome "remove new" (Fs.remove "new" fs)
+    , outcome "remove more" (Fs.remove "more" fs)
     , outcome "readOnly: read a.txt" (Fs.read "a.txt" readOnly)
     , outcome "readOnly: write a.txt" (Fs.write "a.txt" "x" readOnly)
     , outcome "readOnly: append a.txt" (Fs.append "a.txt" "x" readOnly)
@@ -206,6 +227,8 @@ makeDirectory .: Ok ()
 makeDirectory a.txt: Err (AlreadyExists "a.txt")
 makeDirectory a.txt/x: Err (Other "a.txt/x: not a directory")
 write dir/sub/b.txt: Ok ()
+writeBytes dir/sub/c.bin: Ok ()
+read dir/sub/c.bin: Ok "héllo"
 list .: Ok ["a.txt","dir","new.txt"]
 list dir/: Ok ["sub"]
 list a.txt: Err (Other "a.txt: not a directory")
@@ -228,6 +251,13 @@ subdir dir/..: read a.txt: Ok "hello, world"
 subdir ..: read a.txt: Err (OutsideRoot "..")
 subdir ..: exists a.txt: Ok False
 subdir missing: read x: Err (NotFound "x")
+subdir new/deeper: makeDirectory inner: Ok ()
+subdir new/deeper: write inner/x.txt: Ok ()
+read new/deeper/inner/x.txt: Ok "x"
+subdir more: makeDirectory .: Ok ()
+subdir more: list .: Ok []
+remove new: Ok ()
+remove more: Ok ()
 readOnly: read a.txt: Ok "hello, world"
 readOnly: write a.txt: Err (PermissionDenied "a.txt")
 readOnly: append a.txt: Err (PermissionDenied "a.txt")
@@ -408,4 +438,29 @@ fn process_exit_runs_the_finalizers_then_exits_with_its_code() {
         "exiting\nchild finalized\nfinalized\n"
     );
     assert_eq!(errors(&ran), "");
+}
+
+#[test]
+fn a_memory_file_system_given_files_the_disk_cant_hold_is_a_defect_to_use() {
+    nomi_testkit::require_node();
+    let (_work, root) = built();
+    let ran = run(&root, &["bad-files"], "");
+    assert_eq!(
+        printed(&ran),
+        r#"Defect "Error: withFiles: \"../x\" is outside the root"
+Defect "Error: withFiles: \"\" names no file"
+Defect "Error: withFiles: \"a/b\" is under a file"
+Defect "Error: withFiles: \"a\" is a directory"
+"#
+    );
+}
+
+#[test]
+fn process_exit_with_a_code_out_of_range_exits_255() {
+    nomi_testkit::require_node();
+    let (_work, root) = built();
+    for (code, exited) in [("0", 0), ("255", 255), ("256", 255), ("-1", 255)] {
+        let ran = run(&root, &["exit", code], "");
+        assert_eq!(ran.status.code(), Some(exited), "{code}: {ran:?}");
+    }
 }
