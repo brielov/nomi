@@ -12,20 +12,26 @@ use nomi_registry::{Http, Known};
 
 use crate::console::{self, Answer, Console, Personality};
 use crate::diff::{self, Magnitude, Stop};
+use crate::packages::Resolve;
 use crate::paths::Root;
 use crate::project::Project;
 use crate::{Context, Vfs};
 
-/// `elm bump` for the project around the directory. Whether nothing was
-/// wrong.
-pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console) -> bool {
+/// `elm bump` for the project around the directory, its documentation
+/// built with its dependencies resolved as `personality` resolves them.
+/// Whether nothing was wrong.
+pub fn run(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    personality: Personality,
+) -> bool {
     let Some(root) = Root::find(cx.vfs, cx.dir) else {
         console::report(console, &no_outline(), Compat::LATEST);
         return false;
     };
     let project = Project::read(cx.vfs, &root, Personality::Elm);
     let compat = project.as_ref().map_or(Compat::LATEST, |p| p.compat);
-    bump(cx, console, project, compat).unwrap_or_else(|stop| {
+    bump(cx, console, project, compat, Resolve::of(personality)).unwrap_or_else(|stop| {
         stop.show(console, root.dir(), compat);
         false
     })
@@ -36,6 +42,7 @@ fn bump(
     console: &mut dyn Console,
     project: Result<Project, Report>,
     compat: Compat,
+    resolve: Resolve,
 ) -> Result<bool, Stop> {
     let index = diff::latest(
         cx,
@@ -59,7 +66,7 @@ fn bump(
     }
     let purpose = "compute the next version number";
     let old = diff::fetch_docs(cx, compat, &pkg.name, pkg.version, purpose)?;
-    let new = diff::local_docs(cx, &project)?;
+    let new = diff::local_docs(cx, &project, resolve)?;
     let magnitude = diff::magnitude(&diff::diff(&old, &new));
     let version = magnitude.bump(pkg.version, compat);
     let (old_text, new_text) = (pkg.version.to_string(), version.to_string());

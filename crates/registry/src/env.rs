@@ -96,6 +96,11 @@ impl<'a, H: Http> Registry<'a, H> {
         }
     }
 
+    /// The store the releases are downloaded into.
+    pub fn store(&self) -> &'a Store {
+        self.store
+    }
+
     fn kept(&self, name: &Name, version: Version) -> PathBuf {
         self.metadata
             .join(name.author())

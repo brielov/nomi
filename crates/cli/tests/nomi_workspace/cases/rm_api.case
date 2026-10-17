@@ -1,0 +1,10 @@
+=== note
+removing from a member using a member package, from inside it: what
+acme/shared needs is read from the workspace
+=== dir
+apps/api
+=== args
+rm
+nomi/core
+=== stdin
+y

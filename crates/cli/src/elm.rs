@@ -42,7 +42,7 @@ pub(crate) fn main(args: impl Iterator<Item = OsString>) -> ExitCode {
             false
         }
         ["publish"] => crate::in_project(publish::run),
-        ["bump"] => crate::in_project(bump::run),
+        ["bump"] => crate::in_project(|cx, console| bump::run(cx, console, Personality::Elm)),
         _ => {
             eprintln!("error: nomi doesn't answer to `elm {}` yet", args.join(" "));
             false

@@ -1,0 +1,7 @@
+=== note
+the tree of a member using a member package, from inside it, with
+the member package from the workspace
+=== dir
+apps/api
+=== args
+tree

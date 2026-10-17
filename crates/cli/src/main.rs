@@ -325,7 +325,7 @@ fn main() -> ExitCode {
             let args = args.iter().map(String::as_str).collect::<Vec<_>>();
             if let Some(args) = diff::parse_args(&args) {
                 in_member(member.as_deref(), Verb::Diff, |cx, console| {
-                    diff::run(cx, console, &args)
+                    diff::run(cx, console, Personality::Nomi, &args)
                 })
             } else {
                 eprintln!(
@@ -338,7 +338,11 @@ fn main() -> ExitCode {
         Some(Command::Publish { member }) => {
             in_member(member.as_deref(), Verb::Publish, publish::run)
         }
-        Some(Command::Bump { member }) => in_member(member.as_deref(), Verb::Bump, bump::run),
+        Some(Command::Bump { member }) => {
+            in_member(member.as_deref(), Verb::Bump, |cx, console| {
+                bump::run(cx, console, Personality::Nomi)
+            })
+        }
         Some(Command::Test { mut members, args }) => {
             let args = test_args(args, &mut members);
             return elm_test(args.into_iter(), Personality::Nomi, &members);
@@ -492,7 +496,7 @@ fn diff(args: &[&str], usage: &str) -> bool {
         eprintln!("error: {usage}");
         return false;
     };
-    in_project(|cx, console| diff::run(cx, console, &args))
+    in_project(|cx, console| diff::run(cx, console, Personality::Elm, &args))
 }
 
 /// `command` for the member of the workspace `member` names, or the

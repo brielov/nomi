@@ -21,6 +21,7 @@ use serde_json::Value as Json;
 
 use crate::check::{self, Build, Checked, Goal, Made, env_of, foreigns};
 use crate::console::{self, Console, Personality};
+use crate::packages::Resolve;
 use crate::paths::Root;
 use crate::project::{Project, check_source_dirs};
 use crate::report::one_line;
@@ -718,16 +719,22 @@ impl Stop {
     }
 }
 
-/// `elm diff`: the changes `args` asks about, printed. Whether nothing
-/// was wrong.
-pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, args: &Args) -> bool {
+/// `elm diff`: the changes `args` asks about, printed, the project's own
+/// documentation built with its dependencies resolved as `personality`
+/// resolves them. Whether nothing was wrong.
+pub fn run(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    personality: Personality,
+    args: &Args,
+) -> bool {
     let root = Root::find(cx.vfs, cx.dir);
     let project = (root.as_ref()).map(|root| Project::read(cx.vfs, root, Personality::Elm));
     let compat = match &project {
         Some(Ok(project)) => project.compat,
         Some(Err(_)) | None => Compat::LATEST,
     };
-    match diff_args(cx, project, compat, args) {
+    match diff_args(cx, project, compat, Resolve::of(personality), args) {
         Ok((old, new)) => {
             console::print(console, &to_doc(&diff(&old, &new)), compat);
             console.out("\n");
@@ -741,11 +748,13 @@ pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, args: 
 }
 
 /// The documentation `args` compares, the older first; `project` is the
-/// project around the directory, if there is one.
+/// project around the directory, if there is one, whose dependencies
+/// resolve as `resolve` says.
 fn diff_args(
     cx: &Context<'_, impl Http + Sync>,
     project: Option<Result<Project, Report>>,
     compat: Compat,
+    resolve: Resolve,
     args: &Args,
 ) -> Result<(Documentation, Documentation), Stop> {
     let index = latest(
@@ -769,11 +778,11 @@ fn diff_args(
             let (project, name) = read_outline(project, &index)?;
             let newest = index.versions(&name).expect("a published package").newest;
             let old = fetch_docs(cx, compat, &name, newest, DIFF)?;
-            Ok((old, local_docs(cx, &project)?))
+            Ok((old, local_docs(cx, &project, resolve)?))
         }
         Args::CodeVsExactly(version) => {
             let (project, name) = read_outline(project, &index)?;
-            Ok((docs(&name, *version)?, local_docs(cx, &project)?))
+            Ok((docs(&name, *version)?, local_docs(cx, &project, resolve)?))
         }
     }
 }
@@ -863,23 +872,30 @@ pub(crate) fn fetch_docs(
 /// What `elm diff` needs docs for.
 const DIFF: &str = "compute this diff";
 
-/// `generateDocs`: the project's own documentation, built.
+/// `generateDocs`: the project's own documentation, built with its
+/// dependencies resolved as `resolve` says.
 pub(crate) fn local_docs(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
+    resolve: Resolve,
 ) -> Result<Documentation, Stop> {
-    Ok(decode_built(project.compat, &local_docs_json(cx, project)?))
+    Ok(decode_built(
+        project.compat,
+        &local_docs_json(cx, project, resolve)?,
+    ))
 }
 
 /// The `docs.json` [`local_docs`] read from.
 pub(crate) fn local_docs_json(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
+    resolve: Resolve,
 ) -> Result<String, Stop> {
     let compat = project.compat;
     let dir = project.root.dir();
     check_source_dirs(dir, &project.outline)?;
-    let (foreigns, interfaces) = foreigns(cx, project, Personality::Elm)?;
+    let (foreigns, interfaces) =
+        foreigns(cx, project, Personality::Elm, resolve).map_err(Stop::Build)?;
     if let Outline::Pkg(pkg) = &project.outline
         && pkg.exposed.modules().next().is_none()
     {

@@ -1403,7 +1403,9 @@ Source maps, which 11.1 named, would be per definition: the optimized graph keep
 
 Answers the exit review took, open to review: an entry starts itself, other Node modules don't; registry `nomi/*` hidden only from nomi's personality; children die with nomi on Linux; an automatic port moves on, an explicit one doesn't; the dev server answers local hosts only; `dist/` for entries without `output`.
 
-- [ ] **12.9j** `registry: rm and tree in a workspace`. `nomi rm` and `nomi tree` in a member that uses a member package resolve with the workspace, as `add` does, rather than asking the registry for the member. **Check:** both in the example's `apps/api`, inside it and with `-p`.
+- [x] **12.9j** `registry: rm and tree in a workspace`. `nomi rm` and `nomi tree` in a member that uses a member package resolve with the workspace, as `add` does, rather than asking the registry for the member. **Check:** both in the example's `apps/api`, inside it and with `-p`.
+
+  Done: in a workspace `rm` plans through the member overlay, still without re-solving, then checks the workspace as `add` does and restores the elm.json if it fails; `tree` resolves and reports as the workspace does and shows member packages with their dependencies; `outdated` reads through the overlay, so a shadowing member is never outdated; nomi's `diff` and `bump` build a member package's docs with the workspace, upstream's personality unchanged and `publish` verifying against the registry. Tests: transcripts of `tree` and `rm` in `apps/api` and with `-p`, `rm` failing on disagreeing pins and restoring, `outdated`; `diff` and `bump` against a loopback registry finding a member package's new function, `elm diff` failing as upstream. Five of the transcripts fail on the old code. CI is green.
 - [ ] **12.10** `release: 0.6`.
 
 Defaults taken, each open to review: two apps can't pin different versions of one package; a member package shadows a published package of its name; no dev-server proxy; one port per browser entry, from 8000, a taken one an error. "The language server works across members" means 12.5's Check.

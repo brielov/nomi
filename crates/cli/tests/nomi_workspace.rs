@@ -7,16 +7,20 @@
 //! `expected/`, which `NOMI_BLESS=1` writes anew.
 #![cfg(unix)]
 
+#[path = "support/server.rs"]
+pub mod server;
 #[path = "support/website.rs"]
 pub mod website;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::Arc;
 
 use nomi_testkit::packages;
 use nomi_testkit::transcript::{Case, check_transcripts, normalize_elm_test};
 use serde_json::json;
+use server::{Method, Server};
 use website::offline;
 
 #[test]
@@ -47,7 +51,7 @@ fn nomi_workspace_transcripts() {
         }
         Some(actual)
     });
-    assert_eq!(ran, 22);
+    assert_eq!(ran, 28);
 }
 
 /// An application's `elm.json`, depending on elm/core and elm/json and
@@ -560,4 +564,141 @@ fn an_entry_with_ffi_built_for_the_browser_is_told_to_say_node_in_nomi_toml() {
     assert!(said.contains("-- FFI NEEDS NODE"), "{said}");
     assert!(said.contains("platform = \"node\" in nomi.toml"), "{said}");
     assert!(!said.contains("--platform"), "{said}");
+}
+
+/// The package `name` at `version` in `dir`, depending on elm/core and
+/// on each of `deps` from 1.0.0, its one module `module` exposing each
+/// of `values`, an `Int` defined as given, after importing `imports`,
+/// with the docs a published package needs.
+fn documented(
+    dir: &Path,
+    (name, version): (&str, &str),
+    deps: &[&str],
+    module: &str,
+    imports: &[&str],
+    values: &[(&str, &str)],
+) {
+    let mut ranges = json!({"elm/core": "1.0.0 <= v < 2.0.0"});
+    for &dep in deps {
+        ranges[dep] = json!("1.0.0 <= v < 2.0.0");
+    }
+    let elm_json = json!({
+        "type": "package",
+        "name": name,
+        "summary": name,
+        "license": "BSD-3-Clause",
+        "version": version,
+        "exposed-modules": [module],
+        "elm-version": "0.19.0 <= v < 0.20.0",
+        "dependencies": ranges,
+        "test-dependencies": {},
+    });
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("elm.json"), elm_json.to_string()).unwrap();
+    let names: Vec<&str> = values.iter().map(|(value, _)| *value).collect();
+    let names = names.join(", ");
+    let imports: String = imports.iter().map(|i| format!("import {i}\n")).collect();
+    let values: String = (values.iter())
+        .map(|(value, body)| {
+            format!("\n\n{{-| {value} -}}\n{value} : Int\n{value} =\n    {body}\n")
+        })
+        .collect();
+    let text = format!(
+        "module {module} exposing ({names})\n\n{{-| {module}\n\n@docs {names}\n\n-}}\n\n\
+         {imports}{values}"
+    );
+    write(&dir.join("src"), module, &text);
+}
+
+#[test]
+fn diff_and_bump_build_a_member_package_with_the_workspace() {
+    // The registry: acme/shared 1.0.0, and acme/a 1.0.0 using it, served
+    // up to date with acme/a's docs, as `diff` insists on the latest.
+    let registry = tempfile::tempdir().unwrap();
+    for author in ["elm", "elm-explorations"] {
+        let fixtures = packages::dir().join(author);
+        std::os::unix::fs::symlink(fixtures, registry.path().join(author)).unwrap();
+    }
+    let release = |name: &str| registry.path().join(name).join("1.0.0");
+    let shared = ("acme/shared", "1.0.0");
+    documented(
+        &release(shared.0),
+        shared,
+        &[],
+        "Shared",
+        &[],
+        &[("value", "1")],
+    );
+    let a = ("acme/a", "1.0.0");
+    let value = ("value", "Shared.value");
+    documented(&release(a.0), a, &[shared.0], "A", &["Shared"], &[value]);
+    let cache = tempfile::tempdir().unwrap();
+    website::Website::with_sources(registry.path()).fill(cache.path());
+    let a_docs = r#"[{"name":"A","comment":" A\n\n@docs value\n\n","unions":[],"aliases":[],"values":[{"name":"value","comment":" value ","type":"Basics.Int"}],"binops":[]}]"#;
+    let server = Server::start(Arc::new(move |method, path: &str, _: &[u8]| {
+        match (method, path) {
+            (Method::Post, p) if p.starts_with("/all-packages/since/") => Some(b"[]".to_vec()),
+            (Method::Get, "/packages/acme/a/1.0.0/docs.json") => Some(a_docs.as_bytes().to_vec()),
+            _ => None,
+        }
+    }));
+    // The workspace: acme/shared 1.1.0, with `extra`, which acme/a now
+    // uses.
+    let (_work, root) = temp();
+    let members = "[workspace]\nmembers = [\"packages/*\"]\n";
+    fs::write(root.join("nomi.toml"), members).unwrap();
+    let extra = [("value", "1"), ("extra", "2")];
+    let member = root.join("packages/shared");
+    documented(
+        &member,
+        ("acme/shared", "1.1.0"),
+        &[],
+        "Shared",
+        &[],
+        &extra,
+    );
+    let more = [value, ("more", "Shared.extra")];
+    let a = root.join("packages/a");
+    documented(
+        &a,
+        ("acme/a", "1.0.0"),
+        &[shared.0],
+        "A",
+        &["Shared"],
+        &more,
+    );
+    let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let diff = |program: &Path, verb: &str| {
+        let mut command = offline(program, cache.path());
+        command
+            .current_dir(&a)
+            .arg(verb)
+            .env("NOMI_REGISTRY", &server.url)
+            .env_remove("ALL_PROXY");
+        command.output().unwrap()
+    };
+    let diffed = diff(nomi, "diff");
+    let said = said(&diffed);
+    assert!(diffed.status.success(), "{said}");
+    assert!(said.contains("This is a MINOR change."), "{said}");
+    assert!(said.contains("more : Int"), "{said}");
+    // `bump` builds the same docs, and asks before it writes.
+    let bumped = diff(nomi, "bump");
+    let asked = String::from_utf8_lossy(&bumped.stdout);
+    assert!(
+        asked.contains("MINOR change (1.0.0 => 1.1.0)"),
+        "{bumped:?}"
+    );
+    // Upstream's knows nothing of the workspace, and builds against the
+    // registry's acme/shared, as nomi's did.
+    let bin = tempfile::tempdir().unwrap();
+    let elm = bin.path().join("elm");
+    std::os::unix::fs::symlink(nomi, &elm).unwrap();
+    let upstream = diff(&elm, "diff");
+    assert!(!upstream.status.success(), "{upstream:?}");
+    let stderr = String::from_utf8_lossy(&upstream.stderr);
+    assert!(
+        stderr.contains("I cannot find a `Shared.extra` variable"),
+        "{stderr}"
+    );
 }

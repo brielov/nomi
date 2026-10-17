@@ -1,0 +1,6 @@
+=== note
+the tree of a member using a member package, named from the root
+=== args
+tree
+-p
+api

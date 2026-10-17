@@ -6,8 +6,11 @@
 //! section's lines:
 //!
 //! - `=== args`: one argument per line, where `$ROOT` stands for the
-//!   directory the case runs in;
+//!   case's directory;
 //! - `=== stdin`: standard input, empty without the section;
+//! - `=== dir`: the directory the command runs in, by a `/`-separated
+//!   path relative to the case's on its one line, the case's own without
+//!   the section;
 //! - `=== file <path>`: a file to create, by a `/`-separated relative path;
 //! - `=== bytes <path>`: one whose bytes aren't all text, written with
 //!   `\xHH` for each byte that isn't printable ASCII and `\\` for a
@@ -36,10 +39,12 @@ use crate::process::run_within;
 /// A parsed case file.
 #[derive(Clone, Debug, Default)]
 pub struct Case {
-    /// The command's arguments, `$ROOT` standing for its directory.
+    /// The command's arguments, `$ROOT` standing for the case's directory.
     pub args: Vec<String>,
     /// The command's standard input.
     pub stdin: String,
+    /// Where the command runs, relative to the case's directory.
+    pub dir: String,
     /// The text files to create, by path, with their text.
     pub files: Vec<(String, String)>,
     /// The `bytes` sections' files, decoded.
@@ -65,6 +70,7 @@ impl Case {
             match header.split_once(' ') {
                 None if header == "args" => case.args = body.lines().map(str::to_owned).collect(),
                 None if header == "stdin" => case.stdin = body,
+                None if header == "dir" => case.dir = body.trim_end().to_owned(),
                 None if header == "note" => {}
                 Some(("file", path)) => case.files.push((path.to_owned(), unmarked(body))),
                 Some(("bytes", path)) => {
@@ -209,7 +215,7 @@ impl Case {
     ) -> io::Result<Transcript> {
         command
             .args(self.args_in(dir))
-            .current_dir(dir)
+            .current_dir(dir.join(&self.dir))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let (Ok(output) | Err(output)) = run_within(&mut command, self.stdin.as_bytes(), limit)?;
@@ -604,11 +610,13 @@ mod tests {
     #[test]
     fn cases_parse_by_section() {
         let case = Case::parse(
-            "=== note\nwhy\n=== args\n--yes\nsrc\n=== stdin\ny\n=== file src/A.elm\nmodule A\n\n",
+            "=== note\nwhy\n=== args\n--yes\nsrc\n=== stdin\ny\n=== dir\napps/a\n\
+             === file src/A.elm\nmodule A\n\n",
         )
         .unwrap();
         assert_eq!(case.args, ["--yes", "src"]);
         assert_eq!(case.stdin, "y\n");
+        assert_eq!(case.dir, "apps/a");
         assert_eq!(
             case.files,
             [("src/A.elm".to_owned(), "module A\n\n".to_owned())]

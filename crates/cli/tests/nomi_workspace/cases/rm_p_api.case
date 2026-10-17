@@ -1,0 +1,9 @@
+=== note
+removing from a member using a member package, named from the root
+=== args
+rm
+-p
+api
+nomi/core
+=== stdin
+y

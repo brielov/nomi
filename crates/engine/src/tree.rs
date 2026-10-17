@@ -1,15 +1,17 @@
 //! `nomi tree`, which upstream has no command for: the releases the
-//! project builds with, under the dependencies that need them.
+//! project builds with, under the dependencies that need them; in a
+//! workspace, its part of the workspace's one resolution.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use nomi_project::Name;
+use nomi_registry::workspace as registry_workspace;
 use nomi_registry::{Details, Http, details};
 
 use crate::console::{Console, Personality};
 use crate::install::details_problem;
-use crate::{Context, env};
+use crate::{Context, env, workspace};
 
 /// Prints the dependency tree of the project around the directory.
 /// Whether it succeeded.
@@ -20,8 +22,18 @@ pub fn run(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
         "to show",
         "I need the list of published packages to know what your dependencies need",
         |console, project, registry| {
-            let solution = details::verify(registry, project.compat, &project.outline)
-                .map_err(|problem| details_problem(&problem, project.compat, Personality::Nomi))?;
+            let compat = project.compat;
+            let snapshot = cx.vfs.snapshot();
+            let solution = match workspace::discover(&snapshot, project.root.dir()).transpose()? {
+                None => details::verify(registry, compat, &project.outline)
+                    .map_err(|problem| details_problem(&problem, compat, Personality::Nomi)),
+                Some(workspace) => {
+                    registry_workspace::verify(registry, compat, &workspace, &project.outline)
+                        .map_err(|problem| {
+                            workspace::resolution_problem(&problem, compat, Personality::Nomi)
+                        })
+                }
+            }?;
             let direct: Vec<&Name> = project.outline.direct().collect();
             let test: Vec<&Name> = project.outline.test_direct().collect();
             console.out(&render(&direct, &test, &solution));

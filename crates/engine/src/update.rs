@@ -13,7 +13,7 @@ use nomi_project::{Name, Outline, Version};
 use nomi_registry::update::DepKind;
 use nomi_registry::workspace::{self as registry_workspace, Members};
 use nomi_registry::{
-    Http, Outdated, Registry, SolverProblem, Store, UpdateProblem, report, update,
+    Http, Outdated, Packages, Registry, SolverProblem, Store, UpdateProblem, report, update,
 };
 
 use crate::console::{self, Console, Personality};
@@ -238,7 +238,8 @@ pub(crate) fn unavailable(name: &Name, version: Version) -> Report {
 }
 
 /// Lists the dependencies of the project around the directory that have
-/// newer releases. Whether it succeeded.
+/// newer releases, a workspace's member packages having none. Whether it
+/// succeeded.
 pub fn outdated(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool {
     env::with_registry(
         cx,
@@ -246,13 +247,26 @@ pub fn outdated(cx: &Context<'_, impl Http>, console: &mut dyn Console) -> bool 
         "to check",
         NEWER,
         |console, project, registry| {
-            console.out(&match &project.outline {
-                Outline::App(app) => table(&update::outdated_app(registry, app)),
-                Outline::Pkg(pkg) => table(&update::outdated_pkg(registry, pkg)),
-            });
+            let snapshot = cx.vfs.snapshot();
+            let out = match workspace::discover(&snapshot, project.root.dir()).transpose()? {
+                None => outdated_table(registry, &project.outline),
+                Some(workspace) => {
+                    outdated_table(&Members::new(&workspace, registry), &project.outline)
+                }
+            };
+            console.out(&out);
             Ok(true)
         },
     )
+}
+
+/// The table of `outline`'s dependencies with releases in `packages`
+/// newer than it allows.
+fn outdated_table(packages: &impl Packages, outline: &Outline) -> String {
+    match outline {
+        Outline::App(app) => table(&update::outdated_app(packages, app)),
+        Outline::Pkg(pkg) => table(&update::outdated_pkg(packages, pkg)),
+    }
 }
 
 /// The outdated dependencies in columns, or that there are none.

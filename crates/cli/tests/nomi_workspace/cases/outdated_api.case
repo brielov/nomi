@@ -1,0 +1,7 @@
+=== note
+the outdated dependencies of a member using a member package, which
+has no newer releases
+=== dir
+apps/api
+=== args
+outdated

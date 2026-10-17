@@ -22,6 +22,7 @@ use crate::Context;
 use crate::bump::{NEW_PACKAGE_OVERVIEW, Possibility, possibilities};
 use crate::console::{self, Console, Personality};
 use crate::diff::{self, Magnitude, Stop};
+use crate::packages::Resolve;
 use crate::paths::{ELM_JSON, LICENSE, README, Root};
 use crate::project::Project;
 use crate::report::one_line;
@@ -87,7 +88,7 @@ fn publish(
             success: "Verified documentation",
             failure: "Problem with documentation",
         },
-        || diff::local_docs_json(cx, &project),
+        || diff::local_docs_json(cx, &project, Resolve::Upstream),
     )?;
     verify_version(cx, console, compat, name, version, &docs_json, known)?;
     if !git(dir, &["--version"]) {
@@ -430,7 +431,7 @@ fn verify_zip(
             let root = Root::new(prepublish.path().to_owned());
             let built = Project::read(cx.vfs, &root, Personality::Elm)
                 .ok()
-                .and_then(|project| diff::local_docs_json(cx, &project).ok());
+                .and_then(|project| diff::local_docs_json(cx, &project, Resolve::Upstream).ok());
             built.map(|_| ()).ok_or_else(|| bad_zip().into())
         },
     )?;

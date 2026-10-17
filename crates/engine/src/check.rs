@@ -4,8 +4,9 @@
 //! package's exposed ones, are crawled. Only the earliest failing phase of
 //! each module is shown, and a module whose imports failed stays silent.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use nomi_base::diagnostic::doc::{Color, reflow, text, vcat};
 use nomi_base::diagnostic::json;
@@ -28,7 +29,7 @@ use crate::packages::Resolve;
 use crate::project::{self, Project};
 use crate::report::{self, ModuleErrors, Names, one_line};
 use crate::schedule::Cancelled;
-use crate::workspace::{self, Members};
+use crate::workspace::{self, Keeping, MemberBuild, Members};
 use crate::{Context, Pool, Snapshot, env, names, objects, packages};
 
 /// What checking found.
@@ -460,22 +461,48 @@ fn decode_releases(bytes: &[u8], compat: Compat) -> Option<Vec<(Name, Version)>>
 
 /// The modules each direct dependency exposes, and their interfaces, with
 /// every release the project builds with downloaded first, as
-/// `Details.load` builds them.
+/// `Details.load` builds them, resolved as `resolve` says: in a
+/// workspace, its member packages built from their source.
 pub(crate) fn foreigns(
     cx: &Context<'_, impl Http + Sync>,
     project: &Project,
     personality: Personality,
-) -> Result<(Foreigns, HashMap<String, Interface>), Report> {
-    let sources = sources(cx, project, personality, Resolve::of(personality), None)?;
+    resolve: Resolve,
+) -> Result<(Foreigns, HashMap<String, Interface>), Checked> {
+    let compat = project.compat;
+    let sources = sources(cx, project, personality, resolve, None).map_err(Checked::Project)?;
     let artifacts = Artifacts::new(cx.cache);
-    let built = objects::build(
-        project.compat,
+    let memo = Mutex::new(objects::Memo::new());
+    let members = match &sources.members {
+        None => BTreeMap::new(),
+        Some(members) => {
+            let build = MemberBuild {
+                snapshot: &cx.vfs.snapshot(),
+                compat,
+                personality,
+                packages: &sources.packages,
+                bundle: &sources.bundle,
+                artifacts: Some(&artifacts),
+                memo: &memo,
+                goal: Goal::Check,
+            };
+            let kept = Mutex::new(BTreeMap::new());
+            (build.run(members, &mut Keeping::Command(&kept)))
+                .expect("nothing revises the files while nomi builds")?
+                .builds
+        }
+    };
+    let mut built = objects::build_each(
+        compat,
         &sources.packages,
         &sources.bundle,
-        &mut objects::Memo::new(),
+        &members,
+        &mut memo.into_inner().unwrap_or_else(PoisonError::into_inner),
         Some(&artifacts),
-    );
-    let built = built.map_err(|why| packages_problem(&why))?;
+        &|_, _| {},
+    )
+    .map_err(|why| Checked::Project(packages_problem(&why)))?;
+    built.packages.extend(members);
     let direct: Vec<Name> = sources.direct.into_iter().map(|(name, _)| name).collect();
     Ok((sources.foreigns, names::visible(&built.exposed(), &direct)))
 }

@@ -1,0 +1,16 @@
+=== exit 1
+=== stdout
+|Here is my plan:
+|  
+|  Remove:
+|    nomi/core    1.0.0
+|
+|Would you like me to update your elm.json accordingly? [Y/n]: 
+\ no newline at end
+=== stderr
+|-- MEMBERS DISAGREE ------------------------------------------------------------
+|
+|apps/api/elm.json pins elm/json 1.1.4, but apps/web/elm.json pins elm/json
+|1.1.3. The members of a workspace build with one release of each package, so pin
+|the same one in both.
+|
