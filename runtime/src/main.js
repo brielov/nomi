@@ -13,7 +13,7 @@
 // no root fiber: a signal shuts its runtime down directly, and until one
 // comes it lives as long as Node's event loop does.
 
-import { ExitKind, Runtime } from "./fiber.js";
+import { describeDefect, ExitKind, Runtime } from "./fiber.js";
 
 const SIGNALS = { SIGINT: 130, SIGTERM: 143 };
 
@@ -59,7 +59,7 @@ export function main(task, { runtime = new Runtime(), proc = process, deadline =
   if (stopped) runtime.interrupt(root);
   return ended.then((exit) => {
     const { code, message } = outcome(exit, life.stopping());
-    if (message !== null) console.error(...message);
+    if (message !== null) console.error(message);
     return life.exit(code);
   });
 }
@@ -134,7 +134,7 @@ function lifecycle(runtime, proc, deadline, stop) {
 
 /**
  * The code the process exits with once the program ended with `exit`, and
- * what the user should see, if anything, as `console.error`'s arguments. A
+ * the line the user should see, if any. A
  * signal, or an exit the program requested, decides the code alone; a
  * defect, as a finalizer's while stopping, is still shown.
  */
@@ -147,11 +147,11 @@ function outcome(exit, stopping) {
     case ExitKind.SUCCESS:
       return { code: 0, message: null };
     case ExitKind.FAIL:
-      return { code: 1, message: ["nomi: the program failed:", exit.error] };
+      return { code: 1, message: `nomi: the program failed: ${describeDefect(exit.error)}` };
     case ExitKind.DEFECT:
       return { code: 1, message: defect(exit) };
     case ExitKind.INTERRUPTED:
-      return { code: 1, message: ["nomi: the program was interrupted"] };
+      return { code: 1, message: "nomi: the program was interrupted" };
     default:
       // A fiber ends in one of the four; anything else is a runtime bug.
       throw new TypeError(`not an exit: ${exit.$}`);
@@ -159,5 +159,5 @@ function outcome(exit, stopping) {
 }
 
 function defect(exit) {
-  return ["nomi: the program died with a defect:", exit.defect];
+  return `nomi: the program died with a defect: ${describeDefect(exit.defect)}`;
 }

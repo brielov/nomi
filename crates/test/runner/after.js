@@ -16,6 +16,13 @@ function main() {
     process.exit(1);
   });
 
+  // nomi: the supervisor is gone, killed or done, so nothing will read
+  // what this worker reports; it ends now rather than when its host
+  // notices, or never, if a test holds the event loop.
+  client.on('close', function () {
+    process.exit(1);
+  });
+
   client.setEncoding('utf8');
   client.setNoDelay(true);
 

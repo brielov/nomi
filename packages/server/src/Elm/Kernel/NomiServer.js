@@ -47,10 +47,15 @@ var _NomiServer_listen = F3(function(config, handle, net)
 
 // A listening server on `runtime`, with the requests it received that no
 // fiber has taken yet, the accept loop's `resume` while it waits for one,
-// and whether it stopped accepting. A port Node refuses, as 70000, fails
-// as an error does.
+// and whether it stopped accepting. A port no socket can have, as 70000,
+// fails here, so its message is nomi's whatever the host would say.
 function _NomiServer_open(config, runtime)
 {
+	var port = config.__$port_;
+	if (port < 0 || port > 65535)
+	{
+		return _Runtime.fail(__Server_Other('port ' + port + ' is out of range: a port is 0 to 65535'));
+	}
 	return _Runtime.async(function(resume) {
 		var server = { http: _NomiServer_http.createServer(), runtime: runtime, requests: [], taker: null, stopped: false };
 		var max = config.__$maxBodyBytes;

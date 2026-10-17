@@ -16,6 +16,12 @@ client.on('error', function (error) {
   process.exit(1);
 });
 
+// The supervisor is gone, killed or done: nothing will read what this
+// worker reports, so it ends now rather than when its host notices.
+client.on('close', function () {
+  process.exit(1);
+});
+
 client.setEncoding('utf8');
 client.setNoDelay(true);
 

@@ -11,7 +11,9 @@ pub mod website;
 
 use std::fs;
 use std::path::Path;
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use website::offline;
 
@@ -789,4 +791,93 @@ fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_i
     }
     // What the handlers logged was the tests', not the runner's.
     assert_eq!(err, "", "{out}");
+}
+
+/// A test that never ends: a server listening, which holds its worker's
+/// event loop, and a wait for a message nobody sends.
+const HANGING: &str = r#"module Hanging exposing (hangs)
+
+import Nomi.Fiber as Fiber
+import Nomi.Queue as Queue
+import Nomi.Server as Server
+import Nomi.Test exposing (effect)
+import Task
+import Test exposing (Test)
+
+
+hangs : Test
+hangs =
+    effect "never ends" <|
+        \env ->
+            Queue.unbounded
+                |> Task.andThen
+                    (\never ->
+                        let
+                            defaults =
+                                Server.defaults
+                        in
+                        Fiber.fork (Server.listen { defaults | port_ = 0 } (\_ -> Task.succeed (Server.empty 204)) env.net)
+                            |> Task.andThen (\_ -> Queue.take never)
+                    )
+"#;
+
+#[test]
+fn a_worker_exits_when_its_supervisor_is_killed() {
+    nomi_testkit::require_node();
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    fs::write(root.join("elm.json"), SERVING_ELM_JSON).unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::create_dir(root.join("tests")).unwrap();
+    fs::write(root.join("tests/Hanging.elm"), HANGING).unwrap();
+    let cache = website::fixture_cache();
+    let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path())
+        .current_dir(&root)
+        .args([
+            "test",
+            "--offline",
+            "--seed",
+            "1",
+            "--no-color",
+            "--workers",
+            "2",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let children = || -> Vec<String> {
+        let found = Command::new("pgrep")
+            .args(["-P", &nomi.id().to_string()])
+            .output()
+            .unwrap();
+        text(&found.stdout).lines().map(str::to_owned).collect()
+    };
+    let started = Instant::now();
+    let mut workers = children();
+    while workers.len() < 2 && started.elapsed() < Duration::from_secs(60) {
+        thread::sleep(Duration::from_millis(50));
+        workers = children();
+    }
+    assert_eq!(workers.len(), 2, "{workers:?}");
+    // Give the workers time to connect and start the test.
+    thread::sleep(Duration::from_secs(2));
+    nomi.kill().unwrap();
+    nomi.wait().unwrap();
+    let alive = |pid: &String| {
+        let probe = Command::new("kill")
+            .args(["-0", pid])
+            .stderr(Stdio::null())
+            .status();
+        probe.unwrap().success()
+    };
+    let killed = Instant::now();
+    while workers.iter().any(alive) && killed.elapsed() < Duration::from_secs(10) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let orphans: Vec<_> = workers.iter().filter(|pid| alive(pid)).cloned().collect();
+    for pid in &orphans {
+        let _ = Command::new("kill").args(["-9", pid]).status();
+    }
+    assert_eq!(orphans, Vec::<String>::new());
 }

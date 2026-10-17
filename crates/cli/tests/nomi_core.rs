@@ -486,17 +486,25 @@ fn joining_a_fiber_that_dies_is_the_joiners_defect() {
         .unwrap();
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
+    // The runtime formats the report itself, so it reads the same on any
+    // host: the name and message, then only the stack's frames.
     let errors = errors(&ran);
-    assert!(
-        errors[0].starts_with("nomi: the program died with a defect: Error: TODO in module `Main`"),
+    let (frames, report): (Vec<_>, Vec<_>) =
+        errors.iter().partition(|line| line.starts_with("    at "));
+    assert_eq!(
+        report,
+        [
+            "nomi: the program died with a defect: Error: TODO in module `Main` on line 12",
+            "",
+            "boom",
+        ],
         "{errors:?}"
     );
+    assert!(!frames.is_empty(), "{errors:?}");
     assert!(
-        errors.iter().any(|line| line.contains("boom")),
-        "{errors:?}"
-    );
-    assert!(
-        !errors.iter().any(|line| line.starts_with("nomi: fiber")),
+        errors[report.len()..]
+            .iter()
+            .all(|line| line.starts_with("    at ")),
         "{errors:?}"
     );
 }
@@ -766,7 +774,7 @@ fn a_server_on_a_taken_port_fails_with_address_in_use() {
 }
 
 #[test]
-fn a_server_on_a_port_node_refuses_fails_with_its_message() {
+fn a_server_on_a_port_out_of_range_fails_saying_so() {
     nomi_testkit::require_node();
     let (_work, root) = built(SERVER);
     let ran = node()
@@ -777,9 +785,7 @@ fn a_server_on_a_port_node_refuses_fails_with_its_message() {
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
     assert_eq!(
         errors(&ran),
-        [
-            "nomi: the program failed: options.port should be >= 0 and < 65536. Received type number (70000)."
-        ]
+        ["nomi: the program failed: port 70000 is out of range: a port is 0 to 65535"]
     );
 }
 

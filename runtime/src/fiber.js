@@ -377,7 +377,33 @@ class Fiber {
 // The runtime
 
 function defaultReport(defect, fiber) {
-  console.error(`nomi: fiber ${fiber.id} died with a defect:`, defect);
+  console.error(`nomi: fiber ${fiber.id} died with a defect: ${describeDefect(defect)}`);
+}
+
+/**
+ * `value` as text the same on any host: an exception as its name and
+ * message, then its stack's frames, one per line; anything else as
+ * `String` gives it. Hosts print an exception in their own ways (Bun adds
+ * the source around it), so nothing reaches `console.error` but this.
+ */
+export function describeDefect(value) {
+  if (typeof value === "string") return value;
+  if (value instanceof Error || (typeof value?.stack === "string" && "message" in value)) {
+    const name = String(value.name ?? "Error");
+    const message = String(value.message ?? "");
+    const head = message === "" ? name : `${name}: ${message}`;
+    const frames = String(value.stack ?? "")
+      .split("\n")
+      .filter((line) => /^\s*at\s/.test(line))
+      .map((line) => `    ${line.trim()}`);
+    return [head, ...frames].join("\n");
+  }
+  try {
+    return String(value);
+  } catch {
+    // An object with no `toString`, as `Object.create(null)`.
+    return Object.prototype.toString.call(value);
+  }
 }
 
 /**

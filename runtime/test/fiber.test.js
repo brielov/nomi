@@ -11,6 +11,7 @@ import {
   andThen,
   async,
   awaitFiber,
+  describeDefect,
   die,
   ensuring,
   Exit,
@@ -404,6 +405,18 @@ test("a JS exception becomes a defect of its fiber", () => {
   flush();
   assert.deepEqual(fiber.exit, Exit.defect(boom));
   assert.deepEqual(reports, [boom]);
+});
+
+test("a defect is described the same on any host: name, message, then only the frames", () => {
+  const error = new TypeError("bad\n\nnews");
+  error.stack = "TypeError: bad\n\nnews\n  12 | source the host quotes\n    at f (file:///a.js:1:2)\n  at g (b.js:3:4)";
+  assert.equal(describeDefect(error), "TypeError: bad\n\nnews\n    at f (file:///a.js:1:2)\n    at g (b.js:3:4)");
+  const bare = new Error("");
+  bare.stack = "Error";
+  assert.equal(describeDefect(bare), "Error");
+  assert.equal(describeDefect("broken"), "broken");
+  assert.equal(describeDefect(42), "42");
+  assert.equal(describeDefect(Object.create(null)), "[object Object]");
 });
 
 test("a defect someone waits for is theirs, not reported", async () => {
