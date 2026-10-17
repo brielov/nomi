@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, TextRange};
 
 use super::error::{Error, NameKind, PossibleNames, R, collected, throw};
@@ -28,6 +29,8 @@ pub(super) struct Env<'a> {
     /// The release whose order names take where it shows.
     pub(super) compat: Compat,
     pub(super) home: Home,
+    /// Whether the home's package may use kernel code.
+    pub(super) kernels: Kernels,
     pub(super) vars: Rc<BTreeMap<String, Var<'a>>>,
     pub(super) types: Rc<Exposed<TypeInfo>>,
     pub(super) ctors: Rc<Exposed<CtorInfo<'a>>>,

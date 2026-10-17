@@ -225,7 +225,7 @@ fn download(
 /// [`verify`] of the workspace member at `root`, its `elm.json` now
 /// `outline`: the workspace's dependencies check out together, and those
 /// from the registry are downloaded.
-fn verify_member(
+pub(crate) fn verify_member(
     cx: &Context<'_, impl Http + Sync>,
     registry: &mut Registry<'_, impl Http + Sync>,
     store: &Store,

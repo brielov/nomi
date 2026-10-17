@@ -13,23 +13,101 @@ use crate::workspace::Pattern;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Manifest {
     /// Its `[workspace]` table, at a workspace's root.
-    pub workspace: Option<Workspace>,
+    pub workspace: Option<WorkspaceTable>,
     /// Its `[[entry]]` tables, in order.
     pub entries: Vec<Entry>,
 }
 
-/// A workspace, from a `[workspace]` table.
+/// A `[workspace]` table.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Workspace {
+pub struct WorkspaceTable {
     /// Its `members`, in order.
-    pub members: Vec<Member>,
+    pub members: Vec<MemberPattern>,
 }
 
 /// One of a workspace's `members`, and the bytes it was written in.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Member {
+pub struct MemberPattern {
     pub pattern: Pattern,
     pub range: TextRange,
+}
+
+/// A key of a `nomi.toml`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Workspace,
+    Entry,
+    Members,
+    Main,
+    Output,
+    Platform,
+    Ffi,
+    Args,
+    Static,
+    Port,
+}
+
+impl Key {
+    /// The key as the file writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Key::Workspace => "workspace",
+            Key::Entry => "entry",
+            Key::Members => "members",
+            Key::Main => "main",
+            Key::Output => "output",
+            Key::Platform => "platform",
+            Key::Ffi => "ffi",
+            Key::Args => "args",
+            Key::Static => "static",
+            Key::Port => "port",
+        }
+    }
+}
+
+/// A type of TOML value, as the TOML reader names it, or what a key needs
+/// of one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueType {
+    String,
+    Integer,
+    Float,
+    Boolean,
+    Datetime,
+    Array,
+    Table,
+    ArrayOfStrings,
+    ArrayOfTables,
+}
+
+impl ValueType {
+    /// The type of `value`.
+    fn of(value: &DeValue<'_>) -> ValueType {
+        match value {
+            DeValue::String(_) => ValueType::String,
+            DeValue::Integer(_) => ValueType::Integer,
+            DeValue::Float(_) => ValueType::Float,
+            DeValue::Boolean(_) => ValueType::Boolean,
+            DeValue::Datetime(_) => ValueType::Datetime,
+            DeValue::Array(_) => ValueType::Array,
+            DeValue::Table(_) => ValueType::Table,
+        }
+    }
+
+    /// Its name, as the TOML reader's `type_str` gives it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ValueType::String => "string",
+            ValueType::Integer => "integer",
+            ValueType::Float => "float",
+            ValueType::Boolean => "boolean",
+            ValueType::Datetime => "datetime",
+            ValueType::Array => "array",
+            ValueType::Table => "table",
+            ValueType::ArrayOfStrings => "array of strings",
+            ValueType::ArrayOfTables => "array of tables",
+        }
+    }
 }
 
 /// A program the project builds, from an `[[entry]]` table. Paths are as
@@ -59,6 +137,7 @@ pub struct ManifestError {
     pub problem: ManifestProblem,
 }
 
+/// What is wrong with a `nomi.toml`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ManifestProblem {
     /// Not UTF-8 or not TOML, with the TOML reader's message.
@@ -66,13 +145,13 @@ pub enum ManifestProblem {
     /// A key its table doesn't have, which has the `known` ones.
     UnknownKey {
         key: String,
-        known: &'static [&'static str],
+        known: &'static [Key],
     },
-    /// A value of the wrong type for `key`, by TOML's names of types.
+    /// A value of the wrong type for `key`.
     WrongType {
-        key: &'static str,
-        expected: &'static str,
-        found: &'static str,
+        key: Key,
+        expected: ValueType,
+        found: ValueType,
     },
     UnknownPlatform(String),
     /// An entry without `main`, at its header.
@@ -84,20 +163,29 @@ pub enum ManifestProblem {
     PortRange,
     /// A key that an entry on `platform` can't use.
     WrongPlatformKey {
-        key: &'static str,
+        key: Key,
         platform: Platform,
     },
+    /// A member, written as the directory named, with no `elm.json` in
+    /// that directory.
+    MissingMember(String),
 }
 
 /// The keys of the file itself.
-const TOP: &[&str] = &["workspace", "entry"];
+const TOP: &[Key] = &[Key::Workspace, Key::Entry];
 
 /// The keys of a workspace.
-const WORKSPACE: &[&str] = &["members"];
+const WORKSPACE: &[Key] = &[Key::Members];
 
 /// The keys of an entry.
-const ENTRY: &[&str] = &[
-    "main", "output", "platform", "ffi", "args", "static", "port",
+const ENTRY: &[Key] = &[
+    Key::Main,
+    Key::Output,
+    Key::Platform,
+    Key::Ffi,
+    Key::Args,
+    Key::Static,
+    Key::Port,
 ];
 
 impl Manifest {
@@ -113,21 +201,32 @@ impl Manifest {
         })?;
         let mut manifest = Manifest::default();
         for (key, value) in fields(root.get_ref(), TOP)? {
-            if key == "workspace" {
-                let Some(table) = value.get_ref().as_table() else {
-                    return Err(wrong_type(key, "table", value));
-                };
-                manifest.workspace = Some(workspace(table)?);
-                continue;
-            }
-            let Some(items) = value.get_ref().as_array() else {
-                return Err(wrong_type(key, "array of tables", value));
-            };
-            for item in items {
-                let Some(table) = item.get_ref().as_table() else {
-                    return Err(wrong_type(key, "table", item));
-                };
-                manifest.entries.push(entry(table, item.span())?);
+            match key {
+                Key::Workspace => {
+                    let Some(table) = value.get_ref().as_table() else {
+                        return Err(wrong_type(key, ValueType::Table, value));
+                    };
+                    manifest.workspace = Some(workspace(table)?);
+                }
+                Key::Entry => {
+                    let Some(items) = value.get_ref().as_array() else {
+                        return Err(wrong_type(key, ValueType::ArrayOfTables, value));
+                    };
+                    for item in items {
+                        let Some(table) = item.get_ref().as_table() else {
+                            return Err(wrong_type(key, ValueType::Table, item));
+                        };
+                        manifest.entries.push(entry(table, item.span())?);
+                    }
+                }
+                Key::Members
+                | Key::Main
+                | Key::Output
+                | Key::Platform
+                | Key::Ffi
+                | Key::Args
+                | Key::Static
+                | Key::Port => unreachable!("the file's keys are among TOP"),
             }
         }
         Ok(manifest)
@@ -135,7 +234,7 @@ impl Manifest {
 }
 
 /// The workspace `table`.
-fn workspace(table: &DeTable<'_>) -> Result<Workspace, ManifestError> {
+fn workspace(table: &DeTable<'_>) -> Result<WorkspaceTable, ManifestError> {
     let mut members = Vec::new();
     for (key, value) in fields(table, WORKSPACE)? {
         for item in strings(key, value)? {
@@ -145,10 +244,10 @@ fn workspace(table: &DeTable<'_>) -> Result<Workspace, ManifestError> {
                 range,
                 problem: ManifestProblem::BadMember(text.to_owned()),
             })?;
-            members.push(Member { pattern, range });
+            members.push(MemberPattern { pattern, range });
         }
     }
-    Ok(Workspace { members })
+    Ok(WorkspaceTable { members })
 }
 
 /// The entry `table`, whose header is at `header`.
@@ -166,28 +265,29 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
     let mut browser_key = None;
     for (key, value) in fields(table, ENTRY)? {
         match key {
-            "args" => {
+            Key::Args => {
                 node_key.get_or_insert_with(|| (key, value.span()));
                 for item in strings(key, value)? {
                     args.push(string(key, item)?.to_owned());
                 }
             }
-            "port" => {
+            Key::Port => {
                 browser_key.get_or_insert_with(|| (key, value.span()));
                 port = Some(port_number(value)?);
             }
-            _ => {
-                let text = string(key, value)?;
-                match key {
-                    "main" => main = Some(text.to_owned()),
-                    "output" => output = Some(text.to_owned()),
-                    "platform" => platform = Some(parse_platform(text, value)?),
-                    "static" => {
-                        browser_key.get_or_insert_with(|| (key, value.span()));
-                        static_dir = Some(text.to_owned());
-                    }
-                    _ => ffi = Some(text.to_owned()),
-                }
+            Key::Main => main = Some(string(key, value)?.to_owned()),
+            Key::Output => output = Some(string(key, value)?.to_owned()),
+            Key::Platform => platform = Some(parse_platform(string(key, value)?, value)?),
+            Key::Static => {
+                browser_key.get_or_insert_with(|| (key, value.span()));
+                static_dir = Some(string(key, value)?.to_owned());
+            }
+            Key::Ffi => {
+                node_key.get_or_insert_with(|| (key, value.span()));
+                ffi = Some(string(key, value)?.to_owned());
+            }
+            Key::Workspace | Key::Entry | Key::Members => {
+                unreachable!("an entry's keys are among ENTRY")
             }
         }
     }
@@ -221,7 +321,7 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
 /// The port `value`, an integer from 1 to 65535.
 fn port_number(value: &Spanned<DeValue<'_>>) -> Result<u16, ManifestError> {
     let Some(number) = value.get_ref().as_integer() else {
-        return Err(wrong_type("port", "integer", value));
+        return Err(wrong_type(Key::Port, ValueType::Integer, value));
     };
     u16::from_str_radix(number.as_str(), number.radix())
         .ok()
@@ -248,15 +348,15 @@ fn parse_platform(text: &str, value: &Spanned<DeValue<'_>>) -> Result<Platform, 
 /// `known`; the first key not among them is an error.
 fn fields<'t, 'i>(
     table: &'t DeTable<'i>,
-    known: &'static [&'static str],
-) -> Result<Vec<(&'static str, &'t Spanned<DeValue<'i>>)>, ManifestError> {
+    known: &'static [Key],
+) -> Result<Vec<(Key, &'t Spanned<DeValue<'i>>)>, ManifestError> {
     // The map may keep its keys sorted rather than in order.
     let mut fields: Vec<_> = table.iter().collect();
     fields.sort_by_key(|(key, _)| key.span().start);
     fields
         .into_iter()
         .map(
-            |(key, value)| match known.iter().find(|&&name| name == key.get_ref()) {
+            |(key, value)| match known.iter().find(|name| name.as_str() == key.get_ref()) {
                 Some(&name) => Ok((name, value)),
                 None => Err(ManifestError {
                     range: range(key.span()),
@@ -272,38 +372,31 @@ fn fields<'t, 'i>(
 
 /// The items of `value`, the array of strings of `key`.
 fn strings<'v, 'i>(
-    key: &'static str,
+    key: Key,
     value: &'v Spanned<DeValue<'i>>,
 ) -> Result<&'v [Spanned<DeValue<'i>>], ManifestError> {
     value
         .get_ref()
         .as_array()
         .map(|items| &items[..])
-        .ok_or_else(|| wrong_type(key, "array of strings", value))
+        .ok_or_else(|| wrong_type(key, ValueType::ArrayOfStrings, value))
 }
 
 /// The string `value` of `key`.
-fn string<'v>(
-    key: &'static str,
-    value: &'v Spanned<DeValue<'_>>,
-) -> Result<&'v str, ManifestError> {
+fn string<'v>(key: Key, value: &'v Spanned<DeValue<'_>>) -> Result<&'v str, ManifestError> {
     value
         .get_ref()
         .as_str()
-        .ok_or_else(|| wrong_type(key, "string", value))
+        .ok_or_else(|| wrong_type(key, ValueType::String, value))
 }
 
-fn wrong_type(
-    key: &'static str,
-    expected: &'static str,
-    value: &Spanned<DeValue<'_>>,
-) -> ManifestError {
+fn wrong_type(key: Key, expected: ValueType, value: &Spanned<DeValue<'_>>) -> ManifestError {
     ManifestError {
         range: range(value.span()),
         problem: ManifestProblem::WrongType {
             key,
             expected,
-            found: value.get_ref().type_str(),
+            found: ValueType::of(value.get_ref()),
         },
     }
 }

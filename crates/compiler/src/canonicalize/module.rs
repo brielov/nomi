@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, TextRange};
 
 use super::cycles::{self, TopNode};
@@ -66,32 +67,43 @@ pub struct Canonical {
     pub effects: Effects,
 }
 
-/// `canonicalize`: `module`, in `package`, with `interfaces` holding the
-/// interface of every module it imports by name.
+/// `canonicalize`: `module`, in `package`, whose modules `kernels` says
+/// may use kernel code, with `interfaces` holding the interface of every
+/// module it imports by name.
 pub fn canonicalize(
     compat: Compat,
     package: &str,
+    kernels: Kernels,
     interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> R<Canonical> {
-    canonicalize_into(compat, package, interfaces, module, &Recorder::default())
+    canonicalize_into(
+        compat,
+        package,
+        kernels,
+        interfaces,
+        module,
+        &Recorder::default(),
+    )
 }
 
 /// [`canonicalize`], and what each name resolved to, as far as it got.
 pub fn canonicalize_with_references(
     compat: Compat,
     package: &str,
+    kernels: Kernels,
     interfaces: &dyn Interfaces,
     module: &hir::Module,
 ) -> (R<Canonical>, Vec<Reference>) {
     let references = Recorder::enabled();
-    let canonical = canonicalize_into(compat, package, interfaces, module, &references);
+    let canonical = canonicalize_into(compat, package, kernels, interfaces, module, &references);
     (canonical, references.take())
 }
 
 fn canonicalize_into(
     compat: Compat,
     package: &str,
+    kernels: Kernels,
     interfaces: &dyn Interfaces,
     module: &hir::Module,
     references: &Recorder,
@@ -122,7 +134,7 @@ fn canonicalize_into(
             references.global(name.range, &home, &name.text, kind);
         }
     }
-    let env = initial_env(compat, &home, interfaces, imports, references)?;
+    let env = initial_env(compat, &home, kernels, interfaces, imports, references)?;
     let local::Local {
         env,
         unions,

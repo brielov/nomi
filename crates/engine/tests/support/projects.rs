@@ -20,6 +20,7 @@ use nomi_engine::console::{Captured, Personality};
 use nomi_engine::graph::{Env, Foreigns};
 use nomi_engine::{javascript, names, objects};
 use nomi_project::{ModuleName, Name, Outline};
+use nomi_registry::Bundle;
 use nomi_testkit::packages;
 use nomi_testkit::transcript::Case;
 use serde_json::Value;
@@ -240,7 +241,7 @@ fn dependencies(
     static MEMOS: OnceLock<Mutex<HashMap<Compat, objects::Memo>>> = OnceLock::new();
     let mut memos = MEMOS.get_or_init(Default::default).lock().unwrap();
     let memo = memos.entry(compat).or_default();
-    let built = objects::build(compat, sources, memo, None)?;
+    let built = objects::build(compat, sources, &Bundle::default(), memo, None)?;
     Ok((built.graph(), built.types()))
 }
 

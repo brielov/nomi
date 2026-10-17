@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use nomi_base::Compat;
+use nomi_base::kernel::Kernels;
 
 use crate::canonical::{self, Annotation, Ctor, CtorOpts, Home, Type};
 use crate::canonicalize::error::Error;
@@ -142,6 +143,7 @@ pub(crate) fn canonical(text: &str) -> Result<Canonical, Vec<Error>> {
     canonicalize(
         Compat::V0_19_1,
         "author/project",
+        Kernels::Refused,
         &interfaces(),
         &lowered(text),
     )

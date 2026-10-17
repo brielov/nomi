@@ -1,0 +1,27 @@
+=== note
+an application without entries built from the root: nothing to build,
+which it says, and the others built
+=== args
+build
+=== file apps/landing/elm.json
+{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"},
+        "indirect": {}
+    },
+    "test-dependencies": {"direct": {}, "indirect": {}}
+}
+=== file apps/landing/src/Main.elm
+module Main exposing (main)
+
+
+main : Program () Int ()
+main =
+    Platform.worker
+        { init = \() -> ( 1, Cmd.none )
+        , update = \() n -> ( n, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }

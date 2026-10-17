@@ -67,13 +67,7 @@ pub fn verify<P: Packages>(
         None => Err(details::no_solution(&members)),
     };
     let held = (solution.map_err(WorkspaceProblem::Details)?.into_iter())
-        .map(|(name, details)| {
-            let known = Known {
-                newest: details.version,
-                previous: Vec::new(),
-            };
-            (name, known)
-        })
+        .map(|(name, details)| (name, Known::only(details.version)))
         .collect();
     let mut within = Within {
         held,
@@ -166,8 +160,16 @@ pub fn agree<E>(workspace: &Workspace) -> Result<(), WorkspaceProblem<E>> {
 /// each member package's ranges, its tests' among them; `None` if two
 /// rule each other out.
 fn constraints(workspace: &Workspace) -> Option<BTreeMap<Name, Constraint>> {
+    intersected(workspace.members().iter().flat_map(asks))
+}
+
+/// `asks`, each name's constraints intersected; `None` if two rule each
+/// other out.
+fn intersected(
+    asks: impl Iterator<Item = (Name, Constraint)>,
+) -> Option<BTreeMap<Name, Constraint>> {
     let mut constraints: BTreeMap<Name, Constraint> = BTreeMap::new();
-    for (name, constraint) in workspace.members().iter().flat_map(asks) {
+    for (name, constraint) in asks {
         match constraints.entry(name) {
             Entry::Vacant(entry) => {
                 entry.insert(constraint);
@@ -195,11 +197,13 @@ fn asks(member: &Member) -> Vec<(Name, Constraint)> {
 }
 
 /// The releases `packages` has, with each member package of a workspace
-/// the one release of its name, and each package another application
-/// pins, where some are held, only at that pin.
+/// the one release of its name, each package another application pins,
+/// where some are held, only at that pin, and each a member package
+/// depends on, where kept within ranges, only within them.
 #[derive(Debug)]
 pub struct Members<'p, P> {
     members: BTreeMap<Name, (Known, Release)>,
+    /// The packages whose releases are narrowed, and the releases left.
     held: BTreeMap<Name, Known>,
     packages: &'p mut P,
 }
@@ -211,10 +215,7 @@ impl<'p, P: Packages> Members<'p, P> {
         let members = (workspace.members().iter())
             .filter_map(|member| match &member.outline {
                 Outline::Pkg(pkg) => {
-                    let known = Known {
-                        newest: pkg.version,
-                        previous: Vec::new(),
-                    };
+                    let known = Known::only(pkg.version);
                     let release = Release {
                         elm: pkg.elm,
                         deps: pkg.deps.clone(),
@@ -239,18 +240,45 @@ impl<'p, P: Packages> Members<'p, P> {
             if let Outline::App(app) = &member.outline
                 && !dirs.contains(&member.dir)
             {
-                let held = (app.all_deps().into_iter()).map(|(name, version)| {
-                    let known = Known {
-                        newest: version,
-                        previous: Vec::new(),
-                    };
-                    (name, known)
-                });
+                let held = (app.all_deps().into_iter())
+                    .map(|(name, version)| (name, Known::only(version)));
                 self.held.extend(held);
             }
         }
         self
     }
+
+    /// The releases with each package the member packages of `workspace`
+    /// depend on, in their tests too, only within the ranges they give it,
+    /// so that what applications move to keeps the members building
+    /// together. A package held at a pin stays held.
+    pub fn within_ranges(mut self, workspace: &Workspace) -> Members<'p, P> {
+        let Some(ranges) = package_ranges(workspace) else {
+            return self;
+        };
+        for (name, range) in ranges {
+            if self.members.contains_key(&name) || self.held.contains_key(&name) {
+                continue;
+            }
+            let Some(known) = self.packages.versions(&name) else {
+                continue;
+            };
+            let mut allowed = known.all().filter(|&version| range.satisfies(version));
+            if let Some(newest) = allowed.next() {
+                let previous = allowed.collect();
+                self.held.insert(name, Known { newest, previous });
+            }
+        }
+        self
+    }
+}
+
+/// What the member packages of `workspace` ask of each package, their
+/// tests' ranges among them; `None` if two rule each other out, which
+/// resolving the workspace reports.
+fn package_ranges(workspace: &Workspace) -> Option<BTreeMap<Name, Constraint>> {
+    let packages = (workspace.members().iter()).filter(|m| matches!(m.outline, Outline::Pkg(_)));
+    intersected(packages.flat_map(asks))
 }
 
 impl<P: Packages> Packages for Members<'_, P> {
@@ -599,13 +627,14 @@ mod tests {
                 .map(|&dir| (PathBuf::from(dir), app_of(&workspace, dir)))
                 .collect()
         };
+        let api = (Path::new("apps/api"), app_of(&workspace, "apps/api"));
+        let web = (Path::new("apps/web"), app_of(&workspace, "apps/web"));
         let both = ["apps/api", "apps/web"].map(PathBuf::from);
         let mut releases = index();
         let mut members =
             Members::new(&workspace, &mut releases).holding_all_but(&workspace, &both);
-        let together =
-            update::plan_together(&mut members, COMPAT, None, &apps(&["apps/api", "apps/web"]))
-                .expect("a plan");
+        let together = update::plan_together(&mut members, COMPAT, None, api, &apps(&["apps/web"]))
+            .expect("a plan");
         assert_eq!(
             together.changes,
             BTreeMap::from([(
@@ -621,16 +650,40 @@ mod tests {
             .collect();
         assert_eq!(cores, [v("1.0.6"), v("1.0.6")]);
         // web keeps acme/shared, the member, which api never had.
-        let (_, web) = &together.apps[1];
-        assert_eq!(web.direct.get(&name("acme/shared")), Some(&v("1.0.0")));
+        let (_, new_web) = &together.apps[1];
+        assert_eq!(new_web.direct.get(&name("acme/shared")), Some(&v("1.0.0")));
         assert!(!together.apps[0].1.direct.contains_key(&name("acme/shared")));
         // web alone holds what api pins.
         let mut releases = index();
         let web_only = [PathBuf::from("apps/web")];
         let mut members =
             Members::new(&workspace, &mut releases).holding_all_but(&workspace, &web_only);
-        let alone = update::plan_together(&mut members, COMPAT, None, &apps(&["apps/web"]))
-            .expect("a plan");
+        let alone = update::plan_together(&mut members, COMPAT, None, web, &[]).expect("a plan");
         assert!(alone.changes.is_empty(), "{:?}", alone.changes);
+    }
+
+    #[test]
+    fn applications_updated_together_keep_within_the_member_packages_ranges() {
+        let narrowed = edited(
+            &shared(),
+            &["test-dependencies", "elm/core"],
+            "1.0.5 <= v < 1.0.6",
+        );
+        let workspace = workspace(&[("apps/web", web()), ("packages/shared", narrowed)]);
+        let web = (Path::new("apps/web"), app_of(&workspace, "apps/web"));
+        let dirs = [PathBuf::from("apps/web")];
+        let core = |within: bool| {
+            let mut releases = index();
+            let mut members =
+                Members::new(&workspace, &mut releases).holding_all_but(&workspace, &dirs);
+            if within {
+                members = members.within_ranges(&workspace);
+            }
+            let together =
+                update::plan_together(&mut members, COMPAT, None, web, &[]).expect("a plan");
+            together.apps[0].1.direct[&name("elm/core")]
+        };
+        assert_eq!(core(false), v("1.0.6"));
+        assert_eq!(core(true), v("1.0.5"));
     }
 }

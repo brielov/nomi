@@ -11,6 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, TextSize, lock};
 use nomi_compiler::canonicalize::module::{Canonical, canonicalize_with_references, interface};
 use nomi_compiler::canonicalize::references::Reference;
@@ -18,7 +19,7 @@ use nomi_compiler::hir;
 use nomi_compiler::interface::Interface;
 use nomi_compiler::types::{self, ExprTypes, Inferred};
 use nomi_project::{Constraint, ModuleName, Name, Outline};
-use nomi_registry::Store;
+use nomi_registry::{Bundle, Store};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
@@ -305,6 +306,9 @@ pub(crate) struct Setup {
     pub compat: Compat,
     /// Each release the store holds, and the directory of its source.
     pub sources: Vec<(Name, PathBuf)>,
+    /// nomi's own packages, those of `sources` served from it trusted
+    /// with kernel code.
+    pub bundle: Bundle,
     pub direct: Vec<Name>,
     /// The member packages of its workspace it depends on, which build
     /// from their source.
@@ -339,6 +343,7 @@ impl Setup {
             outline,
             compat,
             sources,
+            bundle: store.bundle().clone(),
             direct,
             members,
             complete,
@@ -409,6 +414,7 @@ impl Setup {
             compat: self.compat,
             personality: Personality::Elm,
             packages: &self.sources,
+            bundle: &self.bundle,
             artifacts: kept.artifacts.as_ref(),
             memo: &shared,
             goal: Goal::Check,
@@ -570,6 +576,7 @@ pub fn index_from(
     let Setup {
         compat,
         sources,
+        bundle,
         direct,
         members,
         ..
@@ -577,7 +584,8 @@ pub fn index_from(
     // A package nomi can't canonicalize leaves the project's own modules
     // to navigate.
     let packages: PackageInterfaces =
-        names::package_interfaces_beside(compat, &sources, &built, memo).unwrap_or_default();
+        names::package_interfaces_beside(compat, &sources, &bundle, &built, memo)
+            .unwrap_or_default();
     let mut interfaces = names::visible(&packages, &direct);
     let members = members.map(|m| m.packages).unwrap_or_default();
     let member_dirs: Vec<PathBuf> = members.iter().map(|p| p.dir.clone()).collect();
@@ -869,8 +877,13 @@ impl Visit<'_> {
         };
         let hir = hir::lower(&syntax);
         let name = name.map_or_else(|| hir.name().to_owned(), ToString::to_string);
-        let (canonical, references) =
-            canonicalize_with_references(self.compat, self.package, self.interfaces, &hir);
+        let (canonical, references) = canonicalize_with_references(
+            self.compat,
+            self.package,
+            Kernels::of_name(self.package),
+            self.interfaces,
+            &hir,
+        );
         let canonical = canonical.ok();
         if let Some(canonical) = &canonical {
             // Typed where it type-checks, as written where it doesn't.

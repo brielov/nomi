@@ -15,7 +15,9 @@ use nomi_compiler::optimized::LocalGraph;
 use nomi_project::report::ElmCommand;
 use nomi_project::workspace::Workspace;
 use nomi_project::{ModuleName, Name, Outline, Version};
-use nomi_registry::{Http, details, report as registry_report, workspace as registry_workspace};
+use nomi_registry::{
+    Bundle, Http, details, report as registry_report, workspace as registry_workspace,
+};
 
 use crate::artifacts::{Artifacts, Key};
 use crate::console::{self, Console, Personality};
@@ -279,6 +281,9 @@ pub(crate) struct Sources {
     /// Every package from the registry or nomi's bundle, and the
     /// directory of its source.
     pub packages: Vec<(Name, PathBuf)>,
+    /// nomi's own packages, those of `packages` served from it trusted
+    /// with kernel code.
+    pub bundle: Bundle,
     /// The member packages of the workspace it builds with, if any.
     pub members: Option<Members>,
 }
@@ -386,6 +391,7 @@ pub(crate) fn sources(
         foreigns: Foreigns::new(direct.iter().cloned()),
         direct,
         packages,
+        bundle: store.bundle().clone(),
         members,
     })
 }
@@ -419,6 +425,7 @@ pub(crate) fn foreigns(
     let built = objects::build(
         project.compat,
         &sources.packages,
+        &sources.bundle,
         &mut objects::Memo::new(),
         Some(&artifacts),
     );

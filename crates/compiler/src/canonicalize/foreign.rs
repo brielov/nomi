@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::LazyLock;
 
-use nomi_base::{Compat, TextRange, kernel};
+use nomi_base::kernel::{self, Kernels};
+use nomi_base::{Compat, TextRange};
 
 use super::env::{
     Bias, BinopInfo, CtorInfo, Env, Exposed, Qualified, TypeInfo, Var, merge, merge_homes,
@@ -19,13 +20,6 @@ use super::references::{Kind, Recorder};
 use crate::canonical::{self, Annotation, Home, Type};
 use crate::hir::{Exposed as Item, Exposing, Import, Spanned};
 use crate::interface::{self, Interface, Interfaces};
-
-/// The packages whose modules may import kernel code (`Pkg.isKernel`).
-pub(super) fn is_kernel_package(package: &str) -> bool {
-    package
-        .split_once('/')
-        .is_some_and(|(author, _)| kernel::is_author(author))
-}
 
 fn spanned(text: &str) -> Spanned {
     Spanned {
@@ -110,6 +104,7 @@ struct State<'a> {
 pub(super) fn initial_env<'a, 'i>(
     compat: Compat,
     home: &Home,
+    kernels: Kernels,
     interfaces: &'a dyn Interfaces,
     imports: impl IntoIterator<Item = &'i Import>,
     references: &Recorder,
@@ -126,10 +121,9 @@ pub(super) fn initial_env<'a, 'i>(
             },
         )]),
     );
-    let kernel_package = is_kernel_package(&home.package);
     for import in imports {
         // `toSafeImports`: a kernel package's kernel imports aren't modules.
-        if kernel_package && kernel::is_module(&import.name.text) {
+        if kernels == Kernels::Allowed && kernel::is_module(&import.name.text) {
             continue;
         }
         let Some(interface) = interfaces.get(&import.name.text) else {
@@ -140,6 +134,7 @@ pub(super) fn initial_env<'a, 'i>(
     Ok(Env {
         compat,
         home: home.clone(),
+        kernels,
         vars: Rc::new(
             (state.vars.into_iter())
                 .map(|(name, homes)| (name, Var::Foreign(homes)))

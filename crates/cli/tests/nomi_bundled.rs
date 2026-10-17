@@ -180,27 +180,78 @@ fn nomi_add_writes_the_bundled_release_and_asks_the_registry_nothing_of_it() {
     assert!(!asked.iter().any(|path| path.contains("nomi")), "{asked:?}");
 }
 
-/// Upstream's commands know nothing of nomi's own packages, bundled or
-/// listed.
+/// Upstream's commands know nothing of nomi's bundle: they take nomi's
+/// own packages from the registry, as upstream would, when it lists them.
 #[test]
-fn elm_install_knows_no_bundled_package() {
-    let cache = cache();
+fn elm_install_takes_nomis_own_from_the_registry() {
+    let registry = tempfile::tempdir().unwrap();
+    for author in ["elm", "elm-explorations"] {
+        let fixtures = packages::dir().join(author);
+        std::os::unix::fs::symlink(fixtures, registry.path().join(author)).unwrap();
+    }
+    let published = registry.path().join("nomi/fixture/2.0.0");
+    fs::create_dir_all(published.join("src/Nomi")).unwrap();
+    let elm_json = r#"{"type": "package", "name": "nomi/fixture", "summary": "published", "license": "BSD-3-Clause", "version": "2.0.0", "exposed-modules": ["Nomi.Fixture"], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}"#;
+    fs::write(published.join("elm.json"), elm_json).unwrap();
+    let module = "module Nomi.Fixture exposing (shout)\n\n\nshout : String -> String\nshout =\n    String.toUpper\n";
+    fs::write(published.join("src/Nomi/Fixture.elm"), module).unwrap();
+    let website = Website::with_sources(registry.path());
+    let all = website
+        .post("https://package.elm-lang.org/all-packages")
+        .unwrap();
+    // An `elm.json` alone, as the website serves one before its archive.
+    let releases = registry.path().to_owned();
+    let server = Server::start(Arc::new(
+        move |method: Method, path: &str, _: &[u8]| match (method, path.strip_prefix("/packages/"))
+        {
+            (Method::Post, _) if path == "/all-packages" => Some(all.clone()),
+            (Method::Post, _) => Some(b"[]".to_vec()),
+            (Method::Get, Some(release)) if release.ends_with("/elm.json") => {
+                fs::read(releases.join(release)).ok()
+            }
+            (Method::Get, _) => website
+                .get(&format!("https://package.elm-lang.org{path}"))
+                .ok(),
+        },
+    ));
+    let cache = website::fixture_cache();
+    fs::remove_file(cache.path().join("registry/index")).unwrap();
     let (_work, root) = project("", "module Main exposing (main)\n\nmain =\n    1\n");
     let (_bin, elm) = website::personality("elm");
-    let installed = run(
-        &elm,
-        cache.path(),
-        &root,
-        &["install", "nomi/fixture"],
-        "y\n",
+    let mut command = offline(&elm, cache.path());
+    command
+        .current_dir(&root)
+        .args(["install", "nomi/fixture"])
+        .env("NOMI_BUNDLE", packages::bundle())
+        .env("NOMI_REGISTRY", &server.url)
+        .env_remove("ALL_PROXY");
+    let installed = with_input(command, "y\n");
+    assert!(installed.status.success(), "{installed:?}");
+    let outline: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("elm.json")).unwrap()).unwrap();
+    assert_eq!(
+        outline["dependencies"]["direct"]["nomi/fixture"], "2.0.0",
+        "{outline}"
     );
-    assert!(!installed.status.success(), "{installed:?}");
-    let said =
-        String::from_utf8_lossy(&installed.stdout) + String::from_utf8_lossy(&installed.stderr);
-    assert!(said.contains("UNKNOWN PACKAGE"), "{said}");
-    assert!(
-        !fs::read_to_string(root.join("elm.json"))
-            .unwrap()
-            .contains("nomi/")
-    );
+}
+
+/// nomi trusts its own packages' kernel code for coming from its bundle,
+/// not for their author: a project of that author anywhere else imports
+/// no kernel code, as upstream's rule has it.
+#[test]
+fn a_package_by_nomis_author_outside_the_bundle_imports_no_kernel_code() {
+    let cache = cache();
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    let elm_json = r#"{"type": "package", "name": "nomi/foo", "summary": "foo", "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": ["Foo"], "elm-version": "0.19.0 <= v < 0.20.0", "dependencies": {"elm/core": "1.0.0 <= v < 2.0.0"}, "test-dependencies": {}}"#;
+    fs::write(root.join("elm.json"), elm_json).unwrap();
+    fs::create_dir_all(root.join("src/Elm/Kernel")).unwrap();
+    let foo = "module Foo exposing (x)\n\nimport Elm.Kernel.Foo\n\n\nx : Int\nx =\n    Elm.Kernel.Foo.x\n";
+    fs::write(root.join("src/Foo.elm"), foo).unwrap();
+    fs::write(root.join("src/Elm/Kernel/Foo.js"), "var _Foo_x = 1;\n").unwrap();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let checked = run(program, cache.path(), &root, &["check"], "");
+    let said = String::from_utf8_lossy(&checked.stderr);
+    assert!(!checked.status.success(), "{checked:?}");
+    assert!(said.contains("-- MODULE NOT FOUND"), "{said}");
 }

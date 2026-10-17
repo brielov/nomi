@@ -6,13 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use nomi_base::{Compat, TextRange, grow, grow_large, kernel};
+use nomi_base::kernel::{self, Kernels};
+use nomi_base::{Compat, TextRange, grow, grow_large};
 
 use super::binops;
 use super::dups::{Dict, in_name_order};
 use super::env::{self, BinopInfo, CtorInfo, Env, Var};
 use super::error::{DuplicatePatternContext, Error, NameKind, R, all, both, throw, tuple};
-use super::foreign::is_kernel_package;
 use super::pattern::{self, Bindings};
 use super::references::{Kind, Target};
 use super::types;
@@ -368,7 +368,7 @@ fn find_var_qual(env: &Env<'_>, region: TextRange, prefix: &str, name: &str) -> 
             Some(homes) => foreign_var(env, region, Some(prefix), name, homes),
             None => throw(not_found(env, region, Some(prefix), name)),
         },
-        None => match kernel::short(prefix).filter(|_| is_kernel_package(&env.home.package)) {
+        None => match kernel::short(prefix).filter(|_| env.kernels == Kernels::Allowed) {
             Some(module) => Ok(ExprKind::VarKernel {
                 module: module.to_owned(),
                 name: name.to_owned(),

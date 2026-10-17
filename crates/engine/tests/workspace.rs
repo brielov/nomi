@@ -135,11 +135,25 @@ fn cases() -> Vec<Case> {
             ],
             from: "",
             found: Found::Problem(
-                "-- MISSING MEMBER --------------------------------------------------------------\n\
+                "-- MISSING MEMBER ---------------------------------------------------- nomi.toml\n\
                  \n\
-                 nomi.toml lists the member apps/api, but there is no elm.json in it. A member is\n\
-                 an application or a package with an elm.json of its own.\n\
-                 \n",
+                 I ran into a problem with your nomi.toml file. There is no elm.json in the\n\
+                 member apps/api:\n\
+                 \n\
+                 2| members = [\"apps/web\", \"apps/api\"]\n\
+                 \x20                         ^^^^^^^^^^\n\
+                 A member is an application or a package with an elm.json of its own.\n",
+            ),
+        },
+        Case {
+            name: "a broken root is named from the member it was found from",
+            files: vec![
+                ("nomi.toml", workspace(r#""apps/web""#)),
+                ("apps/web/elm.json", app(&[], &[])),
+            ],
+            from: "apps/web",
+            found: Found::Problem(
+                "-- WRONG TYPE -------------------------------------------------- ../../nomi.toml\n",
             ),
         },
         Case {

@@ -423,6 +423,7 @@ fn build(
                 compat,
                 personality,
                 packages: &sources.packages,
+                bundle: &sources.bundle,
                 artifacts: Some(&shared.artifacts),
                 memo: &shared.memo,
                 goal,
@@ -439,6 +440,7 @@ fn build(
     let building = Building::new(
         compat,
         sources.packages,
+        &sources.bundle,
         members,
         Some(&shared.artifacts),
         &shared.memo,

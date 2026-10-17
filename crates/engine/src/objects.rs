@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, Text};
 use nomi_codegen_js::debug::{ModuleTypes, Types};
 use nomi_codegen_js::kernel;
@@ -24,7 +25,8 @@ use nomi_compiler::interface::{Interface, Interfaces};
 use nomi_compiler::optimized::binary;
 use nomi_compiler::optimized::{Chunk, GlobalGraph, LocalGraph};
 use nomi_project::outline::PkgOutline;
-use nomi_project::{ModuleName, Name};
+use nomi_project::{ModuleName, Name, Version};
+use nomi_registry::Bundle;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::parse_module;
 
@@ -103,28 +105,31 @@ impl Dependencies {
 }
 
 /// The merged graph of `packages`, each a name and the directory of its
-/// source: the whole of what a project's `o.dat` holds.
+/// source in the registry's store: the whole of what a project's `o.dat`
+/// holds.
 pub fn dependency_graph(
     compat: Compat,
     packages: &[(Name, PathBuf)],
 ) -> Result<GlobalGraph, String> {
-    Ok(build(compat, packages, &mut Memo::new(), None)?.graph())
+    Ok(build(compat, packages, &Bundle::default(), &mut Memo::new(), None)?.graph())
 }
 
-/// Builds `packages`, each a name and the directory of its source,
-/// dependencies first: each package once per run through `memo`, and once
-/// per name, version, dependencies' builds, build of nomi and release
-/// through `artifacts` (architecture §6). A module nomi can't build is an
-/// error, naming it.
+/// Builds `packages`, each a name and the directory of its source, those
+/// served from `bundle` trusted with kernel code, dependencies first: each
+/// package once per run through `memo`, and once per name, version,
+/// dependencies' builds, build of nomi and release through `artifacts`
+/// (architecture §6). A module nomi can't build is an error, naming it.
 pub fn build(
     compat: Compat,
     packages: &[(Name, PathBuf)],
+    bundle: &Bundle,
     memo: &mut Memo,
     artifacts: Option<&Artifacts>,
 ) -> Result<Dependencies, String> {
     build_each(
         compat,
         packages,
+        bundle,
         &BTreeMap::new(),
         memo,
         artifacts,
@@ -137,6 +142,7 @@ pub fn build(
 pub(crate) fn build_each(
     compat: Compat,
     packages: &[(Name, PathBuf)],
+    bundle: &Bundle,
     prebuilt: &BTreeMap<Name, Arc<PackageBuild>>,
     memo: &mut Memo,
     artifacts: Option<&Artifacts>,
@@ -169,10 +175,12 @@ pub(crate) fn build_each(
      -> Result<(Hash, Arc<PackageBuild>), String> {
         let name = names[i];
         let (pkg, dir) = &outlines[name];
+        let kernels = kernels(name, pkg.version, dir, bundle);
         let mut key = Key::new("package")
             .part("compat", compat.as_str().as_bytes())
             .part("name", name.to_string().as_bytes())
-            .part("version", pkg.version.to_string().as_bytes());
+            .part("version", pkg.version.to_string().as_bytes())
+            .part("kernels", &[u8::from(kernels == Kernels::Allowed)]);
         let mut dependencies: BTreeMap<Name, Arc<PackageBuild>> = BTreeMap::new();
         for (&d, (dep_key, dep_build)) in imports[i].iter().zip(deps.iter().copied()) {
             key = key.part("dependency", names[d].to_string().as_bytes());
@@ -199,7 +207,7 @@ pub(crate) fn build_each(
         let build = if let Some(build) = cached {
             build
         } else {
-            let build = build_package(compat, name, pkg, dir, &dependencies)?;
+            let build = build_package(compat, name, pkg, dir, kernels, &dependencies)?;
             if let Some(artifacts) = artifacts {
                 // A cache that can't be written only costs a build next
                 // time.
@@ -223,13 +231,25 @@ pub(crate) fn build_each(
     Ok(Dependencies { packages: built })
 }
 
+/// Whether the package `name` at `version`, its source in `dir`, may use
+/// kernel code: an `elm` or `elm-explorations` package may, as upstream
+/// says, and one served from nomi's `bundle` may, whatever its name.
+fn kernels(name: &Name, version: Version, dir: &Path, bundle: &Bundle) -> Kernels {
+    if name.is_kernel() || bundle.get(name, version) == Some(dir) {
+        Kernels::Allowed
+    } else {
+        Kernels::Refused
+    }
+}
+
 /// Builds the package `name` from its exposed modules, its dependencies
-/// among `built`.
+/// among `built`, its modules allowed kernel code as `kernels` says.
 fn build_package(
     compat: Compat,
     name: &Name,
     pkg: &PkgOutline,
     dir: &Path,
+    kernels: Kernels,
     built: &BTreeMap<Name, Arc<PackageBuild>>,
 ) -> Result<PackageBuild, String> {
     let mut visible: HashMap<&str, &Interface> = HashMap::new();
@@ -247,7 +267,7 @@ fn build_package(
         compat,
         name: name.to_string(),
         src: package_src(dir),
-        kernels: name.is_kernel(),
+        kernels,
         foreigns: &foreigns,
     };
     let PackageModules {
@@ -412,9 +432,8 @@ struct Package<'a> {
     compat: Compat,
     name: String,
     src: PathBuf,
-    /// Whether its modules may import kernels, as `elm` and
-    /// `elm-explorations` packages may.
-    kernels: bool,
+    /// Whether its modules may import kernels.
+    kernels: Kernels,
     /// The package exposing each module its dependencies expose.
     foreigns: &'a BTreeMap<String, String>,
 }
@@ -553,7 +572,7 @@ impl Package<'_> {
     /// What the crawl finds under `name`.
     fn find(&self, name: &str) -> Result<Found, String> {
         if nomi_base::kernel::is_module(name) {
-            if !self.kernels {
+            if self.kernels == Kernels::Refused {
                 return Ok(Found::Foreign);
             }
             let file = self.src.join(module_path(name, "js"));
@@ -591,7 +610,7 @@ impl Package<'_> {
     ) -> Result<Compiled, String> {
         let package = &self.name;
         let canonical = time(Phase::Canonicalize, || {
-            canonicalize(self.compat, package, interfaces, &read.module)
+            canonicalize(self.compat, package, self.kernels, interfaces, &read.module)
         })
         .map_err(|errors| format!("{package} {name}: {errors:?}"))?;
         let annotations = infer(self.compat, &canonical)

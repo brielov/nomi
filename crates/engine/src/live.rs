@@ -61,10 +61,12 @@ pub fn check(
         outline,
         compat,
         sources,
+        bundle,
         direct,
         ..
     } = setup;
-    let Ok(packages) = names::package_interfaces_beside(compat, &sources, &built, memo) else {
+    let Ok(packages) = names::package_interfaces_beside(compat, &sources, &bundle, &built, memo)
+    else {
         return Ok(None);
     };
     let visible = names::visible(&packages, &direct);

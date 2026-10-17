@@ -19,7 +19,6 @@ use std::path::PathBuf;
 use nomi_base::Compat;
 use nomi_project::{Name, Version};
 
-use crate::bundle::is_bundled;
 use crate::files::{read_if_exists, write_atomically};
 use crate::http::{DOMAIN, Http, HttpError};
 use crate::index::{Connection, Index, Known};
@@ -71,7 +70,9 @@ impl From<io::Error> for SolverProblem {
 
 impl<'a, H: Http> Registry<'a, H> {
     /// The releases in `index`, with their metadata from `store`, from
-    /// `metadata`, or, `Online`, from the website.
+    /// `metadata`, or, `Online`, from the website. nomi's store, which
+    /// serves nomi's own packages from its bundle, sees the index without
+    /// the registry's releases of them.
     pub fn new(
         index: Index,
         connection: Connection,
@@ -80,6 +81,11 @@ impl<'a, H: Http> Registry<'a, H> {
         http: &'a H,
         compat: Compat,
     ) -> Registry<'a, H> {
+        let index = if store.has_bundle() {
+            index.without_bundled()
+        } else {
+            index
+        };
         Registry {
             index,
             connection,
@@ -117,7 +123,7 @@ impl<H: Http> Packages for Registry<'_, H> {
                 .map(Some)
                 .ok_or_else(bad_cache);
         }
-        if is_bundled(name) {
+        if self.store.bundles(name) {
             return Ok(None);
         }
         let kept = self.kept(name, version);

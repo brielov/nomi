@@ -10,11 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use nomi_base::{Compat, Platform, Report, lock};
+use nomi_base::{Compat, Platform, Report, TextRange, lock};
 use nomi_project::outline::PkgOutline;
 use nomi_project::workspace::{Member, Workspace, WorkspaceError};
-use nomi_project::{Entry, Manifest, ModuleName, Name, Outline, Version, report};
-use nomi_registry::{Http, SolverProblem, WorkspaceProblem};
+use nomi_project::{
+    Entry, Manifest, ManifestError, ManifestProblem, ModuleName, Name, Outline, Version, report,
+};
+use nomi_registry::{Bundle, Http, SolverProblem, WorkspaceProblem};
 
 use crate::artifacts::Artifacts;
 use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_problem};
@@ -25,7 +27,7 @@ use crate::make::{self, FfiModule, Make, NamedIn, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
-use crate::paths::{ELM_JSON, NOMI_TOML, Root};
+use crate::paths::{ELM_JSON, NOMI_TOML, Root, relative};
 use crate::project::{Project, elm_json, package_outline};
 use crate::report::one_line;
 use crate::schedule::Cancelled;
@@ -36,6 +38,7 @@ use crate::{Context, Snapshot, javascript, run, vfs};
 /// ancestors whose `nomi.toml` has a `[workspace]`, unless the project
 /// around `dir` is below that root and none of its members, in which
 /// case the project stands alone there and the search goes on above.
+/// What is wrong with it names its files from `dir`.
 pub fn discover(snapshot: &Snapshot, dir: &Path) -> Option<Result<Workspace, Report>> {
     let project = (dir.ancestors()).find(|d| snapshot.is_file(&d.join(ELM_JSON)));
     for root in dir.ancestors() {
@@ -43,9 +46,18 @@ pub fn discover(snapshot: &Snapshot, dir: &Path) -> Option<Result<Workspace, Rep
         if !snapshot.is_file(&path) {
             continue;
         }
+        // Each report names its file from the root, which `dir` may be
+        // below.
+        let from_dir = |mut report: Report| {
+            if root != dir {
+                let from = |shown: String| relative(&root.join(shown), dir).display().to_string();
+                report.path = report.path.map(from);
+            }
+            report
+        };
         let manifest = match manifest(snapshot, &path, NOMI_TOML) {
             Ok(manifest) => manifest,
-            Err(report) => return Some(Err(report)),
+            Err(report) => return Some(Err(from_dir(report))),
         };
         let Some(workspace) = &manifest.workspace else {
             continue;
@@ -58,7 +70,7 @@ pub fn discover(snapshot: &Snapshot, dir: &Path) -> Option<Result<Workspace, Rep
         {
             continue;
         }
-        return Some(load(snapshot, root, manifest));
+        return Some(load(snapshot, root, manifest).map_err(from_dir));
     }
     None
 }
@@ -76,6 +88,73 @@ pub(crate) fn alone(snapshot: &Snapshot, root: &Path) -> Option<Result<Workspace
         Err(report) => return Some(Err(report)),
     };
     Some(load(snapshot, root, manifest))
+}
+
+/// `workspace` with each member package also after the member packages
+/// its resolution reaches through registry packages, as one depending on
+/// a published package that depends on a member's name does. A member
+/// that doesn't resolve adds nothing here, and says why when it builds.
+pub(crate) fn resolved(
+    cx: &Context<'_, impl Http + Sync>,
+    workspace: Workspace,
+) -> Result<Workspace, Report> {
+    let mut reached = BTreeMap::new();
+    for member in workspace.members() {
+        let Outline::Pkg(pkg) = &member.outline else {
+            continue;
+        };
+        let dir = workspace.root().join(&member.dir);
+        let cx = Context { dir: &dir, ..*cx };
+        let root = Root::new(dir.clone());
+        let Ok(loaded) = make::load(&cx, &root, Personality::Nomi, Resolve::Nomi, None) else {
+            continue;
+        };
+        let names = through_registry(&workspace, pkg, &loaded.sources.packages, loaded.compat);
+        if !names.is_empty() {
+            reached.insert(member.dir.clone(), names);
+        }
+    }
+    if reached.is_empty() {
+        return Ok(workspace);
+    }
+    workspace.reaching(&reached).map_err(|e| problem(&e))
+}
+
+/// The member packages of `workspace` that `pkg` reaches through the
+/// registry's `packages`, each a name and its directory, its own member
+/// dependencies aside.
+fn through_registry(
+    workspace: &Workspace,
+    pkg: &PkgOutline,
+    packages: &[(Name, PathBuf)],
+    compat: Compat,
+) -> BTreeSet<Name> {
+    let is_member = |name: &Name| workspace.package(name).is_some();
+    let mut found = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    let mut todo: Vec<Name> = (pkg.deps.keys())
+        .filter(|n| !is_member(n))
+        .cloned()
+        .collect();
+    while let Some(name) = todo.pop() {
+        let Some((_, dir)) = packages.iter().find(|(n, _)| *n == name) else {
+            continue;
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        let Ok(Some(outline)) = package_outline(dir, compat) else {
+            continue;
+        };
+        for dep in outline.deps.into_keys() {
+            if is_member(&dep) {
+                found.insert(dep);
+            } else {
+                todo.push(dep);
+            }
+        }
+    }
+    found
 }
 
 /// The directory of the member in `dir`, from the root of `workspace`.
@@ -106,7 +185,7 @@ fn load(snapshot: &Snapshot, root: &Path, manifest: Manifest) -> Result<Workspac
             if snapshot.is_file(&root.join(&dir).join(ELM_JSON)) {
                 dirs.insert(dir);
             } else if member.pattern.is_literal() {
-                return Err(missing_member(&dir));
+                return Err(missing_member(snapshot, root, member.range, &dir));
             }
         }
     }
@@ -375,6 +454,9 @@ pub(crate) struct MemberBuild<'a> {
     pub personality: Personality,
     /// The registry's packages of the project, and their directories.
     pub packages: &'a [(Name, PathBuf)],
+    /// nomi's own packages, those of `packages` served from it trusted
+    /// with kernel code.
+    pub bundle: &'a Bundle,
     /// What earlier builds left, reused.
     pub artifacts: Option<&'a Artifacts>,
     /// Each registry package's build, shared with the builds before and
@@ -468,6 +550,7 @@ impl MemberBuild<'_> {
         let building = Building::new(
             compat,
             sources.collect(),
+            self.bundle,
             built.builds.clone(),
             self.artifacts,
             self.memo,
@@ -715,6 +798,7 @@ fn built<'w>(
     if !member.dir.as_os_str().is_empty() {
         console.out(&format!("{verb} {}\n", member.dir.display()));
     }
+    let listed = member.manifest.as_ref().map_or(&[][..], |m| &m.entries[..]);
     let mut ran = match &member.outline {
         Outline::Pkg(pkg) => {
             match package(&cx, console, shared, workspace.root(), pkg, releases, goal) {
@@ -722,10 +806,17 @@ fn built<'w>(
                 None => return (Outcome::Failed, Vec::new()),
             }
         }
+        Outline::App(_) if listed.is_empty() => {
+            let outcome = match without_entries(&cx, console, shared, member, making) {
+                Some(ran) => Outcome::Built(ran),
+                None => Outcome::Failed,
+            };
+            return (outcome, Vec::new());
+        }
         Outline::App(_) => Vec::new(),
     };
     let mut entries = Vec::new();
-    for entry in member.manifest.iter().flat_map(|m| &m.entries) {
+    for entry in listed {
         let make = match entry_make(&dir, entry, making) {
             Ok(make) => make,
             Err(report) => {
@@ -748,6 +839,39 @@ fn built<'w>(
         }
     }
     (Outcome::Built(ran), entries)
+}
+
+/// The application `member`, in the directory, which has no entries, as
+/// `making` asks: checking, every module of its source directories, as
+/// a package's exposed modules are checked; building, nothing, which it
+/// says. The modules checked, or `None` once what was wrong is shown.
+fn without_entries(
+    cx: &Context<'_, impl Http + Sync>,
+    console: &mut dyn Console,
+    shared: &Shared,
+    member: &Member,
+    making: Making,
+) -> Option<Vec<PathBuf>> {
+    match making {
+        Making::Check => {
+            let modules: Vec<PathBuf> = (member.outline.source_dirs().iter())
+                .flat_map(|src| vfs::elm_files(&cx.dir.join(src)).unwrap_or_default())
+                .map(|path| relative(&path, cx.dir))
+                .collect();
+            if modules.is_empty() {
+                return Some(Vec::new());
+            }
+            let make = Make::check(modules, Style::Terminal);
+            make::made(cx, console, &make, shared).map(|wrote| wrote.ran)
+        }
+        Making::Code(_) | Making::Run => {
+            console.out(&format!(
+                "{} has no entries; nothing to build\n",
+                shown(&member.dir)
+            ));
+            Some(Vec::new())
+        }
+    }
 }
 
 /// The member package `pkg`, in the directory, built into `shared` for
@@ -788,6 +912,7 @@ fn package(
             compat,
             personality: Personality::Nomi,
             packages: &loaded.sources.packages,
+            bundle: &loaded.sources.bundle,
             artifacts: Some(&shared.artifacts),
             memo: &shared.memo,
             goal,
@@ -863,15 +988,17 @@ fn bad_output(main: &str, output: &str) -> Report {
     )
 }
 
-fn missing_member(dir: &Path) -> Report {
-    one_line(
-        "MISSING MEMBER",
-        &format!(
-            "nomi.toml lists the member {}, but there is no elm.json in it. A member is an \
-             application or a package with an elm.json of its own.",
-            shown(dir),
-        ),
-    )
+/// That the member in `dir`, which the root `nomi.toml` in `root` names
+/// at `range`, has no `elm.json`.
+fn missing_member(snapshot: &Snapshot, root: &Path, range: TextRange, dir: &Path) -> Report {
+    let src = snapshot
+        .read_bytes(&root.join(NOMI_TOML))
+        .unwrap_or_default();
+    let error = ManifestError {
+        range,
+        problem: ManifestProblem::MissingMember(shown(dir)),
+    };
+    report::manifest(&error, &src, Compat::LATEST)
 }
 
 fn entry_without_project() -> Report {

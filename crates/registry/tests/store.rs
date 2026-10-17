@@ -256,12 +256,22 @@ fn nomis_own_packages_come_from_the_bundle_alone() {
     ));
     assert_eq!(store.downloaded().unwrap()[&fixture].newest, one);
     assert_eq!(store.newest().unwrap(), [(fixture.clone(), bundled)]);
-    // Without the bundle, nothing serves them, not even the website.
-    let store = Store::new(dir.path().join("packages"));
+    // Without them in its bundle, nomi's store serves them from nowhere,
+    // not even the website.
+    let store = Store::bundled(dir.path().join("packages"), Bundle::default());
     assert_eq!(store.get(&fixture, one).unwrap(), None);
     assert!(matches!(
         store.fetch(&http, &fixture, one, LATEST),
         Err(PackageProblem::NotBundled)
     ));
     assert!(http.asked().is_empty());
+    // Upstream's store downloads them as it does any other package.
+    let endpoint = "https://package.elm-lang.org/packages/nomi/fixture/1.0.0/endpoint.json";
+    let http = Fixture::default().failing(endpoint, HttpError::Status(404));
+    let store = Store::new(dir.path().join("packages"));
+    assert!(matches!(
+        store.fetch(&http, &fixture, one, LATEST),
+        Err(PackageProblem::BadEndpointRequest(..))
+    ));
+    assert_eq!(http.asked(), [endpoint]);
 }

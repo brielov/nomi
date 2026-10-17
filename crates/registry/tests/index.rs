@@ -4,7 +4,9 @@ mod support;
 
 use nomi_base::Compat;
 use nomi_project::{Name, Version};
-use nomi_registry::{Connection, HttpError, Index, Known, RegistryProblem};
+use nomi_registry::{
+    Bundle, Connection, HttpError, Index, Known, Packages, Registry, RegistryProblem, Store,
+};
 use support::Fixture;
 
 const LATEST: Compat = Compat::LATEST;
@@ -168,7 +170,7 @@ fn missing_packages_come_with_nearby_names() {
 }
 
 #[test]
-fn nomis_own_packages_are_counted_but_never_listed() {
+fn nomis_own_packages_are_listed_but_hidden_from_nomis_commands() {
     let all = r#"{"elm/core":["1.0.5"],"nomi/core":["1.0.0","9.0.0"]}"#;
     let http = Fixture::default()
         .answering(ALL_PACKAGES, all)
@@ -176,6 +178,11 @@ fn nomis_own_packages_are_counted_but_never_listed() {
     let mut index = Index::fetch(&http, LATEST).unwrap();
     assert_eq!(index.count(), 3);
     assert_eq!(index.update(&http, LATEST), Ok(2));
+    assert_eq!(index.count(), 5);
+    // As upstream's commands see them.
+    assert_eq!(versions(&index, "nomi/core"), [v(9, 0, 0), v(1, 0, 0)]);
+    assert_eq!(versions(&index, "nomi/server"), [v(1, 0, 0)]);
+    let index = index.without_bundled();
     assert_eq!(index.count(), 5);
     assert_eq!(index.versions(&name("nomi/core")), None);
     assert_eq!(index.versions(&name("nomi/server")), None);
@@ -187,4 +194,28 @@ fn nomis_own_packages_are_counted_but_never_listed() {
             .iter())
         .all(|name| name.author() != "nomi")
     );
+}
+
+#[test]
+fn only_nomis_store_sees_the_index_without_nomis_own() {
+    let all = r#"{"elm/core":["1.0.5"],"nomi/core":["9.0.0"]}"#;
+    let http = Fixture::default().answering(ALL_PACKAGES, all);
+    let index = Index::fetch(&http, LATEST).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let versions = |store: &Store| {
+        let metadata = dir.path().join("metadata");
+        let registry = Registry::new(
+            index.clone(),
+            Connection::Online,
+            store,
+            metadata,
+            &http,
+            LATEST,
+        );
+        registry.versions(&name("nomi/core")).cloned()
+    };
+    let upstream = Store::new(dir.path().join("packages"));
+    assert_eq!(versions(&upstream), Some(Known::only(v(9, 0, 0))));
+    let nomis = Store::bundled(dir.path().join("packages"), Bundle::default());
+    assert_eq!(versions(&nomis), None);
 }

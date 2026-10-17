@@ -233,6 +233,8 @@ fn package_names_order_and_kernel() {
     assert!(n("elm/core").is_kernel());
     assert!(n("elm-explorations/test").is_kernel());
     assert!(!n("elm-community/list-extra").is_kernel());
+    assert!(!n("nomi/core").is_kernel() && n("nomi/core").is_reserved());
+    assert!(n("elm/core").is_reserved() && !n("nomi-community/core").is_reserved());
     assert_eq!("elm/virtual-dom".parse(), name("elm/virtual-dom"));
 }
 

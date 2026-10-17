@@ -8,6 +8,7 @@
 //! Each field comes as a preselected field, its type after it, and its
 //! documentation naming the alias.
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{TextRange, TextSize};
 use nomi_compiler::canonical::Home;
 use nomi_compiler::canonicalize::references::{Kind, Target};
@@ -172,6 +173,7 @@ pub(crate) fn patched_all(
     let canonical = nomi_compiler::canonicalize::module::canonicalize(
         index.compat,
         &index.package,
+        Kernels::of_name(&index.package),
         &index.interfaces,
         &hir,
     );

@@ -3,7 +3,7 @@
 //! the members found for them. Pure: the engine lists the directories and
 //! reads each member's files.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io;
@@ -109,7 +109,8 @@ impl fmt::Display for Pattern {
 }
 
 /// A workspace's members, ordered so that each comes after the member
-/// packages it depends on.
+/// packages it depends on: those its `elm.json` names, and those the
+/// engine finds its resolution reaches through registry packages.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Workspace {
     root: PathBuf,
@@ -128,8 +129,6 @@ pub struct Member {
     /// The places in [`Workspace::members`] of the member packages its
     /// modules depend on.
     deps: Box<[usize]>,
-    /// The places of the member packages only its tests depend on.
-    test_deps: Box<[usize]>,
 }
 
 /// Why members don't make a workspace.
@@ -147,7 +146,7 @@ pub enum WorkspaceError {
         second: PathBuf,
     },
     /// Member packages that depend on each other, each on the next and the
-    /// last on the first.
+    /// last on the first, directly or through registry packages.
     Cycle(Vec<Name>),
 }
 
@@ -168,7 +167,6 @@ impl Member {
             outline,
             manifest,
             deps: Box::default(),
-            test_deps: Box::default(),
         }
     }
 
@@ -196,7 +194,7 @@ impl Workspace {
             if nested && !member.dir.as_os_str().is_empty() {
                 return Err(WorkspaceError::Nested(member.dir.clone()));
             }
-            if let Some(name) = member.name().filter(|name| name.is_kernel()) {
+            if let Some(name) = member.name().filter(|name| name.is_reserved()) {
                 return Err(WorkspaceError::Reserved {
                     dir: member.dir.clone(),
                     name: name.clone(),
@@ -215,30 +213,46 @@ impl Workspace {
                 second: members[pair[1].1].dir.clone(),
             });
         }
-        let edges: Vec<(BTreeSet<usize>, BTreeSet<usize>)> = (members.iter())
+        Workspace::ordered(root, members, &BTreeMap::new())
+    }
+
+    /// The workspace with each member also after the member packages
+    /// `reached` names for its directory, which its resolution reaches
+    /// through registry packages that depend on their names.
+    pub fn reaching(
+        self,
+        reached: &BTreeMap<PathBuf, BTreeSet<Name>>,
+    ) -> Result<Workspace, WorkspaceError> {
+        Workspace::ordered(self.root, self.members, reached)
+    }
+
+    /// `members`, checked by [`Workspace::new`], in dependency order, each
+    /// depending on the member packages its `elm.json` names and those
+    /// `reached` names for its directory.
+    fn ordered(
+        root: PathBuf,
+        mut members: Vec<Member>,
+        reached: &BTreeMap<PathBuf, BTreeSet<Name>>,
+    ) -> Result<Workspace, WorkspaceError> {
+        members.sort_by(|a, b| a.dir.cmp(&b.dir));
+        let mut packages: Vec<(&Name, usize)> = (members.iter().enumerate())
+            .filter_map(|(i, member)| Some((member.name()?, i)))
+            .collect();
+        packages.sort_by_key(|&(name, _)| name);
+        // Tests' dependencies order nothing: a member may test with one
+        // that depends on it.
+        let deps: Vec<BTreeSet<usize>> = (members.iter())
             .map(|member| {
-                let (deps, mut test) = match &member.outline {
-                    Outline::App(app) => (
-                        places(&packages, app.direct.keys().chain(app.indirect.keys())),
-                        places(
-                            &packages,
-                            app.test_direct.keys().chain(app.test_indirect.keys()),
-                        ),
-                    ),
-                    Outline::Pkg(pkg) => (
-                        places(&packages, pkg.deps.keys()),
-                        places(&packages, pkg.test_deps.keys()),
-                    ),
+                let listed: Vec<&Name> = match &member.outline {
+                    Outline::App(app) => app.direct.keys().chain(app.indirect.keys()).collect(),
+                    Outline::Pkg(pkg) => pkg.deps.keys().collect(),
                 };
-                test.retain(|i| !deps.contains(i));
-                (deps, test)
+                let more = reached.get(&member.dir).into_iter().flatten();
+                places(&packages, listed.into_iter().chain(more))
             })
             .collect();
-        let deps: Vec<Vec<usize>> = edges
-            .iter()
-            .map(|(deps, _)| deps.iter().copied().collect())
-            .collect();
-        let order = order(&deps).map_err(|cycle| {
+        let edges: Vec<Vec<usize>> = deps.iter().map(|d| d.iter().copied().collect()).collect();
+        let order = order(&edges).map_err(|cycle| {
             let name = |i: usize| {
                 members[i]
                     .name()
@@ -252,12 +266,11 @@ impl Workspace {
             place[old] = new;
         }
         let renumber = |places: &BTreeSet<usize>| places.iter().map(|&i| place[i]).collect();
-        let mut members: Vec<(usize, Member)> = (members.into_iter().zip(&edges))
+        let mut members: Vec<(usize, Member)> = (members.into_iter().zip(&deps))
             .enumerate()
-            .map(|(old, (member, (deps, test)))| {
+            .map(|(old, (member, deps))| {
                 let member = Member {
                     deps: renumber(deps),
-                    test_deps: renumber(test),
                     ..member
                 };
                 (place[old], member)
@@ -311,11 +324,6 @@ impl Workspace {
     /// The member packages `member`'s modules depend on, directly.
     pub fn deps<'w>(&'w self, member: &'w Member) -> impl Iterator<Item = &'w Member> {
         member.deps.iter().map(|&i| &self.members[i])
-    }
-
-    /// The member packages only `member`'s tests depend on, directly.
-    pub fn test_deps<'w>(&'w self, member: &'w Member) -> impl Iterator<Item = &'w Member> {
-        member.test_deps.iter().map(|&i| &self.members[i])
     }
 
     /// The members whose modules depend on `member`, directly or through
@@ -505,7 +513,6 @@ mod tests {
         let (check, core, ui) = (named("acme/check"), named("acme/core"), named("acme/ui"));
         let web = &workspace.members()[4];
         assert_eq!(dirs(workspace.deps(web).collect()), ["packages/ui"]);
-        assert_eq!(dirs(workspace.test_deps(web).collect()), ["packages/check"]);
         assert_eq!(dirs(workspace.deps(ui).collect()), ["packages/core"]);
         assert_eq!(
             dirs(workspace.dependents(core)),
@@ -514,6 +521,43 @@ mod tests {
         assert_eq!(dirs(workspace.dependents(check)), Vec::<String>::new());
         assert_eq!(dirs(workspace.dependents(web)), Vec::<String>::new());
         assert!(workspace.package(&Name::core()).is_none());
+    }
+
+    #[test]
+    fn edges_through_registry_packages_order_members_too() {
+        use nomi_testkit::workspace::package;
+        let workspace = Workspace::new(
+            PathBuf::from("/ws"),
+            vec![
+                member("packages/a", &package("acme/a", &["acme/extra"], &[])),
+                member("packages/z", &package("acme/shadow", &[], &[])),
+            ],
+        )
+        .expect("a workspace");
+        let order = |workspace: &Workspace| -> Vec<String> {
+            (workspace.members().iter())
+                .map(|m| m.dir.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(order(&workspace), ["packages/a", "packages/z"]);
+        let reached = |dir: &str, name: &str| {
+            let names = BTreeSet::from([name.parse::<Name>().expect("a name")]);
+            BTreeMap::from([(PathBuf::from(dir), names)])
+        };
+        let shadowed = (workspace.clone())
+            .reaching(&reached("packages/a", "acme/shadow"))
+            .expect("a workspace");
+        assert_eq!(order(&shadowed), ["packages/z", "packages/a"]);
+        let a = &shadowed.members()[1];
+        let deps: Vec<&Member> = shadowed.deps(a).collect();
+        assert_eq!(deps[0].dir, PathBuf::from("packages/z"));
+        assert_eq!(shadowed.dependents(&shadowed.members()[0]), [a]);
+        assert_eq!(
+            workspace.reaching(&reached("packages/a", "acme/a")),
+            Err(WorkspaceError::Cycle(vec![
+                "acme/a".parse().expect("a name")
+            ]))
+        );
     }
 
     #[test]

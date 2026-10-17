@@ -74,10 +74,17 @@ impl Name {
         &self.project
     }
 
-    /// `isKernel`: published by `elm` or `elm-explorations`, or bundled
-    /// with nomi, so allowed kernel code.
+    /// `isKernel`: published by `elm` or `elm-explorations`, so allowed
+    /// kernel code.
     pub fn is_kernel(&self) -> bool {
         kernel::is_author(&self.author)
+    }
+
+    /// Whether only nomi provides packages of this name: one by an author
+    /// whose packages may hold kernel code, or by the author of those
+    /// nomi bundles.
+    pub fn is_reserved(&self) -> bool {
+        self.is_kernel() || *self.author == *kernel::BUNDLED_AUTHOR
     }
 
     /// `parser`, as both `decoder` and `keyDecoder` use it: a name and

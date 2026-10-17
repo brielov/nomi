@@ -6,9 +6,10 @@
 //! <bundled>/<hash>/<project>/   elm.json, src/, ...
 //! ```
 //!
-//! None comes from the registry: the index drops every release of
-//! `nomi/*`, and the store serves them from the bundle alone, which is
-//! what lets [`kernel::is_author`] trust their kernel code.
+//! None comes from the registry where nomi's commands resolve: they see
+//! the index without `nomi/*`, and nomi's store serves those from the
+//! bundle alone. Their kernel code is trusted for coming from the bundle,
+//! never for their name.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -84,6 +85,11 @@ pub struct Bundle {
 }
 
 impl Bundle {
+    /// No packages.
+    pub(crate) const EMPTY: Bundle = Bundle {
+        packages: BTreeMap::new(),
+    };
+
     /// The packages nomi bundles, extracted under `dir` unless they already
     /// are, or those in the directory `NOMI_BUNDLE` names.
     pub fn locate(dir: &Path) -> io::Result<Bundle> {
@@ -105,11 +111,7 @@ impl Bundle {
             if let Ok(Outline::Pkg(pkg)) = Outline::decode(&bytes, Compat::LATEST)
                 && is_bundled(&pkg.name)
             {
-                let known = Known {
-                    newest: pkg.version,
-                    previous: Vec::new(),
-                };
-                packages.insert(pkg.name, (known, dir));
+                packages.insert(pkg.name, (Known::only(pkg.version), dir));
             }
         }
         Ok(Bundle { packages })

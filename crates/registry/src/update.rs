@@ -6,7 +6,7 @@
 //! allow whenever it builds, so there is nothing to write.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
 use nomi_project::outline::{AppOutline, PkgOutline};
@@ -71,21 +71,38 @@ pub fn plan<P: Packages>(
             _ => Ok(Plan::Pkg),
         },
         Outline::App(app) => {
-            let all = app.all_deps();
-            let free = match pkg {
-                None => all.keys().cloned().collect(),
-                Some(pkg) if all.contains_key(pkg) => needing(&needs(packages, &all)?, pkg),
-                Some(_) => return Err(UpdateProblem::NotADependency),
-            };
-            let solution = solver::update_app(packages, compat, &free, app)
-                .map_err(UpdateProblem::Solver)?
-                .ok_or(UpdateProblem::NoSolution)?;
-            Ok(Plan::App {
-                changes: changes(&solution.old, &solution.new),
-                outline: solution.app,
-            })
+            let AppPlan { changes, outline } = plan_app(packages, compat, pkg, app)?;
+            Ok(Plan::App { changes, outline })
         }
     }
+}
+
+/// What updating an application does.
+struct AppPlan {
+    changes: BTreeMap<Name, Change<Version>>,
+    outline: AppOutline,
+}
+
+/// [`plan`] of the application `app`.
+fn plan_app<P: Packages>(
+    packages: &mut P,
+    compat: Compat,
+    pkg: Option<&Name>,
+    app: &AppOutline,
+) -> Result<AppPlan, UpdateProblem<P::Error>> {
+    let all = app.all_deps();
+    let free = match pkg {
+        None => all.keys().cloned().collect(),
+        Some(pkg) if all.contains_key(pkg) => needing(&needs(packages, &all)?, pkg),
+        Some(_) => return Err(UpdateProblem::NotADependency),
+    };
+    let solution = solver::update_app(packages, compat, &free, app)
+        .map_err(UpdateProblem::Solver)?
+        .ok_or(UpdateProblem::NoSolution)?;
+    Ok(AppPlan {
+        changes: changes(&solution.old, &solution.new),
+        outline: solution.app,
+    })
 }
 
 /// What updating several applications together does: the changes to
@@ -97,23 +114,23 @@ pub struct Together {
     pub apps: Vec<(PathBuf, AppOutline)>,
 }
 
-/// What updating `apps`, each by its directory, would do: all their
-/// dependencies, or only `pkg` and those that need it, solved as one
-/// application's, so that they keep agreeing; then each application's
-/// own, the indirect ones those it names need.
+/// What updating `first` and `rest`, each application by its directory,
+/// would do: all their dependencies, or only `pkg` and those that need
+/// it, solved as one application's, so that they keep agreeing; then each
+/// application's own, the indirect ones those it names need.
 pub fn plan_together<P: Packages>(
     packages: &mut P,
     compat: Compat,
     pkg: Option<&Name>,
-    apps: &[(PathBuf, &AppOutline)],
+    first: (&Path, &AppOutline),
+    rest: &[(PathBuf, &AppOutline)],
 ) -> Result<Together, UpdateProblem<P::Error>> {
-    let all = union_of(apps.iter().map(|(_, app)| *app));
-    let Plan::App { changes, outline } = plan(packages, compat, pkg, &Outline::App(all))? else {
-        unreachable!("an application's plan is an application's")
-    };
+    let all = union_of(first.1, rest.iter().map(|(_, app)| *app));
+    let AppPlan { changes, outline } = plan_app(packages, compat, pkg, &all)?;
     let new = outline.all_deps();
-    let mut each = Vec::with_capacity(apps.len());
-    for (dir, app) in apps {
+    let mut each = Vec::with_capacity(1 + rest.len());
+    each.push((first.0.to_owned(), slice(packages, &new, first.1)?));
+    for (dir, app) in rest {
         each.push((dir.clone(), slice(packages, &new, app)?));
     }
     Ok(Together {
@@ -124,10 +141,9 @@ pub fn plan_together<P: Packages>(
 
 /// The applications' dependencies as one application's: a name direct in
 /// any is direct, else indirect in any, else a direct test one in any.
-fn union_of<'a>(mut apps: impl Iterator<Item = &'a AppOutline>) -> AppOutline {
-    let first = apps.next().expect("applications to update");
+fn union_of<'a>(first: &AppOutline, rest: impl Iterator<Item = &'a AppOutline>) -> AppOutline {
     let mut all = first.clone();
-    for app in apps {
+    for app in rest {
         all.direct
             .extend(app.direct.iter().map(|(n, &v)| (n.clone(), v)));
         all.indirect

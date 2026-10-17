@@ -47,7 +47,7 @@ fn nomi_workspace_transcripts() {
         }
         Some(actual)
     });
-    assert_eq!(ran, 13);
+    assert_eq!(ran, 15);
 }
 
 /// An application's `elm.json`, depending on elm/core and elm/json and
@@ -377,4 +377,96 @@ fn an_error_in_a_member_package_is_a_module_error_in_its_file() {
         "{said}"
     );
     assert!(!worker.root.join("apps/web/main.js").exists());
+}
+
+/// The package `name` 1.0.0 in `dir`: its `elm.json`, depending on
+/// elm/core and on each of `deps` from 1.0.0, and its one module,
+/// `module`, whose `Int` `value` is `body` after importing `imports`.
+fn acme(dir: &Path, name: &str, deps: &[&str], module: &str, imports: &[&str], body: &str) {
+    let mut ranges = json!({"elm/core": "1.0.0 <= v < 2.0.0"});
+    for &dep in deps {
+        ranges[dep] = json!("1.0.0 <= v < 2.0.0");
+    }
+    let elm_json = json!({
+        "type": "package",
+        "name": name,
+        "summary": name,
+        "license": "BSD-3-Clause",
+        "version": "1.0.0",
+        "exposed-modules": [module],
+        "elm-version": "0.19.0 <= v < 0.20.0",
+        "dependencies": ranges,
+        "test-dependencies": {},
+    });
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("elm.json"), elm_json.to_string()).unwrap();
+    let imports: String = imports.iter().map(|i| format!("import {i}\n")).collect();
+    let text = format!(
+        "module {module} exposing (value)\n\n{imports}\n\nvalue : Int\nvalue =\n    {body}\n"
+    );
+    write(&dir.join("src"), module, &text);
+}
+
+#[test]
+fn a_member_reached_through_a_registry_package_builds_before_and_blocks() {
+    // The registry: the fixture packages, acme/shadow, and acme/extra,
+    // which depends on acme/shadow.
+    let registry = tempfile::tempdir().unwrap();
+    for author in ["elm", "elm-explorations"] {
+        let fixtures = packages::dir().join(author);
+        std::os::unix::fs::symlink(fixtures, registry.path().join(author)).unwrap();
+    }
+    let release = |name: &str| registry.path().join(name).join("1.0.0");
+    acme(
+        &release("acme/shadow"),
+        "acme/shadow",
+        &[],
+        "Shadow",
+        &[],
+        "1",
+    );
+    let extra = release("acme/extra");
+    acme(
+        &extra,
+        "acme/extra",
+        &["acme/shadow"],
+        "Extra",
+        &["Shadow"],
+        "Shadow.value",
+    );
+    let cache = tempfile::tempdir().unwrap();
+    website::Website::with_sources(registry.path()).fill(cache.path());
+    // packages/a depends on acme/extra alone; packages/z is the member
+    // acme/shadow, broken.
+    let (_work, root) = temp();
+    let members = "[workspace]\nmembers = [\"packages/*\"]\n";
+    fs::write(root.join("nomi.toml"), members).unwrap();
+    let a = root.join("packages/a");
+    acme(
+        &a,
+        "acme/a",
+        &["acme/extra"],
+        "A",
+        &["Extra"],
+        "Extra.value",
+    );
+    let z = root.join("packages/z");
+    acme(&z, "acme/shadow", &[], "Shadow", &[], "\"no\"");
+    let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let checked = run(nomi, cache.path(), &root, &["check"]);
+    let broken = said(&checked);
+    assert!(!checked.status.success(), "{broken}");
+    assert!(broken.starts_with("Checking packages/z\n"), "{broken}");
+    assert!(!broken.contains("Checking packages/a"), "{broken}");
+    assert_eq!(broken.matches("-- TYPE MISMATCH").count(), 1, "{broken}");
+    // Fixed, the member is checked first, and then what reaches it.
+    acme(&z, "acme/shadow", &[], "Shadow", &[], "2");
+    let checked = run(nomi, cache.path(), &root, &["check"]);
+    let said = said(&checked);
+    assert!(checked.status.success(), "{said}");
+    let (z, a) = (
+        said.find("Checking packages/z"),
+        said.find("Checking packages/a"),
+    );
+    assert!(z.is_some() && z < a, "{said}");
 }

@@ -5,7 +5,7 @@ use nomi_base::diagnostic::code::Source;
 use nomi_base::diagnostic::doc::reflow;
 use nomi_base::{Compat, Platform, Report};
 
-use crate::manifest::{ManifestError, ManifestProblem};
+use crate::manifest::{Key, ManifestError, ManifestProblem};
 
 /// The report of `error`, found reading `src`, with positions as
 /// `compat` keeps them.
@@ -28,11 +28,12 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
         } => (
             "WRONG TYPE",
             format!(
-                "The `{key}` key needs {}, but this is {}:",
-                a(expected),
-                a(found)
+                "The `{}` key needs {}, but this is {}:",
+                key.as_str(),
+                a(expected.as_str()),
+                a(found.as_str())
             ),
-            how_to_write(key).to_owned(),
+            how_to_write(*key).to_owned(),
         ),
         ManifestProblem::UnknownPlatform(name) => (
             "UNKNOWN PLATFORM",
@@ -63,19 +64,31 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
         ManifestProblem::WrongPlatformKey { key, platform } => match platform {
             Platform::Node => (
                 "WRONG PLATFORM",
-                format!("The `{key}` key is for browser entries, but this entry runs on Node:"),
+                format!(
+                    "The `{}` key is for browser entries, but this entry runs on Node:",
+                    key.as_str()
+                ),
                 "The `static` directory and the `port` are for the server `nomi run` starts \
                  for a browser program. A Node program serves itself."
                     .to_owned(),
             ),
             Platform::Browser => (
                 "WRONG PLATFORM",
-                format!("The `{key}` key is for Node entries, but this entry runs in the browser:"),
+                format!(
+                    "The `{}` key is for Node entries, but this entry runs in the browser:",
+                    key.as_str()
+                ),
                 "The `args` are the command-line arguments `nomi run` gives a Node program, \
-                 which a browser program doesn't have."
+                 and the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A \
+                 browser program has neither."
                     .to_owned(),
             ),
         },
+        ManifestProblem::MissingMember(dir) => (
+            "MISSING MEMBER",
+            format!("There is no elm.json in the member {dir}:"),
+            "A member is an application or a package with an elm.json of its own.".to_owned(),
+        ),
     };
     let text = nomi_base::ghc::lenient_utf8(src);
     let source = Source::new(&text);
@@ -101,29 +114,31 @@ fn a(word: &str) -> String {
 }
 
 /// `keys` quoted, the last after "and".
-fn listing(keys: &[&str]) -> String {
+fn listing(keys: &[Key]) -> String {
     match keys {
         [] => String::new(),
-        [key] => format!("`{key}`"),
+        [key] => format!("`{}`", key.as_str()),
         [init @ .., last] => {
-            let init: Vec<String> = init.iter().map(|key| format!("`{key}`")).collect();
-            format!("{} and `{last}`", init.join(", "))
+            let init: Vec<String> = (init.iter())
+                .map(|key| format!("`{}`", key.as_str()))
+                .collect();
+            format!("{} and `{}`", init.join(", "), last.as_str())
         }
     }
 }
 
 /// How `key`'s value is written.
-fn how_to_write(key: &str) -> &'static str {
+fn how_to_write(key: Key) -> &'static str {
     match key {
-        "main" => "For example: main = \"src/Main.elm\"",
-        "output" => "For example: output = \"dist/main.mjs\"",
-        "platform" => "For example: platform = \"node\"",
-        "ffi" => "For example: ffi = \"src/ffi.mjs\"",
-        "args" => "For example: args = [\"--port\", \"3000\"]",
-        "static" => "For example: static = \"public\"",
-        "port" => "For example: port = 8000",
-        "members" => "For example: members = [\"apps/web\", \"packages/*\"]",
-        "workspace" => "The workspace is one table, under a [workspace] header.",
-        _ => "Each entry is a table of its own, under an [[entry]] header.",
+        Key::Main => "For example: main = \"src/Main.elm\"",
+        Key::Output => "For example: output = \"dist/main.mjs\"",
+        Key::Platform => "For example: platform = \"node\"",
+        Key::Ffi => "For example: ffi = \"src/ffi.mjs\"",
+        Key::Args => "For example: args = [\"--port\", \"3000\"]",
+        Key::Static => "For example: static = \"public\"",
+        Key::Port => "For example: port = 8000",
+        Key::Members => "For example: members = [\"apps/web\", \"packages/*\"]",
+        Key::Workspace => "The workspace is one table, under a [workspace] header.",
+        Key::Entry => "Each entry is a table of its own, under an [[entry]] header.",
     }
 }

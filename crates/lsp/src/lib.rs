@@ -47,7 +47,7 @@ use nomi_base::{TextSize, lock};
 use nomi_engine::artifacts::Artifacts;
 use nomi_engine::index::{Index, MemberBuilds, Memo, Owners, PackageModules};
 use nomi_engine::paths::{Cache, ELM_JSON, NOMI_TOML};
-use nomi_engine::{Snapshot, Store, Vfs};
+use nomi_engine::{Bundle, Snapshot, Store, Vfs};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -101,10 +101,9 @@ pub fn run(connection: &Connection) -> Result<(), Error> {
     // one that can't hold the bundle, nomi's own aren't.
     let cache = Cache::locate().ok();
     let store = match &cache {
-        Some(cache) => {
-            nomi_engine::packages::store(cache).unwrap_or_else(|_| Store::new(cache.packages()))
-        }
-        None => Store::new(PathBuf::new()),
+        Some(cache) => nomi_engine::packages::store(cache)
+            .unwrap_or_else(|_| Store::bundled(cache.packages(), Bundle::default())),
+        None => Store::bundled(PathBuf::new(), Bundle::default()),
     };
     let artifacts = cache.as_ref().map(Artifacts::new);
     // An editor may be all that builds: it trims the cache as a build

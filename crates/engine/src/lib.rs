@@ -44,7 +44,7 @@ pub mod workspace;
 
 use std::path::Path;
 
-pub use nomi_registry::{Http, HttpError, Store, Web};
+pub use nomi_registry::{Bundle, Http, HttpError, Store, Web};
 pub use pool::Pool;
 pub use vfs::{Revision, Snapshot, Vfs, canonical, canonical_or_given, discover};
 

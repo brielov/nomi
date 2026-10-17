@@ -6,8 +6,9 @@
 //!
 //! nomi never writes upstream's `registry.dat`. Its own index file keeps
 //! the website's responses as they came, so each Compat decodes them as
-//! its elm would, and the index works offline once fetched. It drops
-//! every release of `nomi/*`, which come with nomi alone.
+//! its elm would, and the index works offline once fetched. It lists
+//! every release upstream's does; nomi's commands see it without
+//! `nomi/*`, whose packages come with nomi alone.
 
 use std::collections::BTreeMap;
 use std::io::{self, Write as _};
@@ -44,6 +45,14 @@ pub struct Known {
 }
 
 impl Known {
+    /// The one release of a name.
+    pub fn only(version: Version) -> Known {
+        Known {
+            newest: version,
+            previous: Vec::new(),
+        }
+    }
+
     /// Every release, newest first.
     pub fn all(&self) -> impl Iterator<Item = Version> + '_ {
         std::iter::once(self.newest).chain(self.previous.iter().copied())
@@ -183,12 +192,17 @@ impl Index {
         self.count
     }
 
-    /// The index of `packages`, without nomi's own, which only nomi
-    /// bundles.
-    fn new(mut packages: BTreeMap<Name, Known>, body: Vec<u8>) -> Index {
+    /// The index without the registry's releases of nomi's own packages,
+    /// as nomi's commands see it: those come with nomi alone.
+    pub fn without_bundled(mut self) -> Index {
+        self.packages.retain(|name, _| !is_bundled(name));
+        self
+    }
+
+    /// The index of `packages`.
+    fn new(packages: BTreeMap<Name, Known>, body: Vec<u8>) -> Index {
         // `addEntry`.
         let count = packages.values().map(|k| 1 + k.previous.len()).sum();
-        packages.retain(|name, _| !is_bundled(name));
         Index {
             count,
             packages,
@@ -197,22 +211,15 @@ impl Index {
     }
 
     /// `addNew` over `news`, newest first: `foldr` adds the last first,
-    /// so the first becomes the newest. nomi's own are counted, not kept.
+    /// so the first becomes the newest.
     fn add(&mut self, news: Vec<(Name, Version)>) {
         self.count += news.len();
         for (name, version) in news.into_iter().rev() {
-            if is_bundled(&name) {
-                continue;
-            }
             if let Some(known) = self.packages.get_mut(&name) {
                 let previous = std::mem::replace(&mut known.newest, version);
                 known.previous.insert(0, previous);
             } else {
-                let known = Known {
-                    newest: version,
-                    previous: Vec::new(),
-                };
-                self.packages.insert(name, known);
+                self.packages.insert(name, Known::only(version));
             }
         }
     }

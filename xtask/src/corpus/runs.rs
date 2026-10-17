@@ -25,6 +25,7 @@ use nomi_engine::console::Captured;
 use nomi_engine::graph::Env;
 use nomi_engine::{javascript, names, objects};
 use nomi_project::{ModuleName, Name};
+use nomi_registry::Bundle;
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{parse_module, significant_tokens};
 use nomi_testkit::{release_column, sha256_hex as sha256};
@@ -155,7 +156,13 @@ fn dependencies(
 ) -> Result<objects::Dependencies, String> {
     OBJECTS.with(|memos| {
         let mut memos = memos.borrow_mut();
-        objects::build(compat, sources, memos.entry(compat).or_default(), None)
+        objects::build(
+            compat,
+            sources,
+            &Bundle::default(),
+            memos.entry(compat).or_default(),
+            None,
+        )
     })
 }
 

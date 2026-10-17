@@ -1,0 +1,27 @@
+=== exit 1
+=== stdout
+|Checking apps/landing
+|Detected problems in 1 module.
+|Checking packages/shared
+|No problems in syntax, module names, imports, names or types.
+|Checking apps/api
+|No problems in syntax, module names, imports, names or types.
+|Checking apps/web
+|No problems in syntax, module names, imports, names or types.
+=== stderr
+|-- TYPE MISMATCH ----------------------------------- apps/landing/src/Unused.elm
+|
+|Something is off with the body of the `broken` definition:
+|
+|6|     "no"
+|       ^^^^
+|The body is a string of type:
+|
+|    String
+|
+|But the type annotation on `broken` says it should be:
+|
+|    Int
+|
+|Hint: Want to convert a String into an Int? Use the String.toInt function!
+|

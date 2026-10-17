@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, TextRange};
 
 use super::env::{Env, TypeInfo, Var};
@@ -23,6 +24,7 @@ fn env<'a>(interfaces: &'a HashMap<String, Interface>, text: &str) -> Result<Env
     initial_env(
         Compat::V0_19_1,
         &main,
+        Kernels::Refused,
         interfaces,
         with_defaults(&main.package, &lowered(text).imports),
         &Default::default(),
@@ -353,6 +355,7 @@ fn references_record_what_each_name_resolved_to() {
     let (canonical, references) = super::module::canonicalize_with_references(
         Compat::V0_19_1,
         "author/project",
+        Kernels::Refused,
         &interfaces(),
         &lowered(text),
     );

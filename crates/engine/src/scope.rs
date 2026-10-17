@@ -39,10 +39,7 @@ pub fn find(cx: &Context<'_, impl Http>, specs: &[String]) -> Result<Scope, Repo
     if specs.is_empty() {
         let workspace = match found {
             None => return Ok(Scope::Project),
-            Some(Ok(workspace)) => workspace,
-            // As before workspaces, a project's commands go on without it.
-            Some(Err(_)) if Root::find(cx.vfs, cx.dir).is_some() => return Ok(Scope::Project),
-            Some(Err(report)) => return Err(report),
+            Some(found) => found?,
         };
         let inside = (workspace.members().iter()).any(|member| {
             !member.dir.as_os_str().is_empty()
@@ -135,8 +132,12 @@ pub fn make(
             (workspace, dirs)
         }
     };
-    match making(make) {
-        Ok(making) => built(cx, console, &workspace, &dirs, making),
+    let making = match making(make) {
+        Ok(making) => making,
+        Err(report) => return failed(console, &report),
+    };
+    match workspace::resolved(cx, workspace) {
+        Ok(workspace) => built(cx, console, &workspace, &dirs, making),
         Err(report) => failed(console, &report),
     }
 }

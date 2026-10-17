@@ -43,8 +43,13 @@ const ENTRY_LIMIT: usize = 1 << 16;
 #[derive(Clone, Debug)]
 pub struct Store {
     dir: PathBuf,
-    bundle: Bundle,
+    /// nomi's own packages, which nomi's store serves from here alone;
+    /// `None` for upstream's, where `nomi/*` are packages like any other.
+    bundle: Option<Bundle>,
 }
+
+/// The bundle of a store without one.
+static NO_BUNDLE: Bundle = Bundle::EMPTY;
 
 /// `Exit.PackageProblem`: why a release couldn't be downloaded.
 #[derive(Debug)]
@@ -79,19 +84,35 @@ impl From<io::Error> for PackageProblem {
 }
 
 impl Store {
-    /// The store in `dir`, without nomi's own packages.
+    /// Upstream's store in `dir`, where `nomi/*` are downloaded as any
+    /// other package is.
     pub fn new(dir: PathBuf) -> Store {
-        Store::bundled(dir, Bundle::default())
+        Store { dir, bundle: None }
     }
 
-    /// The store in `dir`, with nomi's own packages from `bundle`.
+    /// nomi's store in `dir`, with nomi's own packages from `bundle`
+    /// alone.
     pub fn bundled(dir: PathBuf, bundle: Bundle) -> Store {
-        Store { dir, bundle }
+        Store {
+            dir,
+            bundle: Some(bundle),
+        }
     }
 
-    /// nomi's own packages.
+    /// nomi's own packages; none in upstream's store.
     pub fn bundle(&self) -> &Bundle {
-        &self.bundle
+        self.bundle.as_ref().unwrap_or(&NO_BUNDLE)
+    }
+
+    /// Whether this is nomi's store, which has a bundle.
+    pub(crate) fn has_bundle(&self) -> bool {
+        self.bundle.is_some()
+    }
+
+    /// Whether the store serves `name` from its bundle alone, as nomi's
+    /// does nomi's own packages.
+    pub(crate) fn bundles(&self, name: &Name) -> bool {
+        self.has_bundle() && is_bundled(name)
     }
 
     /// Where the store is.
@@ -101,17 +122,17 @@ impl Store {
 
     /// The sources of a release already downloaded.
     pub fn get(&self, name: &Name, version: Version) -> io::Result<Option<PathBuf>> {
-        if is_bundled(name) {
-            return Ok(self.bundle.get(name, version).map(Path::to_owned));
+        if self.bundles(name) {
+            return Ok(self.bundle().get(name, version).map(Path::to_owned));
         }
         self.sources_of(&self.release(name, version))
     }
 
     /// The releases of `name` already downloaded, oldest first.
     pub fn versions(&self, name: &Name) -> io::Result<Vec<Version>> {
-        if is_bundled(name) {
+        if self.bundles(name) {
             return Ok(self
-                .bundle
+                .bundle()
                 .versions(name)
                 .map(|k| k.newest)
                 .into_iter()
@@ -140,7 +161,7 @@ impl Store {
                 found.insert(name, known);
             }
         }
-        for (name, known, _) in self.bundle.packages() {
+        for (name, known, _) in self.bundle().packages() {
             found.insert(name.clone(), known.clone());
         }
         Ok(found)
@@ -158,9 +179,9 @@ impl Store {
                 found.push((name, sources));
             }
         }
-        if self.bundle.packages().next().is_some() {
+        if self.bundle().packages().next().is_some() {
             found.extend(
-                (self.bundle.packages()).map(|(name, _, dir)| (name.clone(), dir.to_owned())),
+                (self.bundle().packages()).map(|(name, _, dir)| (name.clone(), dir.to_owned())),
             );
             found.sort_by_cached_key(|(name, _)| name.to_string());
         }
@@ -176,9 +197,9 @@ impl Store {
             for project in names_in(&releases.join(&author))? {
                 let text = format!("{author}/{project}");
                 // Only a directory the store didn't make has no package's
-                // name, or one of nomi's own, so it holds no release.
+                // name, and nomi's store serves its own from the bundle.
                 if let Ok(name) = text.parse::<Name>()
-                    && !is_bundled(&name)
+                    && !self.bundles(&name)
                 {
                     found.push((text, name, releases.join(&author).join(&project)));
                 }
@@ -215,7 +236,7 @@ impl Store {
         if let Some(dir) = self.get(name, version)? {
             return Ok(dir);
         }
-        if is_bundled(name) {
+        if self.bundles(name) {
             return Err(PackageProblem::NotBundled);
         }
         let Endpoint { url, hash } = endpoint(http, name, version, compat)?;

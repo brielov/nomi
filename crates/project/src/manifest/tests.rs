@@ -611,8 +611,29 @@ entries, but this entry runs in the browser:
 
 4| args = ["-v"]
           ^^^^^^
-The `args` are the command-line arguments `nomi run` gives a Node program, which
-a browser program doesn't have.
+The `args` are the command-line arguments `nomi run` gives a Node program, and
+the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A browser
+program has neither.
+
+"#,
+    ),
+    (
+        "ffi on a browser entry",
+        r#"[[entry]]
+main = "src/Web.elm"
+ffi = "src/ffi.mjs"
+platform = "browser"
+"#,
+        r#"-- WRONG PLATFORM ---------------------------------------------------- nomi.toml
+
+I ran into a problem with your nomi.toml file. The `ffi` key is for Node
+entries, but this entry runs in the browser:
+
+3| ffi = "src/ffi.mjs"
+         ^^^^^^^^^^^^^
+The `args` are the command-line arguments `nomi run` gives a Node program, and
+the `ffi` module is the JavaScript its `Ffi.task`s call on Node. A browser
+program has neither.
 
 "#,
     ),

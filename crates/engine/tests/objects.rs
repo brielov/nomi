@@ -12,6 +12,7 @@ use nomi_engine::artifacts::Artifacts;
 use nomi_engine::objects::{self, dependency_graph};
 use nomi_engine::paths::Cache;
 use nomi_project::Name;
+use nomi_registry::Bundle;
 
 /// elm/core and elm/json as vendored, copied under `to` when given.
 fn core_and_json(to: Option<&Path>) -> Vec<(Name, std::path::PathBuf)> {
@@ -37,13 +38,27 @@ fn a_second_build_reads_packages_from_the_cache() {
         let sources = temp.path().join(compat.to_string());
         let packages = core_and_json(Some(&sources));
         let memo = &mut objects::Memo::new();
-        let first = objects::build(compat, &packages, memo, Some(&artifacts)).unwrap();
+        let first = objects::build(
+            compat,
+            &packages,
+            &Bundle::default(),
+            memo,
+            Some(&artifacts),
+        )
+        .unwrap();
         // Without their modules, the packages can only come from the cache.
         for (_, dir) in &packages {
             fs::remove_dir_all(dir.join("src")).unwrap();
         }
         let memo = &mut objects::Memo::new();
-        let second = objects::build(compat, &packages, memo, Some(&artifacts)).unwrap();
+        let second = objects::build(
+            compat,
+            &packages,
+            &Bundle::default(),
+            memo,
+            Some(&artifacts),
+        )
+        .unwrap();
         assert_eq!(first.exposed(), second.exposed());
         assert_eq!(first.graph(), second.graph());
         let types = |d: &objects::Dependencies| {
@@ -53,7 +68,14 @@ fn a_second_build_reads_packages_from_the_cache() {
         };
         assert_eq!(types(&first), types(&second));
         // Built afresh, they now have no modules to build.
-        let uncached = objects::build(compat, &packages, &mut objects::Memo::new(), None).unwrap();
+        let uncached = objects::build(
+            compat,
+            &packages,
+            &Bundle::default(),
+            &mut objects::Memo::new(),
+            None,
+        )
+        .unwrap();
         assert!(uncached.graph().nodes.len() < first.graph().nodes.len());
     }
 }

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use nomi_base::diagnostic::Problem;
 use nomi_base::diagnostic::code::Source;
+use nomi_base::kernel::Kernels;
 use nomi_base::{Compat, TextRange, lock};
 use nomi_compiler::canonical::Annotation;
 use nomi_compiler::canonicalize::foreign::with_defaults;
@@ -24,6 +25,7 @@ use nomi_compiler::report::ReportContext;
 use nomi_compiler::types::localizer::Localizer;
 use nomi_compiler::types::{self, Inferred, report as types_report};
 use nomi_project::{ModuleName, Name};
+use nomi_registry::Bundle;
 use nomi_syntax::SyntaxNode;
 use nomi_syntax::ast::{self, AstNode};
 
@@ -38,8 +40,9 @@ use crate::{Snapshot, objects};
 pub type PackageInterfaces = BTreeMap<Name, Arc<HashMap<String, Interface>>>;
 
 /// The interfaces of every exposed module of `packages`, each a package
-/// name and the directory of its source, as `objects::build` builds
-/// them. A module nomi can't build is an error, naming it.
+/// name and the directory of its source in the registry's store, as
+/// `objects::build` builds them. A module nomi can't build is an error,
+/// naming it.
 pub fn package_interfaces(
     compat: Compat,
     packages: &[(Name, PathBuf)],
@@ -55,18 +58,22 @@ pub fn package_interfaces_with(
     packages: &[(Name, PathBuf)],
     memo: &mut objects::Memo,
 ) -> Result<PackageInterfaces, String> {
-    package_interfaces_beside(compat, packages, &BTreeMap::new(), memo)
+    let bundle = Bundle::default();
+    package_interfaces_beside(compat, packages, &bundle, &BTreeMap::new(), memo)
 }
 
-/// [`package_interfaces_with`], with `prebuilt`, the member packages
-/// built from their source, among them and built against.
+/// [`package_interfaces_with`], those of `packages` served from `bundle`
+/// trusted with kernel code, with `prebuilt`, the member packages built
+/// from their source, among them and built against.
 pub(crate) fn package_interfaces_beside(
     compat: Compat,
     packages: &[(Name, PathBuf)],
+    bundle: &Bundle,
     prebuilt: &BTreeMap<Name, Arc<objects::PackageBuild>>,
     memo: &mut objects::Memo,
 ) -> Result<PackageInterfaces, String> {
-    let mut built = objects::build_each(compat, packages, prebuilt, memo, None, &|_, _| {})?;
+    let mut built =
+        objects::build_each(compat, packages, bundle, prebuilt, memo, None, &|_, _| {})?;
     (built.packages).extend(prebuilt.iter().map(|(n, b)| (n.clone(), b.clone())));
     let exposed = built.exposed();
     // What's kept for later calls is only what they read: across a corpus
@@ -124,6 +131,9 @@ impl<'a> Packages<'a> {
 pub struct Building<'a> {
     compat: Compat,
     sources: Vec<(Name, PathBuf)>,
+    /// nomi's packages, those of `sources` it serves trusted with kernel
+    /// code.
+    bundle: &'a Bundle,
     prebuilt: BTreeMap<Name, Arc<objects::PackageBuild>>,
     artifacts: Option<&'a Artifacts>,
     /// Each package's build, shared with the builds before and after.
@@ -139,12 +149,14 @@ pub struct Building<'a> {
 }
 
 impl<'a> Building<'a> {
-    /// `sources`, each a package and the directory of its source, to
-    /// build beside `prebuilt`, those built already; `direct`, each
-    /// direct dependency and the modules it exposes.
+    /// `sources`, each a package and the directory of its source, those
+    /// served from `bundle` trusted with kernel code, to build beside
+    /// `prebuilt`, those built already; `direct`, each direct dependency
+    /// and the modules it exposes.
     pub(crate) fn new(
         compat: Compat,
         sources: Vec<(Name, PathBuf)>,
+        bundle: &'a Bundle,
         prebuilt: BTreeMap<Name, Arc<objects::PackageBuild>>,
         artifacts: Option<&'a Artifacts>,
         memo: &'a Mutex<objects::Memo>,
@@ -159,6 +171,7 @@ impl<'a> Building<'a> {
         Building {
             compat,
             sources,
+            bundle,
             prebuilt,
             artifacts,
             memo,
@@ -190,6 +203,7 @@ impl<'a> Building<'a> {
             let mut built = objects::build_each(
                 self.compat,
                 &self.sources,
+                self.bundle,
                 &self.prebuilt,
                 &mut memo,
                 self.artifacts,
@@ -558,7 +572,8 @@ impl Walk<'_> {
             hir::lower(&ast::Module::cast(root.clone()).expect("a module"))
         });
         let canonical = time(Phase::Canonicalize, || {
-            canonicalize(compat, &self.package, &interfaces, &hir)
+            let kernels = Kernels::of_name(&self.package);
+            canonicalize(compat, &self.package, kernels, &interfaces, &hir)
         });
         let canonical = canonical.map_err(|errors| {
             self.report(module, &root, |cx| {

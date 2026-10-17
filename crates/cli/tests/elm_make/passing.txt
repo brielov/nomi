@@ -2704,6 +2704,8 @@ package-no-inputs-discard as 0.19.3
 package-no-inputs-discard terminal as 0.19.3
 package-no-inputs-js as 0.19.3
 package-no-inputs-js terminal as 0.19.3
+package-nomi-author-kernel as 0.19.3
+package-nomi-author-kernel terminal as 0.19.3
 package-nul-after-declaration as 0.19.3
 package-nul-after-declaration terminal as 0.19.3
 package-nul-comment-block as 0.19.3

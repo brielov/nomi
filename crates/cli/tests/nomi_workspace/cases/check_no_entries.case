@@ -1,0 +1,43 @@
+=== note
+an application without entries checked from the root: every module of
+its source directories, so the one that doesn't type-check fails it
+=== args
+check
+=== file apps/landing/elm.json
+{
+    "type": "application",
+    "source-directories": ["src"],
+    "elm-version": "0.19.1",
+    "dependencies": {
+        "direct": {"elm/core": "1.0.5", "elm/json": "1.1.4"},
+        "indirect": {}
+    },
+    "test-dependencies": {"direct": {}, "indirect": {}}
+}
+=== file apps/landing/src/Main.elm
+module Main exposing (main)
+
+import Page
+
+
+main : Program () Int ()
+main =
+    Platform.worker
+        { init = \() -> ( Page.size, Cmd.none )
+        , update = \() n -> ( n, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+=== file apps/landing/src/Page.elm
+module Page exposing (size)
+
+
+size : Int
+size =
+    1
+=== file apps/landing/src/Unused.elm
+module Unused exposing (broken)
+
+
+broken : Int
+broken =
+    "no"

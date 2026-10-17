@@ -12,13 +12,15 @@ use nomi_project::workspace::Workspace;
 use nomi_project::{Name, Outline, Version};
 use nomi_registry::update::DepKind;
 use nomi_registry::workspace::{self as registry_workspace, Members};
-use nomi_registry::{Http, Outdated, Registry, SolverProblem, UpdateProblem, report, update};
+use nomi_registry::{
+    Http, Outdated, Registry, SolverProblem, Store, UpdateProblem, report, update,
+};
 
 use crate::console::{self, Console, Personality};
-use crate::install::{parse_name, plan_question};
+use crate::install::{parse_name, plan_question, verify_member};
 use crate::packages::{self, Resolve};
 use crate::paths::Root;
-use crate::project::{Project, write_elm_json};
+use crate::project::{Project, elm_json, write_elm_json};
 use crate::report::one_line;
 use crate::scope::{self, Scope};
 use crate::{Context, env, workspace};
@@ -36,7 +38,7 @@ const RANGES_STAY: &str = "Packages keep ranges in elm.json, and builds take the
 /// applications move together and keep agreeing with the others. Whether
 /// it succeeded; a decline is a success.
 pub fn run(
-    cx: &Context<'_, impl Http>,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     package: Option<&str>,
     specs: &[String],
@@ -83,7 +85,7 @@ fn alone(cx: &Context<'_, impl Http>, console: &mut dyn Console, package: Option
 /// [`run`] for the members of `workspace` in `dirs`: their applications
 /// updated as one, holding what the others pin.
 fn together(
-    cx: &Context<'_, impl Http>,
+    cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     package: Option<&Name>,
     workspace: &Workspace,
@@ -100,17 +102,19 @@ fn together(
         .and_then(|(_, app)| (Compat::ALL.into_iter()).find(|&c| Version::compiler(c) == app.elm))
         .unwrap_or(Compat::LATEST);
     let plan = |console: &mut dyn Console| -> Result<bool, Report> {
-        if apps.is_empty() {
+        let Some(((dir, app), rest)) = apps.split_first() else {
             console.out(RANGES_STAY);
             return Ok(true);
-        }
+        };
         registry_workspace::agree(workspace).map_err(|problem| {
             workspace::resolution_problem(&problem, compat, Personality::Nomi)
         })?;
         let store = packages::store_for(cx.cache, Resolve::Nomi)?;
         let mut registry = env::registry(cx.cache, &store, cx.http, compat, NEWER)?;
-        let mut held = Members::new(workspace, &mut registry).holding_all_but(workspace, dirs);
-        let together = update::plan_together(&mut held, compat, package, &apps)
+        let mut held = (Members::new(workspace, &mut registry))
+            .holding_all_but(workspace, dirs)
+            .within_ranges(workspace);
+        let together = update::plan_together(&mut held, compat, package, (dir, app), rest)
             .map_err(|problem| update_problem(package, problem))?;
         if together.changes.is_empty() {
             console.out("Everything is up to date!\n");
@@ -118,15 +122,59 @@ fn together(
         }
         let question = plan_question(&together.changes);
         console::confirm(console, &question, compat, Personality::Nomi, || {
-            for (dir, app) in &together.apps {
-                let root = Root::new(workspace.root().join(dir));
-                write_elm_json(cx.vfs, &root, Outline::App(app.clone()).write())?;
+            let mut written = Vec::with_capacity(together.apps.len());
+            let result = write_and_verify(
+                cx,
+                &mut registry,
+                &store,
+                compat,
+                workspace,
+                &together,
+                &mut written,
+            );
+            if result.is_err() {
+                for (root, src) in written.iter().rev() {
+                    write_elm_json(cx.vfs, root, src)?;
+                }
             }
-            Ok(())
+            result
         })
     };
     let result = plan(console);
     console::reported(console, result, compat)
+}
+
+/// Writes each application's `elm.json` as `together` has it, keeping in
+/// `written` each one's directory and what it held, then checks the
+/// workspace's dependencies out together, as `add` checks a member's,
+/// since the member packages' ranges, their tests' among them, may rule
+/// out what the applications moved to.
+fn write_and_verify(
+    cx: &Context<'_, impl Http + Sync>,
+    registry: &mut Registry<'_, impl Http + Sync>,
+    store: &Store,
+    compat: Compat,
+    workspace: &Workspace,
+    together: &update::Together,
+    written: &mut Vec<(Root, Vec<u8>)>,
+) -> Result<(), Report> {
+    for (dir, app) in &together.apps {
+        let root = Root::new(workspace.root().join(dir));
+        let src = elm_json(&cx.vfs.snapshot(), &root)?;
+        write_elm_json(cx.vfs, &root, Outline::App(app.clone()).write())?;
+        written.push((root, src));
+    }
+    for ((_, app), (root, _)) in together.apps.iter().zip(written.iter()) {
+        verify_member(
+            cx,
+            registry,
+            store,
+            compat,
+            root,
+            &Outline::App(app.clone()),
+        )?;
+    }
+    Ok(())
 }
 
 fn update<H: Http>(

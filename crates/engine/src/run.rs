@@ -108,7 +108,7 @@ pub fn run(
 /// named and the members in scope have several, `several` with the
 /// workspace and those members' directories, unless `args` are given;
 /// what it gives, or 1 once what was wrong is shown.
-fn by_scope<H: Http>(
+fn by_scope<H: Http + Sync>(
     cx: &Context<'_, H>,
     console: &mut dyn Console,
     program: &Program,
@@ -145,7 +145,7 @@ enum Entries {
 
 /// The entries of the member `member` names, or of the project around
 /// the directory, or, outside every member, of the whole workspace.
-fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries, Report> {
+fn entries(cx: &Context<'_, impl Http + Sync>, member: Option<&str>) -> Result<Entries, Report> {
     let Some((workspace, dirs)) = scoped(cx, member)? else {
         return Ok(Entries::One(cx.dir.to_owned()));
     };
@@ -167,7 +167,7 @@ fn entries(cx: &Context<'_, impl Http>, member: Option<&str>) -> Result<Entries,
 /// a workspace of its one member where its `nomi.toml` has entries.
 /// `None` where it has none, or is missing or wrong, which [`one`] says.
 fn scoped(
-    cx: &Context<'_, impl Http>,
+    cx: &Context<'_, impl Http + Sync>,
     member: Option<&str>,
 ) -> Result<Option<(Workspace, Vec<PathBuf>)>, Report> {
     let specs: Vec<String> = member.iter().map(|m| (*m).to_owned()).collect();
@@ -180,11 +180,11 @@ fn scoped(
                 None | Some(Err(_)) => return Ok(None),
             }
         }
-        Scope::Named(workspace, dirs) => (workspace, dirs),
+        Scope::Named(workspace, dirs) => (workspace::resolved(cx, workspace)?, dirs),
         Scope::Every(workspace) => {
             let dirs = (workspace.members().iter()).map(|m| m.dir.clone());
             let dirs = dirs.collect();
-            (workspace, dirs)
+            (workspace::resolved(cx, workspace)?, dirs)
         }
     }))
 }
