@@ -1,0 +1,8 @@
+=== note
+-p among elm-test's options, as after them
+=== args
+test
+--seed
+1
+--package=web
+--no-color

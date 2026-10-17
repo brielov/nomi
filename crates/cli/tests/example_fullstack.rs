@@ -33,7 +33,7 @@ fn example(ports: &Ports) -> (tempfile::TempDir, PathBuf) {
     let root = fs::canonicalize(work.path()).unwrap();
     let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/fullstack");
     nomi_testkit::copy_tree(&example, &root, |path| {
-        !path.components().any(|c| c.as_os_str() == "elm-stuff")
+        !(path.components()).any(|c| c.as_os_str() == "elm-stuff" || c.as_os_str() == "dist")
     })
     .unwrap();
     let (api, web, landing) = (ports.api, ports.web, ports.landing);
@@ -114,9 +114,9 @@ fn it_builds_and_its_tests_pass_from_the_root() {
     let out = String::from_utf8_lossy(&built.stdout);
     assert!(built.status.success(), "{built:?}");
     for output in [
-        "apps/api/elm-stuff/nomi/run/src/Main.mjs",
-        "apps/web/elm-stuff/nomi/run/src/Main.js",
-        "apps/landing/elm-stuff/nomi/run/src/Main.js",
+        "apps/api/dist/Main.mjs",
+        "apps/web/dist/Main.js",
+        "apps/landing/dist/Main.js",
     ] {
         assert!(out.contains(&format!("───> {output}")), "{out}");
         assert!(root.join(output).is_file(), "{output}");

@@ -131,7 +131,7 @@ main =
     let built = run(program, cache.path(), &root, &["build"], "");
     assert!(built.status.success(), "{built:?}");
     assert!(!cache.path().join("packages/releases/nomi").exists());
-    let ran = Command::new("node")
+    let ran = Command::new(nomi_testkit::node())
         .arg("dist/main.mjs")
         .current_dir(&root)
         .output()

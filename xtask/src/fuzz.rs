@@ -17,6 +17,8 @@ pub(crate) enum Target {
     Syntax,
     Format,
     Json,
+    Manifest,
+    Ffi,
 }
 
 impl Target {
@@ -26,6 +28,8 @@ impl Target {
             Target::Syntax => "syntax",
             Target::Format => "format",
             Target::Json => "json",
+            Target::Manifest => "manifest",
+            Target::Ffi => "ffi",
         }
     }
 
@@ -35,6 +39,8 @@ impl Target {
             Target::Syntax => "crates/syntax/tests/syntax_mutations/seeds",
             Target::Format => "crates/format/tests/format_fixtures/inputs",
             Target::Json => "crates/project/tests/json_seeds",
+            Target::Manifest => "crates/project/tests/manifest_seeds",
+            Target::Ffi => "crates/codegen-js/tests/ffi_seeds",
         }
     }
 }

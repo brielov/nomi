@@ -248,21 +248,22 @@ impl Make {
 /// shows how it went. Whether nothing was wrong. With `NOMI_TIMINGS`,
 /// where the time went follows on standard error.
 pub fn run(cx: &Context<'_, impl Http + Sync>, console: &mut dyn Console, make: &Make) -> bool {
-    wrote(cx, console, make).is_some()
+    wrote(cx, console, make, None).is_some()
 }
 
-/// Makes what `make` asks for as [`run`] does; what it wrote, if nothing
-/// was wrong.
+/// Makes what `make` asks for as [`run`] does, naming the output from
+/// `from` where given; what it wrote, if nothing was wrong.
 pub(crate) fn wrote(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     make: &Make,
+    from: Option<&Path>,
 ) -> Option<Wrote> {
     let started = Instant::now();
     // The packages' builds are freed before the code is generated, which
     // then takes their graphs rather than copying them.
     let built = build(cx, console, make, make.goal(), &Shared::new(cx.cache, None));
-    let wrote = built.and_then(|clean| write(cx.vfs, console, cx.dir, make, clean, None));
+    let wrote = built.and_then(|clean| write(cx.vfs, console, cx.dir, make, clean, from));
     trim(cx.cache);
     if timings::on() {
         console.err(&timings::report(started.elapsed()));
@@ -938,10 +939,10 @@ fn ffi_module(
     target: &Target,
 ) -> Result<Ffi, Report> {
     if made_for.platform != Platform::Node {
-        return Err(ffi_off_node());
+        return Err(ffi_off_node(&ffi.named_in));
     }
     if !matches!(made_for.format, javascript::Format::EsModule { .. }) || target.html.is_some() {
-        return Err(ffi_outside_module());
+        return Err(ffi_outside_module(&ffi.named_in));
     }
     let module = dir.join(&ffi.path);
     let source = vfs.read(&module).map_err(|e| ffi_unreadable(ffi, &e))?;
@@ -952,16 +953,29 @@ fn ffi_module(
     })
 }
 
-/// That an FFI module was given for a program built for the browser.
-fn ffi_off_node() -> Report {
+/// That an FFI module, named in `named_in`, was given for a program built
+/// for the browser.
+fn ffi_off_node(named_in: &NamedIn) -> Report {
+    let (given, platform) = match named_in {
+        NamedIn::Flag => (
+            "An FFI module was given, but this program is built for the browser.".to_owned(),
+            "Build with --platform=node",
+        ),
+        NamedIn::Entry(main) => (
+            format!(
+                "The entry {main} has an FFI module, but its program is built for the browser."
+            ),
+            "Give the entry platform = \"node\" in nomi.toml",
+        ),
+    };
     Report::doc(
         "FFI NEEDS NODE",
         None,
-        reflow("An FFI module was given, but this program is built for the browser."),
-        [reflow(
-            "Nomi.Ffi calls JavaScript on Node. Build with --platform=node, or give `main` \
-             the type `Nomi.Program`, which builds for Node by itself.",
-        )],
+        reflow(&given),
+        [reflow(&format!(
+            "Nomi.Ffi calls JavaScript on Node. {platform}, or give `main` the type \
+             `Nomi.Program`, which builds for Node by itself."
+        ))],
     )
 }
 
@@ -995,15 +1009,20 @@ fn ffi_unreadable(ffi: &FfiModule, error: &std::io::Error) -> Report {
     )
 }
 
-/// That an FFI module was given for output that isn't an ES module.
-fn ffi_outside_module() -> Report {
+/// That an FFI module, named in `named_in`, was given for output that
+/// isn't an ES module.
+fn ffi_outside_module(named_in: &NamedIn) -> Report {
+    let output = match named_in {
+        NamedIn::Flag => "--output=dist/main.mjs",
+        NamedIn::Entry(_) => "output = \"dist/main.mjs\" in nomi.toml, or no output",
+    };
     Report::doc(
         "FFI NEEDS AN ES MODULE",
         None,
         reflow("An FFI module was given, but the output is not an ES module, which can import it."),
-        [reflow(
-            "Write the program to a file ending in .mjs, as with --output=dist/main.mjs.",
-        )],
+        [reflow(&format!(
+            "Write the program to a file ending in .mjs, as with {output}."
+        ))],
     )
 }
 

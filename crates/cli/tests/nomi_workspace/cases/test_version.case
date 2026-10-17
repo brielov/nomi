@@ -1,0 +1,5 @@
+=== note
+elm-test's version, said once at the root, not for each member
+=== args
+test
+--version

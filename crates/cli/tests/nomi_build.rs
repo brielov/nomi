@@ -128,7 +128,7 @@ fn build_entry(cache: &Path, root: &Path) {
 /// What `node script` in `root` writes to standard output, once it
 /// succeeds.
 fn node(root: &Path, script: &str) -> String {
-    let ran = Command::new("node")
+    let ran = Command::new(nomi_testkit::node())
         .arg(script)
         .current_dir(root)
         .output()
@@ -466,7 +466,7 @@ fn a_node_program_sleeps_and_ticks_on_the_real_clock() {
     fs::write(root.join("elm.json"), TIME_APP).unwrap();
     build_entry(cache.path(), &root);
     let started = std::time::Instant::now();
-    let mut node = Command::new("node")
+    let mut node = Command::new(nomi_testkit::node())
         .arg("dist/main.mjs")
         .current_dir(&root)
         .stdout(std::process::Stdio::piped())
@@ -558,7 +558,6 @@ main =
 /// 0 on its own (`a_node_entry_starts_its_main_and_a_plain_module_runs_nothing`).
 #[test]
 fn a_ticking_node_worker_runs_until_a_signal_and_exits_with_its_code() {
-    use std::io::{BufRead, BufReader};
     use std::time::{Duration, Instant};
 
     nomi_testkit::require_node();
@@ -566,28 +565,16 @@ fn a_ticking_node_worker_runs_until_a_signal_and_exits_with_its_code() {
     let (_work, root) = project(TICKING_WORKER);
     fs::write(root.join("elm.json"), TIME_APP).unwrap();
     build_entry(cache.path(), &root);
-    // Node itself: a version manager's `node` may exit 128 plus the
-    // signal for a child the signal killed.
-    let node = Command::new("node")
-        .args(["-p", "process.execPath"])
-        .output()
-        .unwrap();
-    let node = String::from_utf8(node.stdout).unwrap();
+    let node = nomi_testkit::node();
     for (signal, code) in [("TERM", 143), ("INT", 130)] {
-        let mut node = Command::new(node.trim())
+        let mut node = Command::new(&node)
             .arg("dist/main.mjs")
             .current_dir(&root)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let (lines, ticks) = std::sync::mpsc::channel();
-        let stdout = BufReader::new(node.stdout.take().unwrap());
-        std::thread::spawn(move || {
-            for line in stdout.lines() {
-                let _ = lines.send(line.unwrap());
-            }
-        });
+        let ticks = nomi_testkit::process::lines(node.stdout.take().unwrap());
         // Five ticks, a hundred milliseconds of nothing but a timer, and
         // it hasn't exited.
         for tick in 1..=5 {
@@ -809,7 +796,7 @@ bad url: Err (BadUrl "not a url")
 progress: Receiving { received = 5, size = Just 10 }
 closed: Ok "closed"
 "#;
-    let ran = Command::new("node")
+    let ran = Command::new(nomi_testkit::node())
         .arg("driver.cjs")
         .current_dir(&root)
         .output()

@@ -40,13 +40,32 @@ pub fn request(port: u16, method: &str, target: &str) -> io::Result<Response> {
 
 /// [`request`], its `Host` header `host`.
 pub fn request_to(host: &str, port: u16, method: &str, target: &str) -> io::Result<Response> {
-    let mut stream = connect(host, port, method, target, "close")?;
-    let mut reader = BufReader::new(&mut stream);
+    let stream = connect(host, port, method, target, "close")?;
+    read(stream)
+}
+
+/// A request that closes its connection, with `headers`, each ending in
+/// a line break, and `body`.
+pub fn closing(method: &str, target: &str, headers: &str, body: &[u8]) -> Vec<u8> {
+    let mut request = format!(
+        "{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: {}\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    request.extend_from_slice(body);
+    request
+}
+
+/// The answer `stream` holds up to its end, as a server closing the
+/// connection after it sends.
+pub fn read(stream: impl Read) -> io::Result<Response> {
+    let mut reader = BufReader::new(stream);
     let (status, headers) = head(&mut reader)?;
     let mut rest = Vec::new();
     reader.read_to_end(&mut rest)?;
     let chunked = (headers.iter()).any(|(n, v)| n == "transfer-encoding" && v == "chunked");
-    let body = if chunked && method != "HEAD" {
+    // An answer to HEAD says how it would send a body it doesn't.
+    let body = if chunked && !rest.is_empty() {
         unchunked(&rest)?
     } else {
         rest

@@ -20,7 +20,7 @@ use nomi_registry::{Bundle, Http, SolverProblem, WorkspaceProblem};
 
 use crate::artifacts::{Artifacts, Hash, Key};
 use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_problem};
-use crate::console::{self, Console, Personality};
+use crate::console::{Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
 use crate::make::{self, FfiModule, Make, NamedIn, OutputName, Shared};
@@ -748,13 +748,33 @@ pub enum Outcome {
 /// What a workspace's build makes of its members.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Making {
-    /// Their modules checked, as `nomi check` checks them.
-    Check,
-    /// Their entries' code, of this kind, as `nomi build` writes it.
-    Code(javascript::Kind),
+    /// Their modules checked, as `nomi check` checks them, problems shown
+    /// in this style.
+    Check(Style),
+    /// Their entries' code, of this kind, as `nomi build` writes it,
+    /// problems shown in this style.
+    Code(javascript::Kind, Style),
     /// Their entries' code as `nomi run` writes it: DEV mode's, without
     /// its advice to optimize.
     Run,
+}
+
+impl Making {
+    /// The style problems are shown in.
+    fn style(self) -> Style {
+        match self {
+            Making::Check(style) | Making::Code(_, style) => style,
+            Making::Run => Style::Terminal,
+        }
+    }
+
+    /// What a member package is built for.
+    fn goal(self) -> Goal {
+        match self {
+            Making::Check(_) => Goal::Check,
+            Making::Code(..) | Making::Run => Goal::Optimize,
+        }
+    }
 }
 
 /// Builds the members of `workspace` whose directories `dirs` gives, and
@@ -764,8 +784,10 @@ pub enum Making {
 /// shows what was wrong, naming paths from the root; and gives how each
 /// member built went, in the members' order. A member is blocked when a
 /// member package it depends on fails, and says nothing, as a module whose
-/// import failed doesn't. With `NOMI_TIMINGS`, where the time went
-/// follows on standard error.
+/// import failed doesn't. Problems are shown in `making`'s style, which
+/// for machines is a line for each member that failed, and nothing on
+/// standard output. With `NOMI_TIMINGS`, where the time went follows on
+/// standard error.
 pub fn build<'w>(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
@@ -837,6 +859,10 @@ pub(crate) fn builds_in<'w>(
             let (outcome, mut wrote) =
                 built(cx, console, shared, workspace, member, &releases, making);
             entries.append(&mut wrote);
+            // Each member's report for machines is a line of its own.
+            if outcome == Outcome::Failed && making.style() == Style::Json {
+                console.err("\n");
+            }
             outcome
         };
         outcomes.push((member, outcome));
@@ -903,18 +929,27 @@ fn built<'w>(
 ) -> (Outcome, Vec<EntryBuilt<'w>>) {
     let dir = workspace.root().join(&member.dir);
     let cx = Context { dir: &dir, ..*cx };
-    let (goal, verb) = match making {
-        Making::Check => (Goal::Check, "Checking"),
-        Making::Code(_) | Making::Run => (Goal::Optimize, "Building"),
+    let style = making.style();
+    let verb = match making {
+        Making::Check(_) => "Checking",
+        Making::Code(..) | Making::Run => "Building",
     };
     // A project alone is the one member, at the root, and needs no name.
-    if !member.dir.as_os_str().is_empty() {
+    if !member.dir.as_os_str().is_empty() && style == Style::Terminal {
         console.out(&format!("{verb} {}\n", member.dir.display()));
     }
     let listed = member.manifest.as_ref().map_or(&[][..], |m| &m.entries[..]);
     let mut ran = match &member.outline {
         Outline::Pkg(pkg) => {
-            match package(&cx, console, shared, workspace.root(), pkg, releases, goal) {
+            match package(
+                &cx,
+                console,
+                shared,
+                workspace.root(),
+                pkg,
+                releases,
+                making,
+            ) {
                 Some(ran) => ran,
                 None => return (Outcome::Failed, Vec::new()),
             }
@@ -930,10 +965,11 @@ fn built<'w>(
     };
     let mut entries = Vec::new();
     for entry in listed {
-        let make = match entry_make(&dir, entry, making) {
+        let make = match entry_make(&dir, listed, entry, making) {
             Ok(make) => make,
             Err(report) => {
-                console::report(console, &report, Compat::LATEST);
+                let checked = Checked::Project(report);
+                check::show(console, &dir, &checked, Compat::LATEST, style);
                 return (Outcome::Failed, entries);
             }
         };
@@ -966,7 +1002,7 @@ fn without_entries(
     making: Making,
 ) -> Option<Vec<PathBuf>> {
     match making {
-        Making::Check => {
+        Making::Check(style) => {
             let modules: Vec<PathBuf> = (member.outline.source_dirs().iter())
                 .flat_map(|src| vfs::elm_files(&cx.dir.join(src)).unwrap_or_default())
                 .map(|path| relative(&path, cx.dir))
@@ -974,10 +1010,11 @@ fn without_entries(
             if modules.is_empty() {
                 return Some(Vec::new());
             }
-            let make = Make::check(modules, Style::Terminal);
+            let make = Make::check(modules, style);
             make::made(cx, console, &make, shared).map(|wrote| wrote.ran)
         }
-        Making::Code(_) | Making::Run => {
+        Making::Code(_, Style::Json) => Some(Vec::new()),
+        Making::Code(..) | Making::Run => {
             console.out(&format!(
                 "{} has no entries; nothing to build\n",
                 shown(&member.dir)
@@ -988,9 +1025,10 @@ fn without_entries(
 }
 
 /// The member package `pkg`, in the directory, built into `shared` for
-/// `goal` as its dependents see it, as each of `releases` builds it; the
-/// modules checked, or `None` once what was wrong is shown, as the
-/// release that found it reports it, its paths named from `root`.
+/// what `making` needs as its dependents see it, as each of `releases`
+/// builds it; the modules checked, or `None` once what was wrong is
+/// shown, as the release that found it reports it, its paths named from
+/// `root`.
 fn package(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
@@ -998,10 +1036,11 @@ fn package(
     root: &Path,
     pkg: &PkgOutline,
     releases: &BTreeSet<Compat>,
-    goal: Goal,
+    making: Making,
 ) -> Option<Vec<PathBuf>> {
+    let style = making.style();
     let mut fail = |checked, compat| {
-        check::show(console, root, &checked, compat, Style::Terminal);
+        check::show(console, root, &checked, compat, style);
         None
     };
     let project = Root::new(cx.dir.to_owned());
@@ -1027,42 +1066,34 @@ fn package(
             bundle: &loaded.sources.bundle,
             artifacts: Some(&shared.artifacts),
             memo: &shared.memo,
-            goal,
+            goal: making.goal(),
         };
         match build.in_command(&members, shared) {
             Ok(mut built) => ran.append(&mut built.ran),
             Err(checked) => return fail(checked, compat),
         }
     }
-    check::show(
-        console,
-        root,
-        &Checked::Fine,
-        loaded.compat,
-        Style::Terminal,
-    );
+    check::show(console, root, &Checked::Fine, loaded.compat, style);
     Some(ran)
 }
 
-/// What building `entry` of the member in `dir` asks for, as `making`
-/// asks: `nomi check` of its `main`, or what `nomi build` or `nomi run`
-/// makes of its `main`, platform and FFI module, written to its `output` or, without
-/// one, to a file of its own in `elm-stuff`.
-fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report> {
-    let kind = match making {
-        Making::Check => {
-            return Ok(Make::check(
-                vec![entry.main.clone().into()],
-                Style::Terminal,
-            ));
-        }
-        Making::Code(kind) => kind,
-        Making::Run => javascript::Kind::Dev,
+/// What building `entry`, one of `entries` of the member in `dir`, asks
+/// for, as `making` asks: `nomi check` of its `main`, or what `nomi
+/// build` or `nomi run` makes of its `main`, platform and FFI module,
+/// written to its `output` or, without one, to [`default_output`].
+fn entry_make(
+    dir: &Path,
+    entries: &[Entry],
+    entry: &Entry,
+    making: Making,
+) -> Result<Make, Report> {
+    let (kind, style) = match making {
+        Making::Check(style) => return Ok(Make::check(vec![entry.main.clone().into()], style)),
+        Making::Code(kind, style) => (kind, style),
+        Making::Run => (javascript::Kind::Dev, Style::Terminal),
     };
-    let output = entry.output.clone().unwrap_or_else(|| {
-        let path = run::default_output(dir, &dir.join(&entry.main), run::extension(entry));
-        path.to_string_lossy().into_owned()
-    });
+    let output =
+        (entry.output.clone()).unwrap_or_else(|| default_output(dir, entries, entry, making));
     let make = Make::build(
         vec![entry.main.clone().into()],
         Some(&output),
@@ -1080,6 +1111,7 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
     };
     Ok(Make {
         kind: Ok(kind),
+        style,
         target,
         output_name: if entry.output.is_none() {
             OutputName::ByPlatform
@@ -1092,6 +1124,32 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
         }),
         ..make
     })
+}
+
+/// Where `entry`, one of `entries` of the member in `dir`, is written when
+/// it names no output, from `dir`. `nomi build` writes it to `dist/` by
+/// its `main`'s name, or, where another of `entries` has a `main` of that
+/// name, by its path. `nomi run` writes its DEV code to `elm-stuff`, and
+/// so leaves what `nomi build --optimize` wrote to deploy alone.
+fn default_output(dir: &Path, entries: &[Entry], entry: &Entry, making: Making) -> String {
+    let main = dir.join(&entry.main);
+    let extension = run::extension(entry);
+    let path = if making == Making::Run {
+        run::default_output(dir, &main, extension)
+    } else {
+        let stem = |entry: &Entry| Path::new(&entry.main).file_stem().map(OsString::from);
+        let named_alike = (entries.iter())
+            .filter(|other| other.output.is_none() && stem(other) == stem(entry))
+            .count();
+        if named_alike > 1 {
+            run::output_below(Path::new("dist"), dir, &main, extension)
+        } else {
+            Path::new("dist")
+                .join(stem(entry).unwrap_or_default())
+                .with_extension(extension)
+        }
+    };
+    path.to_string_lossy().into_owned()
 }
 
 fn bad_output(main: &str, output: &str) -> Report {
@@ -1124,4 +1182,55 @@ fn entry_without_project() -> Report {
          so there is no project for them to build. Move each entry to the nomi.toml of the \
          member it belongs to.",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use nomi_project::Entry;
+
+    use super::{Making, default_output};
+    use crate::check::Style;
+    use crate::javascript::Kind;
+
+    fn entry(main: &str) -> Entry {
+        Entry {
+            main: main.to_owned(),
+            output: None,
+            platform: None,
+            ffi: None,
+            args: Vec::new(),
+            static_dir: None,
+            port: None,
+        }
+    }
+
+    #[test]
+    fn an_entry_without_output_builds_to_dist_by_its_name_or_its_path_when_shared() {
+        let dir = Path::new("/w/apps/api");
+        let build = Making::Code(Kind::Dev, Style::Terminal);
+        let main = entry("src/Main.elm");
+        let worker = entry("src/Worker.elm");
+        let entries = [main.clone(), worker.clone()];
+        assert_eq!(default_output(dir, &entries, &main, build), "dist/Main.mjs");
+        assert_eq!(
+            default_output(dir, &entries, &worker, build),
+            "dist/Worker.mjs"
+        );
+        let admin = entry("src/Admin/Main.elm");
+        let entries = [main.clone(), admin.clone()];
+        assert_eq!(
+            default_output(dir, &entries, &main, build),
+            "dist/src/Main.mjs"
+        );
+        assert_eq!(
+            default_output(dir, &entries, &admin, build),
+            "dist/src/Admin/Main.mjs"
+        );
+        assert_eq!(
+            default_output(dir, &entries, &main, Making::Run),
+            "elm-stuff/nomi/run/src/Main.mjs"
+        );
+    }
 }

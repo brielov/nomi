@@ -7,6 +7,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use nomi_engine::check::Style;
 use nomi_engine::console::Captured;
 use nomi_engine::javascript::Kind;
 use nomi_engine::paths::Cache;
@@ -210,7 +211,7 @@ impl Fixture {
             &mut console,
             &workspace,
             &dirs,
-            Making::Code(Kind::Dev),
+            Making::Code(Kind::Dev, Style::Terminal),
         );
         let outcomes = (outcomes.into_iter())
             .map(|(member, outcome)| {
@@ -277,12 +278,12 @@ fn every_entry_builds_and_a_second_build_reuses_everything() {
         web.contains("var $acme$shared$Shared$Base$base = 1;"),
         "{web}"
     );
-    let admin = fixture.read("apps/web/elm-stuff/nomi/run/src/Admin.js");
+    let admin = fixture.read("apps/web/dist/Admin.js");
     assert!(
         admin.contains("var $author$project$Admin$main = "),
         "{admin}"
     );
-    let api = fixture.read("apps/api/elm-stuff/nomi/run/src/Main.mjs");
+    let api = fixture.read("apps/api/dist/Main.mjs");
     assert!(api.contains("var $acme$shared$Shared$shared = "), "{api}");
     let (console, outcomes) = fixture.build();
     assert_eq!(outcomes, built(&[], &[], &[]), "{}", said(&console));
@@ -306,7 +307,7 @@ fn an_edit_in_the_package_rebuilds_what_depends_on_it_and_no_more() {
         web.contains("var $acme$shared$Shared$Base$base = 5;"),
         "{web}"
     );
-    let api = fixture.read("apps/api/elm-stuff/nomi/run/src/Main.mjs");
+    let api = fixture.read("apps/api/dist/Main.mjs");
     assert!(
         api.contains("var $acme$shared$Shared$Base$base = 5;"),
         "{api}"

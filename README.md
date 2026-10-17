@@ -93,6 +93,33 @@ node main.mjs world
 
 A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Fs`, `Nomi.Stdio` and `Nomi.Process` for the system, `Nomi.Ffi` for JavaScript of your own, and `Nomi.Server` for HTTP, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Node too (`--platform=node`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
 
+## Workspaces
+
+A `nomi.toml` with a `[workspace]` makes the directories its globs find, each with its own `elm.json`, one workspace, and a member's own `nomi.toml` lists its programs:
+
+```toml
+# nomi.toml
+[workspace]
+members = ["apps/*", "packages/*"]
+
+# apps/api/nomi.toml
+[[entry]]
+main = "src/Main.elm"
+args = ["--port", "3000"]
+```
+
+The members share one resolution, so the apps agree on every package's version, and a dependency named as a member package is built from that member's source. Members that depend on no unpublished member still build with plain `elm`.
+
+```sh
+nomi build                # every member; an entry without an output goes to dist/ in its member
+nomi test                 # the tests of each member that has them
+nomi run --watch          # every entry, rebuilt as files change
+nomi run -p api           # one member, by its directory or its package name
+nomi add elm/time -p web
+```
+
+At the root, `nomi run` starts each Node entry, its lines prefixed by its member, and serves each browser entry on a port of its own with a dev server. Under `--watch`, a change rebuilds the members it touches and those that depend on them, restarting a program or reloading a page only when its code changed. [examples/fullstack](examples/fullstack) is an api on Node and a page in the browser sharing a package.
+
 ## Language server
 
 `nomi lsp` speaks the Language Server Protocol on standard input and output, as elm-language-server does: diagnostics from elm itself and from its lint rules, hover, completion, definitions, references, renames, symbols, code actions and formatting. It reads elm-language-server's settings, and needs neither elm nor elm-format installed; only elm-review, where a project configures it and the settings turn it on, runs as a program of its own.

@@ -18,7 +18,7 @@ use nomi_project::Entry;
 use nomi_project::workspace::{Member, Workspace};
 use nomi_registry::Http;
 
-use super::{Running, Streams, label_of, prefixes_of, served, serving, unrunnable};
+use super::{Prefix, Running, Streams, label_of, prefixes_of, served, serving, unrunnable};
 use crate::Context;
 use crate::artifacts::Hash;
 use crate::console::{self, Console};
@@ -65,7 +65,7 @@ pub(in crate::run) fn watch(
         workspace,
         dirs: Vec::new(),
         slots: Vec::new(),
-        running: Running::new(Vec::new(), streams, args),
+        running: Running::new(console, Vec::new(), streams, args),
     };
     let mut engine = Engine {
         cx,
@@ -123,7 +123,9 @@ struct Slot {
     entry: Entry,
     /// Its name in nomi's lines, and its programs' prefix.
     label: String,
-    prefix: String,
+    prefix: Prefix,
+    /// Where it runs, as its manifest says or its last build found.
+    platform: Option<Platform>,
     /// Where it is served if it's a browser program.
     port: Option<Port>,
     /// Its code, absolute, once built.
@@ -237,34 +239,28 @@ impl Watch {
                     .map(move |e| (member, e))
             })
             .collect();
-        let (labels, prefixes): (Vec<String>, Vec<String>) = match self.running.streams {
-            Streams::Prefixed => {
-                let labels: Vec<String> = entries.iter().map(|(m, e)| label_of(m, e)).collect();
-                let prefixes = prefixes_of(&labels, console.err_is_terminal());
-                (labels, prefixes)
-            }
-            Streams::Shared => (entries.iter())
-                .map(|(_, e)| (e.main.clone(), String::new()))
-                .unzip(),
+        let labels: Vec<String> = match self.running.streams {
+            Streams::Prefixed => entries.iter().map(|(m, e)| label_of(m, e)).collect(),
+            Streams::Shared => entries.iter().map(|(_, e)| e.main.clone()).collect(),
         };
         let ports = ports(entries.iter().map(|&(_, entry)| entry));
         let mut old = std::mem::take(&mut self.slots);
-        let each = entries.into_iter().zip(labels).zip(prefixes).zip(ports);
-        for ((((member, entry), label), prefix), port) in each {
+        let each = entries.into_iter().zip(labels).zip(ports);
+        for (((member, entry), label), port) in each {
             let kept = old
                 .iter()
                 .position(|s| s.member == member.dir && s.entry == *entry && s.port == port);
             let slot = match kept {
                 Some(i) => Slot {
                     label,
-                    prefix,
                     ..old.remove(i)
                 },
                 None => Slot {
                     member: member.dir.clone(),
                     entry: entry.clone(),
                     label,
-                    prefix,
+                    prefix: Prefix::default(),
+                    platform: entry.platform,
                     port,
                     output: None,
                     code: None,
@@ -481,8 +477,25 @@ impl Watch {
             let fresh = fresh(console, root, &builds.entries, slot);
             if let Some(fresh) = &fresh {
                 slot.output = Some(fresh.built.output.clone());
+                slot.platform = Some(fresh.platform);
             }
             nexts.push(next(&slot.live, slot.code, fresh));
+        }
+        if running.streams == Streams::Prefixed {
+            // Until a build finds it, an entry whose `main` decides its
+            // platform may print.
+            let labels: Vec<(&str, bool)> = (slots.iter())
+                .map(|slot| {
+                    (
+                        slot.label.as_str(),
+                        slot.platform != Some(Platform::Browser),
+                    )
+                })
+                .collect();
+            let prefixes = prefixes_of(&labels);
+            for (slot, prefix) in slots.iter_mut().zip(prefixes) {
+                slot.prefix = prefix;
+            }
         }
         let stopping: Vec<usize> = (slots.iter().zip(&nexts))
             .filter_map(|(slot, next)| match (&slot.live, next) {

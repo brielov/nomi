@@ -14,6 +14,7 @@ use nomi_engine::format::{self, Mode};
 use nomi_engine::make::{FfiModule, Make, NamedIn};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
+use nomi_engine::scope::Verb;
 use nomi_engine::{
     Context, Vfs, Web, bump, diff, init, install, make, publish, remove, run, scope, tree, update,
 };
@@ -64,6 +65,10 @@ enum Command {
     Rm {
         /// The package, e.g. elm/http.
         package: String,
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
     },
     /// Move the project's dependencies to their newest releases of the
     /// same major version.
@@ -76,10 +81,20 @@ enum Command {
         members: Vec<String>,
     },
     /// List the dependencies that have newer releases.
-    Outdated,
+    Outdated {
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
+    },
     /// Show the releases the project builds with, under the dependencies
     /// that need them.
-    Tree,
+    Tree {
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
+    },
     /// Start the language server, on standard input and output.
     Lsp {
         /// Taken and ignored, as many editors pass it: standard input and
@@ -97,9 +112,10 @@ enum Command {
         /// The entry to run, by its `main`.
         #[arg(conflicts_with = "elm")]
         entry: Option<PathBuf>,
-        /// Run the entries of this member of the workspace, by its
-        /// directory or package name.
-        #[arg(short = 'p', long = "package", value_name = "MEMBER", conflicts_with_all = ["entry", "elm"])]
+        /// Run in this member of the workspace, by its directory or
+        /// package name: its entries, or the one named, from its
+        /// directory.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
         member: Option<String>,
         /// Run this module's `main` instead, without nomi.toml.
         #[arg(short, long, value_name = "FILE")]
@@ -119,17 +135,32 @@ enum Command {
         /// versions.
         #[arg(num_args = 0..=3)]
         args: Vec<String>,
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
     },
     /// Set the package's version to the one its API changes call for.
-    Bump,
+    Bump {
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
+    },
     /// Publish the package to package.elm-lang.org, once it passes every
     /// check `elm publish` makes.
-    Publish,
+    Publish {
+        /// The member of the workspace to work on, by its directory or
+        /// package name.
+        #[arg(short = 'p', long = "package", value_name = "MEMBER")]
+        member: Option<String>,
+    },
     /// Run the tests, as elm-test does, with its options.
     #[command(disable_help_flag = true)]
     Test {
         /// Members of the workspace to test, by directory or package
-        /// name; at its root, every member with tests.
+        /// name; at its root, every member with tests. Taken among
+        /// elm-test's options too.
         #[arg(short = 'p', long = "package", value_name = "MEMBER")]
         members: Vec<String>,
         /// elm-test's options and globs; `nomi test --help` lists them.
@@ -252,24 +283,23 @@ fn main() -> ExitCode {
             }
         }
         Some(Command::New { dir }) => new(Personality::Nomi, dir),
-        Some(Command::Add { package, member }) => in_project(|cx, console| {
-            scope::in_one(
-                cx,
-                console,
-                member.as_deref(),
-                "add",
-                false,
-                |cx, console| install::run(cx, console, Personality::Nomi, Some(&package)),
-            )
-        }),
-        Some(Command::Rm { package }) => {
-            in_project(|cx, console| remove::run(cx, console, &package))
+        Some(Command::Add { package, member }) => {
+            in_member(member.as_deref(), Verb::Add, |cx, console| {
+                install::run(cx, console, Personality::Nomi, Some(&package))
+            })
+        }
+        Some(Command::Rm { package, member }) => {
+            in_member(member.as_deref(), Verb::Rm, |cx, console| {
+                remove::run(cx, console, &package)
+            })
         }
         Some(Command::Update { package, members }) => {
             in_project(|cx, console| update::run(cx, console, package.as_deref(), &members))
         }
-        Some(Command::Outdated) => in_project(update::outdated),
-        Some(Command::Tree) => in_project(tree::run),
+        Some(Command::Outdated { member }) => {
+            in_member(member.as_deref(), Verb::Outdated, update::outdated)
+        }
+        Some(Command::Tree { member }) => in_member(member.as_deref(), Verb::Tree, tree::run),
         Some(Command::Lsp { .. }) => match nomi_lsp::stdio() {
             Ok(()) => true,
             Err(e) => {
@@ -291,13 +321,26 @@ fn main() -> ExitCode {
             };
             return nomi_run(&program, member.as_deref(), watch, &args);
         }
-        Some(Command::Diff { args }) => diff(
-            &args.iter().map(String::as_str).collect::<Vec<_>>(),
-            "diff takes nothing, a version, two versions, or a package and two versions",
-        ),
-        Some(Command::Publish) => in_project(publish::run),
-        Some(Command::Bump) => in_project(bump::run),
-        Some(Command::Test { members, args }) => {
+        Some(Command::Diff { args, member }) => {
+            let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+            if let Some(args) = diff::parse_args(&args) {
+                in_member(member.as_deref(), Verb::Diff, |cx, console| {
+                    diff::run(cx, console, &args)
+                })
+            } else {
+                eprintln!(
+                    "error: diff takes nothing, a version, two versions, or a package and two \
+                     versions"
+                );
+                false
+            }
+        }
+        Some(Command::Publish { member }) => {
+            in_member(member.as_deref(), Verb::Publish, publish::run)
+        }
+        Some(Command::Bump { member }) => in_member(member.as_deref(), Verb::Bump, bump::run),
+        Some(Command::Test { mut members, args }) => {
+            let args = test_args(args, &mut members);
             return elm_test(args.into_iter(), Personality::Nomi, &members);
         }
         Some(Command::Check {
@@ -351,6 +394,35 @@ fn build(args: Build) -> bool {
         ..make
     };
     in_project(|cx, console| scope::make(cx, console, &members, &make))
+}
+
+/// `nomi test`'s arguments after its first of elm-test's, with each
+/// `-p` and `--package` among them, and its value, moved to `members`:
+/// clap stops reading options at the first it doesn't know.
+fn test_args(args: Vec<OsString>, members: &mut Vec<String>) -> Vec<OsString> {
+    let mut kept = Vec::with_capacity(args.len());
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        let text = arg.to_string_lossy();
+        if text == "--" {
+            kept.push(arg);
+            kept.extend(args);
+            break;
+        }
+        if text == "-p" || text == "--package" {
+            match args.next() {
+                Some(member) => members.push(member.to_string_lossy().into_owned()),
+                None => kept.push(arg),
+            }
+        } else if let Some(member) = (text.strip_prefix("--package="))
+            .or_else(|| text.strip_prefix("-p").filter(|rest| !rest.is_empty()))
+        {
+            members.push(member.trim_start_matches('=').to_owned());
+        } else {
+            kept.push(arg);
+        }
+    }
+    kept
 }
 
 /// `nomi run`, in the current directory or the member it names.
@@ -413,14 +485,24 @@ fn elm_install(package: Option<&str>) -> bool {
     in_project(|cx, console| install::run(cx, console, Personality::Elm, package))
 }
 
-/// `nomi diff` and `elm diff`, for the project around the current
-/// directory, saying `usage` where `args` are none of its four forms.
+/// `elm diff`, for the project around the current directory, saying
+/// `usage` where `args` are none of its four forms.
 fn diff(args: &[&str], usage: &str) -> bool {
     let Some(args) = diff::parse_args(args) else {
         eprintln!("error: {usage}");
         return false;
     };
     in_project(|cx, console| diff::run(cx, console, &args))
+}
+
+/// `command` for the member of the workspace `member` names, or the
+/// project around the current directory, as `verb`, which needs one.
+fn in_member(
+    member: Option<&str>,
+    verb: Verb,
+    command: impl FnOnce(&Context<'_, Web>, &mut dyn Console) -> bool,
+) -> bool {
+    in_project(|cx, console| scope::in_one(cx, console, member, verb, false, command))
 }
 
 /// `command` for the project around the current directory.

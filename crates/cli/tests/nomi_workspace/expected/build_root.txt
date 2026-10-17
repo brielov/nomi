@@ -5,7 +5,7 @@
 |Building apps/api
 |No problems in syntax, module names, imports, names or types.
 |
-|    Main ───> apps/api/elm-stuff/nomi/run/src/Main.mjs
+|    Main ───> apps/api/dist/Main.mjs
 |
 |Building apps/web
 |No problems in syntax, module names, imports, names or types.
@@ -13,5 +13,7 @@
 |    Main ───> apps/web/dist/web.js
 |
 === stderr
+=== file apps/api/dist/Main.mjs
+|135496 bytes, SHA-256 58eefe05618b372f344a5cd28c3196c350158ae008fdef934a22c28d8d482d09
 === file apps/web/dist/web.js
 |61603 bytes, SHA-256 93361fb6a48685be49dcb56da8132ffee32363c38233badae752ec35fbe9207a

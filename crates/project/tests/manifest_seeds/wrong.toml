@@ -1,0 +1,6 @@
+[workspace]
+members = ["../x", "a*b", ""]
+[[entry]]
+mian = "src/Main.elm"
+port = 70000
+platform = "deno"

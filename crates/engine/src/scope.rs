@@ -9,7 +9,7 @@ use nomi_project::Outline;
 use nomi_project::workspace::{Member, Unmatched, Workspace};
 use nomi_registry::Http;
 
-use crate::check::Style;
+use crate::check::{self, Checked, Style};
 use crate::console::{self, Console};
 use crate::make::{self, Make, Output};
 use crate::paths::Root;
@@ -67,6 +67,36 @@ pub fn find(cx: &Context<'_, impl Http>, specs: &[String]) -> Result<Scope, Repo
     Ok(Scope::Named(workspace, dirs))
 }
 
+/// The commands that work on one project, which at a workspace's root
+/// need a member named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verb {
+    Add,
+    Rm,
+    Outdated,
+    Tree,
+    Run,
+    Diff,
+    Bump,
+    Publish,
+}
+
+impl Verb {
+    /// The command's name, as `nomi` takes it.
+    fn name(self) -> &'static str {
+        match self {
+            Verb::Add => "add",
+            Verb::Rm => "rm",
+            Verb::Outdated => "outdated",
+            Verb::Tree => "tree",
+            Verb::Run => "run",
+            Verb::Diff => "diff",
+            Verb::Bump => "bump",
+            Verb::Publish => "publish",
+        }
+    }
+}
+
 /// Runs `command` in the one project `spec` names, or the project
 /// around the directory without it; what it gives, or `failed` once what
 /// was wrong is shown, as when the directory is in a workspace but in
@@ -75,7 +105,7 @@ pub fn in_one<H: Http, T>(
     cx: &Context<'_, H>,
     console: &mut dyn Console,
     spec: Option<&str>,
-    verb: &str,
+    verb: Verb,
     failed: T,
     command: impl FnOnce(&Context<'_, H>, &mut dyn Console) -> T,
 ) -> T {
@@ -99,7 +129,9 @@ pub fn in_one<H: Http, T>(
 /// names: with paths, those modules of the project around the directory;
 /// without, the entries of each project's `nomi.toml` and member
 /// packages' exposed modules, or, in a project without entries, what
-/// `elm make` makes without paths. Whether nothing was wrong.
+/// `elm make` makes without paths. What was wrong is shown in `make`'s
+/// style, a report for machines a line per member. Whether nothing was
+/// wrong.
 pub fn make(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
@@ -109,20 +141,33 @@ pub fn make(
     if !make.paths.is_empty() {
         return make::run(cx, console, make);
     }
+    let failed = |console: &mut dyn Console, report: Report| {
+        check::show(
+            console,
+            cx.dir,
+            &Checked::Project(report),
+            Compat::LATEST,
+            make.style,
+        );
+        if make.style == Style::Json {
+            console.err("\n");
+        }
+        false
+    };
     let scope = match find(cx, specs) {
         Ok(scope) => scope,
-        Err(report) => return failed(console, &report),
+        Err(report) => return failed(console, report),
     };
     let (workspace, dirs) = match scope {
         Scope::Project => {
             let snapshot = cx.vfs.snapshot();
-            match (making(make), entries(&snapshot, cx)) {
-                (Ok(making), Some(Ok(workspace))) => {
-                    return built(cx, console, &workspace, &[PathBuf::new()], making);
+            return match (entries(&snapshot, cx), making(make)) {
+                (None, _) => make::run(cx, console, make),
+                (Some(Err(report)), _) | (Some(Ok(_)), Err(report)) => failed(console, report),
+                (Some(Ok(workspace)), Ok(making)) => {
+                    built(cx, console, &workspace, &[PathBuf::new()], making)
                 }
-                (Ok(_), Some(Err(report))) => return failed(console, &report),
-                (Err(_), _) | (Ok(_), None) => return make::run(cx, console, make),
-            }
+            };
         }
         Scope::Named(workspace, dirs) => (workspace, dirs),
         Scope::Every(workspace) => {
@@ -134,11 +179,11 @@ pub fn make(
     };
     let making = match making(make) {
         Ok(making) => making,
-        Err(report) => return failed(console, &report),
+        Err(report) => return failed(console, report),
     };
     match workspace::resolved(cx, workspace) {
         Ok(workspace) => built(cx, console, &workspace, &dirs, making),
-        Err(report) => failed(console, &report),
+        Err(report) => failed(console, report),
     }
 }
 
@@ -154,10 +199,10 @@ fn entries(snapshot: &Snapshot, cx: &Context<'_, impl Http>) -> Option<Result<Wo
 /// else code of the kind it asks for.
 fn making(make: &Make) -> Result<Making, Report> {
     let kind = make.kind.map_err(|_| make::cannot_optimize_and_debug())?;
-    let plain = make.docs.is_none() && make.ffi.is_none() && make.style == Style::Terminal;
+    let plain = make.docs.is_none() && make.ffi.is_none();
     match &make.output {
-        None if plain && make.platform.is_none() => Ok(Making::Code(kind)),
-        Some(Output::DevNull) if plain => Ok(Making::Check),
+        None if plain && make.platform.is_none() => Ok(Making::Code(kind, make.style)),
+        Some(Output::DevNull) if plain => Ok(Making::Check(make.style)),
         _ => Err(flags_need_paths()),
     }
 }
@@ -172,11 +217,6 @@ fn built(
 ) -> bool {
     let outcomes = workspace::build(cx, console, workspace, dirs, making);
     (outcomes.iter()).all(|(_, outcome)| matches!(outcome, Outcome::Built(_)))
-}
-
-fn failed(console: &mut dyn Console, report: &Report) -> bool {
-    console::report(console, report, Compat::LATEST);
-    false
 }
 
 /// The members, each by its directory, and a package's by its name too,
@@ -233,12 +273,13 @@ fn ambiguous_member(spec: &str, members: &[&Member]) -> Report {
     )
 }
 
-fn which_member(verb: &str, workspace: &Workspace) -> Report {
+fn which_member(verb: Verb, workspace: &Workspace) -> Report {
     one_line(
         "WHICH MEMBER?",
         &format!(
-            "nomi {verb} works on one project, and here there is the whole workspace. Name a \
+            "nomi {} works on one project, and here there is the whole workspace. Name a \
              member with -p, or run it in the member's directory: {}.",
+            verb.name(),
             listed(workspace.members())
         ),
     )
@@ -247,7 +288,7 @@ fn which_member(verb: &str, workspace: &Workspace) -> Report {
 fn flags_need_paths() -> Report {
     one_line(
         "FLAGS NEED MODULES",
-        "--output, --platform, --ffi, --docs and --report apply to the modules named on the \
-         command line. Without them, nomi builds each entry of nomi.toml as the entry says.",
+        "--output, --platform, --ffi and --docs apply to the modules named on the command \
+         line. Without them, nomi build builds each entry of nomi.toml as the entry says.",
     )
 }

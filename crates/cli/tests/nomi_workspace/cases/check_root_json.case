@@ -1,0 +1,28 @@
+=== note
+a report for machines at the root: a line for each member that failed
+=== args
+check
+--report
+json
+=== file apps/web/src/Main.elm
+module Main exposing (main)
+
+
+main : Program () Int ()
+main =
+    Platform.worker
+        { init = \() -> ( "web", Cmd.none )
+        , update = \() n -> ( n, Cmd.none )
+        , subscriptions = \_ -> Sub.none
+        }
+=== file apps/api/src/Main.elm
+module Main exposing (main)
+
+import Nomi
+import Task
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \_ -> Task.succeed 1

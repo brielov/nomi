@@ -1,0 +1,6 @@
+=== exit 0
+=== stdout
+|{"event":"runStart","testCount":"1","fuzzRuns":"100","globs":[],"paths":["{dir}/apps/web/tests/WebTest.elm"],"initialSeed":"1"}
+|{"event":"testCompleted","status":"pass","labels":["WebTest","greets"],"failures":[],"distributionReports":[{"type":"NoDistribution","data":null}],"duration":"0"}
+|{"event":"runComplete","passed":"1","failed":"0","duration":"0","autoFail":null}
+=== stderr

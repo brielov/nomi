@@ -141,7 +141,7 @@ fn each_ffi_call_ends_as_its_function_does_and_interruption_aborts_its_signal() 
         &module[..200]
     );
     // From another directory, as the import is the output's own.
-    let ran = Command::new("node")
+    let ran = Command::new(nomi_testkit::node())
         .arg(root.join("dist/main.mjs"))
         .current_dir(root.parent().unwrap())
         .output()
@@ -236,7 +236,7 @@ fn paged(call: &str, ffi: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, P
 
 /// The built `dist/main.mjs` in `root`, run by `node`.
 fn run(root: &Path) -> Output {
-    Command::new("node")
+    Command::new(nomi_testkit::node())
         .arg(root.join("dist/main.mjs"))
         .output()
         .unwrap()

@@ -1,0 +1,7 @@
+=== note
+a named entry of the member -p names, from its directory
+=== args
+run
+-p
+api
+src/Main.elm

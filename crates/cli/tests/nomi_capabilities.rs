@@ -314,7 +314,7 @@ fn built() -> (tempfile::TempDir, PathBuf) {
 
 /// The program in `root` run with `args` in `root/run`, `stdin` its input.
 fn run(root: &Path, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new("node")
+    let mut child = Command::new(nomi_testkit::node())
         .arg(root.join("dist/main.mjs"))
         .args(args)
         .current_dir(root.join("run"))

@@ -11,7 +11,7 @@
 pub mod website;
 
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -19,6 +19,7 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nomi_testkit::http;
 use nomi_testkit::process::{Group, Signal};
 use website::offline;
 
@@ -112,20 +113,13 @@ fn listening(stderr: &Receiver<String>) -> u16 {
 
 /// A request closing its connection.
 fn request(method: &str, target: &str, body: &str) -> Vec<u8> {
-    format!(
-        "{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-        body.len()
-    )
-    .into_bytes()
+    http::closing(method, target, "", body.as_bytes())
 }
 
 /// The response read from `stream` to its end: its status and body.
 fn response(stream: &mut TcpStream) -> (u16, String) {
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    let (head, body) = response.split_once("\r\n\r\n").unwrap();
-    let status = head.split(' ').nth(1).unwrap();
-    (status.parse().unwrap(), body.to_owned())
+    let response = http::read(stream).unwrap();
+    (response.status, response.text())
 }
 
 /// The example serving on the port it picked, stopped when dropped.

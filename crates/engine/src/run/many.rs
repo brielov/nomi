@@ -62,7 +62,10 @@ pub(super) fn run(
     let labels: Vec<String> = (builds.entries.iter())
         .map(|built| label_of(built.member, built.entry))
         .collect();
-    let prefixes = prefixes_of(&labels, console.err_is_terminal());
+    let printing: Vec<(&str, bool)> = (labels.iter().zip(&builds.entries))
+        .map(|(label, built)| (label.as_str(), built.platform == Platform::Node))
+        .collect();
+    let prefixes = prefixes_of(&printing);
     let mut caught = match Caught::new() {
         Ok(caught) => caught,
         Err(e) => {
@@ -74,7 +77,7 @@ pub(super) fn run(
     let Some(servers) = servers(console, root, &builds.entries, &labels, &ports) else {
         return 1;
     };
-    let mut running = Running::new(servers, Streams::Prefixed, Vec::new());
+    let mut running = Running::new(console, servers, Streams::Prefixed, Vec::new());
     let programs =
         (builds.entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Node);
     for (built, prefix) in programs {
@@ -159,19 +162,49 @@ fn label_of(member: &Member, entry: &Entry) -> String {
     label(&member.dir, several, &entry.main)
 }
 
-/// The prefix of each of `labels`, `[label] `, padded to the longest; in
-/// color where `color`.
-fn prefixes_of(labels: &[String], color: bool) -> Vec<String> {
-    let width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+/// What comes before a program's lines: `[label] `, padded, in a color
+/// of its own on a terminal.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Prefix {
+    /// `[label]`, or nothing where the program's streams are nomi's.
+    label: String,
+    pad: usize,
+    color: u8,
+}
+
+impl Prefix {
+    /// The prefix on a stream that is a terminal where `terminal`.
+    fn on(&self, terminal: bool) -> String {
+        if self.label.is_empty() {
+            String::new()
+        } else if terminal {
+            format!(
+                "\x1b[{}m{}\x1b[0m{:pad$} ",
+                self.color,
+                self.label,
+                "",
+                pad = self.pad
+            )
+        } else {
+            format!("{}{:pad$} ", self.label, "", pad = self.pad)
+        }
+    }
+}
+
+/// The prefix of each of `labels`, padded to the longest of those whose
+/// program prints, as each says: a browser program's label is only in
+/// nomi's lines.
+fn prefixes_of(labels: &[(&str, bool)]) -> Vec<Prefix> {
+    let width = (labels.iter())
+        .filter(|(_, printing)| *printing)
+        .map(|(label, _)| label.chars().count())
+        .max()
+        .unwrap_or(0);
     (labels.iter().enumerate())
-        .map(|(i, label)| {
-            let pad = " ".repeat(width - label.chars().count());
-            if color {
-                let code = COLORS[i % COLORS.len()];
-                format!("\x1b[{code}m[{label}]\x1b[0m{pad} ")
-            } else {
-                format!("[{label}]{pad} ")
-            }
+        .map(|(i, (label, _))| Prefix {
+            label: format!("[{label}]"),
+            pad: width.saturating_sub(label.chars().count()),
+            color: COLORS[i % COLORS.len()],
         })
         .collect()
 }
@@ -231,7 +264,7 @@ enum Stream {
 
 /// A program started, and how it ended, once it has.
 struct Program {
-    prefix: String,
+    prefix: Prefix,
     child: Child,
     ended: Option<ExitStatus>,
 }
@@ -257,6 +290,9 @@ struct Running {
     /// The arguments every program takes in place of its entry's, where
     /// any are given.
     args: Vec<OsString>,
+    /// Whether nomi's standard output and error are terminals, which
+    /// prefixes are colored on.
+    terminals: (bool, bool),
     send: Sender<Line>,
     lines: Receiver<Line>,
 }
@@ -270,8 +306,13 @@ const LINGER: Duration = Duration::from_secs(1);
 
 impl Running {
     /// No program yet, beside `servers`; programs to start with `args`
-    /// where given, their lines shown as `streams` says.
-    fn new(servers: Vec<Server>, streams: Streams, args: Vec<OsString>) -> Running {
+    /// where given, their lines shown on `console` as `streams` says.
+    fn new(
+        console: &dyn Console,
+        servers: Vec<Server>,
+        streams: Streams,
+        args: Vec<OsString>,
+    ) -> Running {
         let (send, lines) = mpsc::channel();
         Running {
             programs: BTreeMap::new(),
@@ -279,6 +320,7 @@ impl Running {
             servers,
             streams,
             args,
+            terminals: (console.out_is_terminal(), console.err_is_terminal()),
             send,
             lines,
         }
@@ -287,7 +329,7 @@ impl Running {
     /// Starts `built` under `node` with its entry's `args`, or those
     /// every program takes, its standard output and error read line by
     /// line and shown after `prefix` where they are piped; its id.
-    fn start(&mut self, built: &EntryBuilt<'_>, prefix: String) -> std::io::Result<usize> {
+    fn start(&mut self, built: &EntryBuilt<'_>, prefix: Prefix) -> std::io::Result<usize> {
         let entry: Vec<OsString>;
         let args = if self.args.is_empty() {
             entry = built.entry.args.iter().map(OsString::from).collect();
@@ -303,10 +345,20 @@ impl Running {
         }
         let mut child = node.spawn()?;
         if let Some(out) = child.stdout.take() {
-            read(out, prefix.clone(), Stream::Out, self.send.clone());
+            read(
+                out,
+                prefix.on(self.terminals.0),
+                Stream::Out,
+                self.send.clone(),
+            );
         }
         if let Some(err) = child.stderr.take() {
-            read(err, prefix.clone(), Stream::Err, self.send.clone());
+            read(
+                err,
+                prefix.on(self.terminals.1),
+                Stream::Err,
+                self.send.clone(),
+            );
         }
         let id = self.next;
         self.next += 1;
@@ -436,7 +488,7 @@ impl Running {
                 Killing::Asked => {}
                 Killing::Overdue => console.err(&format!(
                     "{}The program did not stop within {} seconds, so I killed it.\n",
-                    program.prefix,
+                    program.prefix.on(self.terminals.1),
                     GRACE.as_secs()
                 )),
             }
@@ -515,5 +567,16 @@ mod tests {
         for (dir, several, main, named) in cases {
             assert_eq!(label(Path::new(dir), several, main), named, "{dir} {main}");
         }
+    }
+
+    #[test]
+    fn a_prefix_is_padded_to_the_programs_that_print_and_colored_only_on_a_terminal() {
+        let prefixes = prefixes_of(&[("apps/api", true), ("apps/landing", false)]);
+        assert_eq!(prefixes[0].on(false), "[apps/api] ");
+        assert_eq!(prefixes[0].on(true), "\x1b[36m[apps/api]\x1b[0m ");
+        assert_eq!(prefixes[1].on(false), "[apps/landing] ");
+        let prefixes = prefixes_of(&[("apps/api", true), ("apps/landing", true)]);
+        assert_eq!(prefixes[0].on(false), "[apps/api]     ");
+        assert_eq!(Prefix::default().on(true), "");
     }
 }

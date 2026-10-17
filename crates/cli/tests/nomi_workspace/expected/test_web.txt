@@ -1,6 +1,5 @@
 === exit 0
 === stdout
-|Testing apps/web
 |Solving dependenciesSolving dependencies > CompilingSolving dependencies > Compiling > Starting tests
 |
 |elm-test 0.19.3-0

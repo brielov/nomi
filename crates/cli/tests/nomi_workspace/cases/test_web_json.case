@@ -1,0 +1,10 @@
+=== note
+one member's report for machines, with nothing before it
+=== args
+test
+-p
+web
+--report
+json
+--seed
+1

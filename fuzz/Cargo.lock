@@ -269,6 +269,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nomi-codegen-js"
+version = "0.5.0"
+dependencies = [
+ "nomi-base",
+ "nomi-compiler",
+]
+
+[[package]]
+name = "nomi-compiler"
+version = "0.5.0"
+dependencies = [
+ "nomi-base",
+ "nomi-syntax",
+]
+
+[[package]]
 name = "nomi-format"
 version = "0.5.0"
 dependencies = [
@@ -283,6 +299,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "nomi-base",
+ "nomi-codegen-js",
  "nomi-format",
  "nomi-project",
  "nomi-syntax",

@@ -64,7 +64,9 @@ pub fn make_cases(root: &Path) -> Vec<(String, Case)> {
                 .filter_map(|f| f.strip_prefix(&prefix))
                 .map(|f| (f.to_owned(), read(f)))
                 .collect();
-            let package = read("elm.json").contains("\"type\": \"package\"");
+            let outline: Value = serde_json::from_str(&read("elm.json"))
+                .unwrap_or_else(|e| panic!("{member}/elm.json: {e}"));
+            let package = outline["type"] == "package";
             let args = if package {
                 vec!["make"]
             } else {

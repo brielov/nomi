@@ -1,0 +1,8 @@
+=== note
+a module of the member -p names, from its directory, without nomi.toml
+=== args
+run
+-p
+api
+-e
+src/Main.elm

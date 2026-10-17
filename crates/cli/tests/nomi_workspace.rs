@@ -47,7 +47,7 @@ fn nomi_workspace_transcripts() {
         }
         Some(actual)
     });
-    assert_eq!(ran, 15);
+    assert_eq!(ran, 22);
 }
 
 /// An application's `elm.json`, depending on elm/core and elm/json and
@@ -496,4 +496,68 @@ fn a_member_reached_through_a_registry_package_builds_before_and_blocks() {
         said.find("Checking packages/a"),
     );
     assert!(z.is_some() && z < a, "{said}");
+}
+
+/// The fixture's workspace in a new directory, and the cache it builds
+/// with.
+fn fixture() -> (tempfile::TempDir, PathBuf, tempfile::TempDir) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nomi_workspace");
+    let fixture = Case::parse(&fs::read_to_string(dir.join("fixture.case")).unwrap()).unwrap();
+    let (work, root) = temp();
+    fixture.create_files(&root).unwrap();
+    (work, root, website::fixture_cache())
+}
+
+/// nomi with `args` in `dir` of the fixture's workspace, offline, with
+/// the packages it bundles.
+fn in_fixture(dir: &Path, cache: &Path, args: &[&str]) -> Output {
+    let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    offline(nomi, cache)
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+/// In a member with entries, flags only modules take are refused as at
+/// the root, and a report for machines covers its entries.
+#[test]
+fn a_member_with_entries_takes_flags_as_the_root_does() {
+    let (_work, root, cache) = fixture();
+    let api = root.join("apps/api");
+    let built = in_fixture(&api, cache.path(), &["build", "--output=x.js"]);
+    assert!(!built.status.success(), "{built:?}");
+    assert!(said(&built).contains("-- FLAGS NEED MODULES"), "{built:?}");
+    assert!(!api.join("x.js").exists());
+    write(
+        &api.join("src"),
+        "Main",
+        "module Main exposing (main)\n\nmain =\n    1 +\n",
+    );
+    let checked = in_fixture(&api, cache.path(), &["check", "--report", "json"]);
+    assert!(!checked.status.success(), "{checked:?}");
+    assert!(checked.stdout.is_empty(), "{checked:?}");
+    let report: serde_json::Value = serde_json::from_slice(&checked.stderr).unwrap();
+    assert_eq!(report["type"], "compile-errors", "{report}");
+    let path = report["errors"][0]["path"].as_str().unwrap();
+    assert!(path.ends_with("apps/api/src/Main.elm"), "{report}");
+}
+
+/// An entry's FFI module needs Node, which nomi.toml gives the entry.
+#[test]
+fn an_entry_with_ffi_built_for_the_browser_is_told_to_say_node_in_nomi_toml() {
+    let (_work, root, cache) = fixture();
+    let web = root.join("apps/web");
+    let manifest = "[[entry]]\nmain = \"src/Main.elm\"\nffi = \"src/ffi.mjs\"\n";
+    fs::write(web.join("nomi.toml"), manifest).unwrap();
+    fs::write(web.join("src/ffi.mjs"), "").unwrap();
+    let built = in_fixture(&web, cache.path(), &["build"]);
+    assert!(!built.status.success(), "{built:?}");
+    let said = said(&built)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(said.contains("-- FFI NEEDS NODE"), "{said}");
+    assert!(said.contains("platform = \"node\" in nomi.toml"), "{said}");
+    assert!(!said.contains("--platform"), "{said}");
 }

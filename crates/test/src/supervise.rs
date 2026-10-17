@@ -725,15 +725,16 @@ mod tests {
         );
     }
 
-    /// What a worker's pipe holds, read only after a moment.
-    struct Late(Option<&'static [u8]>);
+    /// What a worker's pipe holds, read only once the test opens the
+    /// gate.
+    struct Late(Option<&'static [u8]>, Receiver<()>);
 
     impl Read for Late {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             let Some(text) = self.0.take() else {
                 return Ok(0);
             };
-            thread::sleep(Duration::from_millis(100));
+            let _ = self.1.recv();
             buf[..text.len()].copy_from_slice(text);
             Ok(text.len())
         }
@@ -749,7 +750,9 @@ mod tests {
             .args(["-e", "setInterval(() => {}, 1000)"])
             .spawn()
             .unwrap();
-        let readers = forward(Some(Late(Some(b"leftover tick\n"))), send, Event::Out);
+        let (open, gate) = mpsc::channel();
+        let late = Late(Some(b"leftover tick\n"), gate);
+        let readers = forward(Some(late), send, Event::Out);
         let mut workers = [Worker {
             child,
             readers: readers.into_iter().collect(),
@@ -763,6 +766,8 @@ mod tests {
         let mut console = Captured::default();
         let summary = r#"{"type":"SUMMARY","exitCode":0,"message":"done"}"#;
         assert_eq!(state.response(&mut console, 0, summary), Some(0));
+        // Read only after the run ended.
+        open.send(()).unwrap();
         settle(&mut console, &events, &mut workers);
         state.summarize(&mut console);
         assert_eq!(console.out, "leftover tick\n\"done\"\n");

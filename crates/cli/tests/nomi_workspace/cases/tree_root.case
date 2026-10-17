@@ -1,0 +1,4 @@
+=== note
+at the root, a command that works on one project asks which
+=== args
+tree

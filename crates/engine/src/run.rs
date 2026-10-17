@@ -98,7 +98,7 @@ pub fn run(
         member,
         args,
         |console, workspace, dirs| many::run(cx, console, &workspace, &dirs),
-        |cx, console| one(cx, console, program, args),
+        |member, console| one(member, console, program, args, cx.dir),
     )
 }
 
@@ -130,7 +130,7 @@ fn by_scope<H: Http + Sync>(
             Err(report) => return failed(console, &report),
         }
     }
-    scope::in_one(cx, console, member, "run", 1, one)
+    scope::in_one(cx, console, member, scope::Verb::Run, 1, one)
 }
 
 /// The entries `nomi run` without one named runs.
@@ -203,7 +203,8 @@ fn counted<'w>(workspace: &'w Workspace, dirs: &[PathBuf]) -> Vec<(&'w PathBuf, 
 
 /// Builds `program` in the project around the directory and runs it
 /// under `node` with `args`, or serves it if it runs in the browser,
-/// showing on standard error how the build went and why it didn't run.
+/// showing on standard error how the build went, naming its output from
+/// `from`, where nomi was run, and why it didn't run.
 /// The code to exit with: the program's, 128 plus the signal that killed
 /// it or stopped the server, or 1 if it didn't run.
 fn one(
@@ -211,8 +212,9 @@ fn one(
     console: &mut dyn Console,
     program: &Program,
     args: &[OsString],
+    from: &Path,
 ) -> u8 {
-    let Some((built, code)) = build(cx, &mut Stderr(console), program) else {
+    let Some((built, code)) = build(cx, &mut Stderr(console), program, from) else {
         return 1;
     };
     match code.platform {
@@ -483,12 +485,13 @@ fn dies_with_nomi(command: &mut Command) {
 #[cfg(not(target_os = "linux"))]
 fn dies_with_nomi(_: &mut Command) {}
 
-/// Builds `program`, showing how it went; what was built and the code
-/// written, if it was.
+/// Builds `program`, showing how it went, its output named from `from`;
+/// what was built and the code written, if it was.
 fn build(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
     program: &Program,
+    from: &Path,
 ) -> Option<(Built, Code)> {
     let mut built = chosen(cx, program)
         .inspect_err(|report| console::report(console, report, Compat::LATEST))
@@ -510,7 +513,7 @@ fn build(
         dir: &built.dir,
         ..*cx
     };
-    let code = make::wrote(&cx, console, &make)?.code?;
+    let code = make::wrote(&cx, console, &make, Some(from))?.code?;
     built.output.clone_from(&code.output);
     let output = built.output.to_string_lossy();
     if code.platform == Platform::Node && !make::has_ext(".mjs", &output) {
@@ -580,18 +583,22 @@ pub(crate) fn extension(entry: &Entry) -> &'static str {
     }
 }
 
-/// Where the program whose `main` is the module at `main`, in the
-/// project at `root`, is written when nothing names its output, from the
-/// root: by the module's path in the project, so that no two share one,
-/// with the extension `extension`.
+/// Where `nomi run` writes the program whose `main` is the module at
+/// `main`, in the project at `root`, when nothing names its output, from
+/// the root: as [`output_below`] has it in `elm-stuff`.
 pub(crate) fn default_output(root: &Path, main: &Path, extension: &str) -> PathBuf {
+    output_below(Path::new("elm-stuff/nomi/run"), root, main, extension)
+}
+
+/// The file in `dir` for the program whose `main` is the module at
+/// `main`, in the project at `root`: by the module's path in the project,
+/// so that no two share one, with the extension `extension`.
+pub(crate) fn output_below(dir: &Path, root: &Path, main: &Path, extension: &str) -> PathBuf {
     let mut name = relative(main, root);
     if !(name.components()).all(|c| matches!(c, Component::Normal(_))) {
         name = main.file_name().unwrap_or(main.as_os_str()).into();
     }
-    Path::new("elm-stuff/nomi/run")
-        .join(name)
-        .with_extension(extension)
+    dir.join(name).with_extension(extension)
 }
 
 /// The entry of the `nomi.toml` at `root` whose `main` is `chosen`, from

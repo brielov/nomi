@@ -552,8 +552,9 @@ pub fn main<H: Http + Sync>(
 /// `nomi test` with `args` for the projects `specs`, the values of `-p`,
 /// name: [`main`] in the project around the directory, or in each member
 /// named, or, outside every member of the workspace around it, in each
-/// one with a `tests` directory, each after a line naming it. Its exit
-/// code: the first that isn't 0. A report for machines, `--watch` and
+/// one with a `tests` directory, each after a line naming it where there
+/// are several. Its exit code: the first that isn't 0. Help, the version
+/// and a bad option are said once; a report for machines, `--watch` and
 /// elm-test's other commands need one member.
 pub fn members<H: Http + Sync>(
     cx: &Context<'_, H>,
@@ -562,6 +563,10 @@ pub fn members<H: Http + Sync>(
     var: &dyn Fn(&str) -> Option<String>,
     specs: &[String],
 ) -> i32 {
+    let parsed = parse(args, supervise::default_workers());
+    if let Parsed::Out(_) | Parsed::Err(_) = parsed {
+        return main(cx, console, args, var, Resolve::Nomi);
+    }
     let (workspace, dirs) = match scope::find(cx, specs) {
         Ok(Scope::Project) => return main(cx, console, args, var, Resolve::Nomi),
         Ok(Scope::Named(workspace, dirs)) => (workspace, dirs),
@@ -582,8 +587,9 @@ pub fn members<H: Http + Sync>(
         console.err("No member of the workspace has a tests directory.\n");
         return 1;
     }
-    if dirs.len() > 1 {
-        let one = match parse(args, supervise::default_workers()) {
+    let several = dirs.len() > 1;
+    if several {
+        let one = match parsed {
             Parsed::Run(flags, _) => flags.watch || flags.report.machine_readable(),
             Parsed::Make(..) | Parsed::Setup(_) => true,
             Parsed::Out(_) | Parsed::Err(_) => false,
@@ -598,12 +604,11 @@ pub fn members<H: Http + Sync>(
     }
     let mut code = 0;
     for dir in dirs {
-        let shown = if dir.as_os_str().is_empty() {
-            ".".into()
-        } else {
-            dir.display().to_string()
-        };
-        console.out(&format!("Testing {shown}\n"));
+        if several && dir.as_os_str().is_empty() {
+            console.out("Testing .\n");
+        } else if several {
+            console.out(&format!("Testing {}\n", dir.display()));
+        }
         let dir = workspace.root().join(dir);
         let ran = main(
             &Context { dir: &dir, ..*cx },

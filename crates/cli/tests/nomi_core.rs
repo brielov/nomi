@@ -19,6 +19,8 @@ use std::process::{Command, Output, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use nomi_testkit::http::{self, Response};
+use nomi_testkit::process::lines;
 use website::offline;
 
 /// A program that fails with `x` when its arguments are `fail`; waits,
@@ -566,15 +568,7 @@ impl Serving {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let stdout = BufReader::new(server.stdout.take().unwrap());
-        let (lines, said) = mpsc::channel();
-        std::thread::spawn(move || {
-            for line in stdout.lines().map_while(Result::ok) {
-                if lines.send(line).is_err() {
-                    break;
-                }
-            }
-        });
+        let said = lines(server.stdout.take().unwrap());
         let mut serving = Serving {
             port: 0,
             server,
@@ -618,12 +612,11 @@ impl Serving {
         stream
     }
 
-    /// `request` sent on a new connection; the response's status, headers
-    /// with lower-case names, and body.
-    fn send(&self, request: &[u8]) -> (u16, Vec<(String, String)>, String) {
+    /// `request` sent on a new connection, and the answer.
+    fn send(&self, request: &[u8]) -> Response {
         let mut stream = self.connect();
         stream.write_all(request).unwrap();
-        response(&mut stream)
+        http::read(stream).unwrap()
     }
 
     /// Sends the server SIGTERM.
@@ -660,45 +653,11 @@ impl Serving {
     }
 }
 
-/// The response read from `stream` to its end: its status, headers with
-/// lower-case names, and body.
-fn response(stream: &mut TcpStream) -> (u16, Vec<(String, String)>, String) {
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    let (head, body) = response.split_once("\r\n\r\n").unwrap();
-    let mut lines = head.lines();
-    let status = lines.next().unwrap().split(' ').nth(1).unwrap();
-    let headers = lines
-        .map(|line| line.split_once(": ").unwrap())
-        .map(|(name, value)| (name.to_ascii_lowercase(), value.to_owned()))
-        .collect();
-    (status.parse().unwrap(), headers, body.to_owned())
-}
-
 impl Drop for Serving {
     fn drop(&mut self) {
         let _ = self.server.kill();
         let _ = self.server.wait();
     }
-}
-
-/// A request closing its connection, with `headers`, each ending in a
-/// line break, and `body`.
-fn request(method: &str, target: &str, headers: &str, body: &[u8]) -> Vec<u8> {
-    let mut request = format!(
-        "{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{headers}Content-Length: {}\r\n\r\n",
-        body.len()
-    )
-    .into_bytes();
-    request.extend_from_slice(body);
-    request
-}
-
-/// The value of the header `name` among `headers`.
-fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    (headers.iter())
-        .find(|(n, _)| n == name)
-        .map(|(_, value)| value.as_str())
 }
 
 #[test]
@@ -716,24 +675,26 @@ fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
         ("PURGE", "OtherMethod \"PURGE\""),
     ];
     for (method, read) in methods {
-        let sent = request(
+        let sent = http::closing(
             method,
             "/echo/a%20b//c/?q=x%26y&q=2&r",
             "x-TeSt: Hi\r\n",
             b"",
         );
-        let (status, headers, body) = serving.send(&sent);
+        let sent = serving.send(&sent);
+        let (status, body) = (sent.status, sent.text());
         let echo = format!("({read},[\"echo\",\"a b\",\"c\"],(Just \"x&y\",Just \"Hi\"))");
         assert_eq!(status, 200, "{method}");
-        assert_eq!(header(&headers, "x-echo"), Some(echo.as_str()), "{method}");
+        assert_eq!(sent.header("x-echo"), Some(echo.as_str()), "{method}");
         let expected = if method == "HEAD" { "" } else { &echo };
         assert_eq!(body, expected, "{method}");
         assert_eq!(
-            header(&headers, "content-type"),
+            sent.header("content-type"),
             Some("text/plain; charset=utf-8")
         );
     }
-    let (_, _, body) = serving.send(&request("GET", "/", "", b""));
+    let sent = serving.send(&http::closing("GET", "/", "", b""));
+    let body = sent.text();
     assert_eq!(body, "(Get,[],(Nothing,Nothing))");
     serving.terminate();
     assert_eq!(serving.exit(), (Some(143), vec![]));
@@ -743,23 +704,27 @@ fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
 fn a_server_decodes_json_bodies_and_refuses_large_and_bad_ones() {
     nomi_testkit::require_node();
     let serving = Serving::start();
-    let (status, headers, body) = serving.send(&request("POST", "/json", "", br#"{"n": 41}"#));
+    let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": 41}"#));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, r#"{"n":42}"#));
-    assert_eq!(header(&headers, "content-type"), Some("application/json"));
-    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n":"#));
+    assert_eq!(sent.header("content-type"), Some("application/json"));
+    let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n":"#));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!(status, 400);
     assert!(
         body.starts_with("BadJson \"Problem with the given value"),
         "{body}"
     );
-    let (_, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": "x"}"#));
+    let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": "x"}"#));
+    let body = sent.text();
     assert!(
         body.starts_with("BadJson \"Problem with the value at json.n"),
         "{body}"
     );
     // A body past 1 MiB, whether its length is declared or not.
     let large = vec![b' '; 1024 * 1024 + 1];
-    let (status, _, body) = serving.send(&request("POST", "/json", "", &large));
+    let sent = serving.send(&http::closing("POST", "/json", "", &large));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (400, "TooLarge"));
     let mut chunked = b"POST /json HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
     for _ in 0..2 {
@@ -768,13 +733,15 @@ fn a_server_decodes_json_bodies_and_refuses_large_and_bad_ones() {
         chunked.extend_from_slice(b"\r\n");
     }
     chunked.extend_from_slice(b"0\r\n\r\n");
-    let (status, _, body) = serving.send(&chunked);
+    let sent = serving.send(&chunked);
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (400, "TooLarge"));
     // At the limit, it is read.
     let mut whole = vec![b' '; 1024 * 1024 - 9];
     whole.extend_from_slice(br#"{"n": 1}"#);
     whole.push(b' ');
-    let (status, _, body) = serving.send(&request("POST", "/json", "", &whole));
+    let sent = serving.send(&http::closing("POST", "/json", "", &whole));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, r#"{"n":2}"#));
 }
 
@@ -820,9 +787,11 @@ fn a_server_on_a_port_node_refuses_fails_with_its_message() {
 fn a_server_takes_bodies_up_to_its_max_body_bytes() {
     nomi_testkit::require_node();
     let serving = Serving::of(SERVER, &["16"]);
-    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": 1}        "#));
+    let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": 1}        "#));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, r#"{"n":2}"#));
-    let (status, _, body) = serving.send(&request("POST", "/json", "", br#"{"n": 1}         "#));
+    let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": 1}         "#));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (400, "TooLarge"));
 }
 
@@ -835,20 +804,22 @@ fn a_server_reads_repeated_headers_as_node_does_and_sends_each_added_one() {
         ("content-type", r#"Just "a""#),
         ("x-many", r#"Just "1, 2""#),
     ] {
-        let sent = request(
+        let sent = http::closing(
             "GET",
             &format!("/header/{name}"),
             "Cookie: a=1\r\nCookie: b=2\r\nContent-Type: a\r\nContent-Type: b\r\nX-Many: 1\r\nX-Many: 2\r\n",
             b"",
         );
-        let (_, _, body) = serving.send(&sent);
+        let sent = serving.send(&sent);
+        let body = sent.text();
         assert_eq!(body, read, "{name}");
     }
-    let (status, headers, _) = serving.send(&request("GET", "/cookies", "", b""));
+    let sent = serving.send(&http::closing("GET", "/cookies", "", b""));
+    let status = sent.status;
     assert_eq!(status, 204);
     // In the order added, those of one name together, as `respond` gives
     // them.
-    let added: Vec<_> = (headers.iter())
+    let added: Vec<_> = (sent.headers.iter())
         .filter(|(name, _)| name == "set-cookie" || name == "x-between")
         .map(|(name, value)| (name.as_str(), value.as_str()))
         .collect();
@@ -867,11 +838,14 @@ fn a_client_that_disconnects_interrupts_its_request_and_runs_its_finalizers() {
     nomi_testkit::require_node();
     let mut serving = Serving::of(LIFECYCLE, &["5000"]);
     let mut stream = serving.connect();
-    stream.write_all(&request("GET", "/hang", "", b"")).unwrap();
+    stream
+        .write_all(&http::closing("GET", "/hang", "", b""))
+        .unwrap();
     serving.says("hanging: ()");
     drop(stream);
     serving.says("hang finalized: ()");
-    let (status, _, body) = serving.send(&request("GET", "/", "", b""));
+    let sent = serving.send(&http::closing("GET", "/", "", b""));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, "ok"));
     serving.terminate();
     assert_eq!(serving.exit(), (Some(143), vec![]));
@@ -881,14 +855,15 @@ fn a_client_that_disconnects_interrupts_its_request_and_runs_its_finalizers() {
 fn a_handler_that_dies_answers_500_writes_one_line_and_the_server_serves_on() {
     nomi_testkit::require_node();
     let mut serving = Serving::of(LIFECYCLE, &["5000"]);
-    let (status, headers, body) =
-        serving.send(&request("GET", "/todo?x=1", "X-Gone: yes\r\n", b""));
+    let sent = serving.send(&http::closing("GET", "/todo?x=1", "X-Gone: yes\r\n", b""));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (500, "internal server error"));
     assert_eq!(
-        header(&headers, "content-type"),
+        sent.header("content-type"),
         Some("text/plain; charset=utf-8")
     );
-    let (status, _, body) = serving.send(&request("GET", "/", "", b""));
+    let sent = serving.send(&http::closing("GET", "/", "", b""));
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, "ok"));
     serving.terminate();
     let line = LIFECYCLE
@@ -928,7 +903,8 @@ fn sigterm_refuses_new_connections_lets_a_response_in_flight_complete_and_exits_
         }
     }
     stream.write_all(b"done").unwrap();
-    let (status, _, body) = response(&mut stream);
+    let sent = http::read(stream).unwrap();
+    let (status, body) = (sent.status, sent.text());
     assert_eq!((status, body.as_str()), (200, "done"));
     assert_eq!(serving.exit(), (Some(143), vec![]));
     // Well before the drain's 30 seconds pass.
@@ -975,7 +951,9 @@ fn a_request_still_running_when_the_drain_ends_is_interrupted_and_its_connection
     nomi_testkit::require_node();
     let mut serving = Serving::of(LIFECYCLE, &["1000"]);
     let mut stream = serving.connect();
-    stream.write_all(&request("GET", "/hang", "", b"")).unwrap();
+    stream
+        .write_all(&http::closing("GET", "/hang", "", b""))
+        .unwrap();
     serving.says("hanging: ()");
     serving.terminate();
     let signalled = Instant::now();
