@@ -25,7 +25,7 @@ write : Bytes -> Writer -> Task Error ()      -- succeeds once the sink accepted
 close : Writer -> Task Error ()
 ```
 
-A write that waits for the sink is the backpressure. An interrupted `read` loses nothing. A handle holds state (a position, a buffer, a decompressor), so whatever makes one is a task, as `Ref.make` is: transforms are `Reader -> Task x Reader` (`Compress.gunzip`, `Stream.limit`), and text lines are a `LineReader` (`Stream.lines : Reader -> Task x LineReader`, `Stream.line : LineReader -> Task Error (Maybe String)`), clearer to use than lines as chunks. Made by a pure function, a handle would be two where a `let` makes one, and `Stream.line (Stream.lines reader)` in a loop would drop what each chunk held past its line. Elm code makes handles of its own from tasks (`Stream.reader`, `Stream.writer`), so a transform, a protocol or a multipart part is pure Elm on the same API as the kernel's. A combinator library (`fold`, `map`, `pipe`, `take`) sits on top with no kernel. On Bun, a body is a `ReadableStream` of the default kind, which waits for a slow reader; the `direct` kind buffers whatever is written, so kernels don't use it.
+A write that waits for the sink is the backpressure. An interrupted `read` loses nothing. A handle holds state (a position, a buffer, a decompressor), so whatever makes one is a task, as `Ref.make` is: transforms are `Reader -> Task x Reader` (`Compress.gunzip`, `Stream.limit`), and text lines are a `LineReader` (`Stream.lines : Reader -> Task x LineReader`, `Stream.line : LineReader -> Task Error (Maybe String)`), clearer to use than lines as chunks. Made by a pure function, a handle would be two where a `let` makes one, and `Stream.line (Stream.lines reader)` in a loop would drop what each chunk held past its line. Elm code makes handles of its own from tasks (`Stream.reader`, `Stream.writer`), which the runtime queues as it queues a kernel handle's reads and writes, so a transform, a protocol or a multipart part is pure Elm on the same API as the kernel's. A combinator library (`fold`, `map`, `pipe`, `take`) sits on top with no kernel. On Bun, a body is a `ReadableStream` of the default kind, which waits for a slow reader; the `direct` kind buffers whatever is written, so kernels don't use it.
 
 `Stream.Error` is one type for every source and sink: the other end gone (`Closed`), a limit passed (`TooLarge`), data a reader refuses (`Invalid`: bad UTF-8, a corrupt gzip), and the system's failure by kind (`ConnectionReset`, `PermissionDenied`, `TimedOut` and the like), with `errorToString`. Opening a stream fails with its module's error; once open, it fails with `Stream.Error`.
 
@@ -63,7 +63,7 @@ An event source (`Fs.watch`, `Process.signals`, `Sql.listen`, a Redis subscripti
 
 **D9. One SQL driver.** `Nomi.Sql` is one module over `Bun.sql`, which speaks Postgres, MySQL and SQLite; `bun:sqlite` isn't used, so there is one SQLite in nomi, not two. What that gives up (loading extensions, custom SQL functions, serializing a database to bytes) is rarely needed by a server and can come later through `Bun.sql` if it grows them.
 
-- **64-bit integers.** SQLite opens with `safeIntegers`, and an Elm `Int` is exact only to ±(2^53 − 1), so `Sql.int` fails past that rather than round, `Sql.int64` reads any integer column exactly as its decimal text, and a parameter past it is passed as `Text`.
+- **64-bit integers.** SQLite opens with `safeIntegers`, and an Elm `Int` is exact only to ±(2^53 − 1), so `Sql.int` fails past that rather than round, `Sql.int64` reads any integer column exactly as its decimal text, and `Sql.int64Value : String -> Value` passes one from decimal text, which the kernel sends as a 64-bit integer, since an `Int` past ±(2^53 − 1) is already rounded before it reaches the kernel.
 - **SQLite runs on the event loop.** `Bun.sql` runs a SQLite statement synchronously: on Bun 1.4.3 a 400 ms query let no timer fire, and its `cancel` couldn't run until it ended. So every fiber waits while a SQLite statement runs, and a statement whose fiber is interrupted runs to its end, the interruption taking effect once it returns. The docs say so; moving SQLite off the event loop waits for workers (D11). Postgres and MySQL queries are cancelled on the server (§4).
 
 **D10. Routing, cookies and forms ship, as pure Elm,** small and replaceable, in `nomi/http`. Sessions, CSRF, JWT and templating are left to packages.
@@ -95,7 +95,7 @@ readAll : { limit : Int } -> Reader -> Task Error Bytes
 write : Bytes -> Writer -> Task Error ()
 close : Writer -> Task Error ()
 pipe : Reader -> Writer -> Task Error ()
-reader : Task Error (Maybe Bytes) -> Task x Reader       -- each read runs the task
+reader : Task Error (Maybe Bytes) -> Task x Reader       -- each read runs the task, one at a time
 writer : { write : Bytes -> Task Error (), close : Task Error () } -> Task x Writer
 fromBytes : Bytes -> Task x Reader
 limit : Int -> Reader -> Task x Reader
@@ -123,10 +123,10 @@ spawn : Command -> Processes -> Task Error Child   -- stdin : Writer, stdout/std
 wait : Child -> Task Error Int
 kill : Signal -> Child -> Task Error ()
 fake : (Command -> Maybe { status : Int, stdout : Bytes, stderr : Bytes }) -> Task x Processes
-ran : Processes -> Task x (List Command)
+ran : Processes -> Task x (List { command : Command, stdin : Bytes })
 ```
 
-A child belongs to the fiber that spawned it (D6): interrupting the fiber sends SIGTERM, then SIGKILL after a grace. Windows has no SIGTERM, so there `kill` and interruption end a child at once. `fake` answers `output` and `spawn` from its function and refuses a command the function doesn't know; `ran` lists the commands a fake ran.
+A child belongs to the fiber that spawned it (D6): interrupting the fiber sends SIGTERM, then SIGKILL after a grace. Windows has no SIGTERM, so there `kill` and interruption end a child at once. `fake` answers `output` and `spawn` from its function and refuses a command the function doesn't know; a spawned fake child records what is written to its `stdin`, and its `wait` returns once `stdin` is closed. `ran` lists the commands a fake ran, each with the bytes it was given on `stdin`.
 
 **HTTP server (`Nomi.Http.Server`).** On `Bun.serve`. The handler stays `Request -> Task Never Response`, its fiber interrupted when the client goes away (Bun aborts the request's signal). `body : Request -> Reader`, with `bytes`, `text`, `json` and `form` helpers that take a limit. A response is text, JSON, bytes, a `Reader` (SSE with the right content type) or a file. `upgrade : (WebSocket -> Task Never ()) -> Response` makes the connection a fiber that receives and sends messages, `send` waiting while Bun reports backpressure until `drain`. TLS from a certificate and key; graceful shutdown as now. Pure helpers: `Route`, `Cookie` (parse, serialize, sign with `Nomi.Crypto`'s HMAC), `Form` (urlencoded, and multipart streaming a `Reader` per part, made with `Stream.reader`).
 
@@ -152,6 +152,7 @@ listen : String -> Db -> Task Error Listener            -- Postgres LISTEN, a ha
 notification : Listener -> Task Error (Maybe String)
 int : Decoder Int                                       -- fails past ±(2^53 − 1)
 int64 : Decoder String                                  -- any integer, exactly, as decimal text
+int64Value : String -> Value                            -- a parameter, from decimal text
 ```
 
 Row decoders read columns by name, as `Json.Decode` reads fields. `transaction` takes how a database error becomes the program's, so the task inside fails with the program's own errors and any failure rolls back. A Postgres or MySQL query whose fiber is interrupted is cancelled: `Bun.sql` can't cancel one already running, so the kernel runs each on a reserved connection, knows its backend, and cancels it from a connection kept outside the pool, which an exhausted pool can't hold up (`pg_cancel_backend` on Postgres, `KILL QUERY` on MySQL). A SQLite statement runs to its end (D9). `open` refuses a path outside its capability's root, opens read-only under `Fs.readOnly`, and fails with `NotOnDisk` on an `Fs` with no disk behind it, such as `Fs.memory`; tests use `memory`. Results arrive whole, as `Bun.sql` has no cursors; `query` takes no limit of its own, and a large result is paged in SQL.
@@ -162,7 +163,7 @@ Row decoders read columns by name, as `Json.Decode` reads fields. `transaction` 
 
 **Batteries.**
 - **Redis** on `Bun.redis`: the common commands typed, `command : List Bytes -> Redis -> Task Error Reply` for the rest, pub/sub as a handle a fiber reads (D6). A client multiplexes one connection, so blocking commands and subscriptions get a connection of their own (`duplicate`), and interruption closes that one, cancelling the command without failing other fibers' commands.
-- **S3** on `Bun.s3`: get and put as streams, head, delete, list, presigned URLs; tested against Garage in a container, since MinIO stopped publishing images in October 2025 and has been archived since.
+- **S3** on `Bun.s3`: get and put as streams, head, delete, list, presigned URLs; tested against Garage in a container, since MinIO stopped publishing images in October 2025 and its repository has been archived since ([Minimus](https://www.minimus.io/post/minio-docker-image-changes-how-to-find-a-secure-minio-alternative)).
 
 ## 6. Order of work
 
