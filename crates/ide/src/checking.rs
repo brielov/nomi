@@ -202,7 +202,7 @@ pub fn project_problems(
             ),
             None => {
                 for path in &open {
-                    found.extend(syntax_problems(snapshot, path, Some(root)));
+                    found.extend(syntax_problems(snapshot, path, Some(&manifest)));
                 }
             }
         }
@@ -251,30 +251,76 @@ pub fn project_problems(
 }
 
 /// The syntax error in the file at `path`, for a file elm can't check
-/// with its project: one outside any, or whose dependencies the store
-/// doesn't hold. Its data names the file relative to `root`, or by its
-/// name alone.
-fn syntax_problems(snapshot: &Snapshot, path: &Path, root: Option<&Path>) -> Vec<Problem> {
+/// with its project, whose `elm.json` is `manifest`: one outside any, or
+/// whose dependencies the store doesn't hold. Its data names the file
+/// relative to the project, or by its name alone.
+fn syntax_problems(snapshot: &Snapshot, path: &Path, manifest: Option<&Path>) -> Vec<Problem> {
+    let root = manifest.and_then(Path::parent);
     let relative = || match root.and_then(|root| path.strip_prefix(root).ok()) {
         Some(relative) => slashed(relative),
         None => slashed(Path::new(path.file_name().unwrap_or_default())),
     };
-    (diagnostics(snapshot, path).unwrap_or_default().into_iter())
-        .map(|d| Problem {
-            relative: Some(relative()),
-            ..Problem::new(
-                path.to_owned(),
-                d.range,
-                Code::ElmMake,
-                format!("{} - {}", d.title, d.message),
-            )
-        })
-        .collect()
+    (diagnostics(snapshot, path, manifest)
+        .unwrap_or_default()
+        .into_iter())
+    .map(|d| Problem {
+        relative: Some(relative()),
+        ..Problem::new(
+            path.to_owned(),
+            d.range,
+            Code::ElmMake,
+            format!("{} - {}", d.title, d.message),
+        )
+    })
+    .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_is_read_as_its_owner_reads_it_where_its_owner_cant_check_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = nomi_engine::canonical(dir.path()).unwrap();
+        // The package's `Deep` directory is the application's too, which
+        // owns it as the deeper once its own file is open; a port module is
+        // no package's.
+        let package = r#"{ "type": "package", "name": "acme/lib", "summary": "lib",
+            "license": "BSD-3-Clause", "version": "1.0.0", "exposed-modules": [],
+            "elm-version": "0.19.0 <= v < 0.20.0",
+            "dependencies": { "elm/core": "1.0.0 <= v < 2.0.0" },
+            "test-dependencies": {} }"#;
+        let app = (nomi_testkit::packages::CORE_AND_JSON_APP)
+            .replace(r#"["src"]"#, r#"["src", "../lib/src/Deep"]"#);
+        nomi_testkit::write_file(&root, "lib/elm.json", package);
+        nomi_testkit::write_file(&root, "app/elm.json", &app);
+        let ports = "module Ports exposing (out)\n\n\nport out : String -> Cmd msg\n";
+        let path = root.join("lib/src/Deep/Ports.elm");
+        nomi_testkit::write_file(&root, "lib/src/Deep/Ports.elm", &format!("port {ports}"));
+        let main = root.join("app/src/Main.elm");
+        nomi_testkit::write_file(
+            &root,
+            "app/src/Main.elm",
+            "module Main exposing (x)\n\n\nx =\n    1\n",
+        );
+        let snapshot = nomi_engine::Vfs::new().snapshot();
+        let found = project_problems(
+            &snapshot,
+            &[path, main],
+            &CheckSettings::default(),
+            true,
+            &mut Reviewed::default(),
+            ColumnUnit::Utf16,
+            |_, _, _| Ok((None, None)),
+        )
+        .unwrap();
+        let elm: Vec<&str> = (found.iter())
+            .filter(|p| p.code == Code::ElmMake)
+            .map(|p| p.message.as_str())
+            .collect();
+        assert_eq!(elm, [] as [&str; 0]);
+    }
 
     #[test]
     fn elm_analyse_json_turns_rules_off_and_files_out() {

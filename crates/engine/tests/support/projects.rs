@@ -123,17 +123,16 @@ pub fn javascript(
         [root] => Some(root.name.to_string()),
         _ => None,
     };
-    let js = javascript::program(
+    let program = javascript::Program {
         compat,
         kind,
-        Target::default(),
-        None,
-        "author/project",
-        &sources,
-        dependencies,
-        optimized,
-    )
-    .map_err(|report| report.title.into_owned())?;
+        target: Target::default(),
+        ffi: None,
+        package: "author/project",
+        packages: &sources,
+    };
+    let js = javascript::program(program, dependencies, optimized)
+        .map_err(|report| report.title.into_owned())?;
     let html = (case.args.iter()).any(|a| a.starts_with("--output=") && a.ends_with(".html"));
     match root {
         Some(module) if html => Ok(nomi_codegen_js::html::sandwich(&module, &js)),

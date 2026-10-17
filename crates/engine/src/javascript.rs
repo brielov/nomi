@@ -44,26 +44,38 @@ pub enum Kind {
     Optimize,
 }
 
-/// The JavaScript of what `elm make` optimized of the project `package`,
-/// with `dependencies`' graph and their modules' types, for `target`; or
+/// What a program's JavaScript is generated as, and from which
+/// project's packages.
+#[derive(Debug)]
+pub struct Program<'a> {
+    pub compat: Compat,
+    pub kind: Kind,
+    pub target: Target,
+    /// Where `target`'s FFI module, where it has one, was named.
+    pub ffi: Option<&'a FfiModule>,
+    /// The package the project's own modules are homes in.
+    pub package: &'a str,
+    /// The dependencies, each with the directory of its source, where the
+    /// platform's kernels find the files they replace.
+    pub packages: &'a [(Name, PathBuf)],
+}
+
+/// The JavaScript of what `elm make` optimized of the project, with
+/// `dependencies`' graph and their modules' types, as `program` asks; or
 /// the report on a kernel the program reaches that its platform lacks.
-/// `packages` are the dependencies, each with the directory of its
-/// source, where the platform's kernels find the files they replace;
-/// `ffi`, where `target` has an FFI module, is where it was named.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each is a separate input of generation"
-)]
 pub fn program(
-    compat: Compat,
-    kind: Kind,
-    mut target: Target,
-    ffi: Option<&FfiModule>,
-    package: &str,
-    packages: &[(Name, PathBuf)],
+    program: Program<'_>,
     dependencies: (GlobalGraph, Types),
     optimized: Optimized,
 ) -> Result<Vec<u8>, Report> {
+    let Program {
+        compat,
+        kind,
+        mut target,
+        ffi,
+        package,
+        packages,
+    } = program;
     let Optimized {
         roots,
         graphs: mut locals,

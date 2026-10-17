@@ -25,7 +25,7 @@ use nomi_registry::Http;
 use crate::artifacts::Hash;
 use crate::console::{self, Console, Personality};
 use crate::javascript::{Advice, Start, Target};
-use crate::make::{self, Code, FfiModule, Make, NamedIn};
+use crate::make::{self, Code, FfiModule, Make, NamedIn, OutputName};
 use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
 use crate::report::one_line;
@@ -50,9 +50,9 @@ struct Built {
     main: PathBuf,
     /// The code to write, absolute: an ES module on Node.
     output: PathBuf,
-    /// Whether `output`'s extension is the platform's, as nothing names
-    /// it.
-    output_by_platform: bool,
+    /// What decides `output`'s extension: the platform, where nothing
+    /// names it.
+    output_name: OutputName,
     /// The FFI module, its path from `dir`.
     ffi: Option<FfiModule>,
     /// What `main` and `ffi` are relative to.
@@ -569,7 +569,7 @@ fn build(
         .expect("a program run is written to an ES module");
     let make = Make {
         ffi: built.ffi.clone(),
-        output_by_platform: built.output_by_platform,
+        output_name: built.output_name,
         target: Target {
             start: Start::Entry,
             advice: Advice::Omitted,
@@ -603,7 +603,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
         Program::Module(main) => Built {
             main: main.clone(),
             output: output_of(&cx.dir.join(main), "mjs"),
-            output_by_platform: false,
+            output_name: OutputName::Given,
             ffi: None,
             dir: cx.dir.to_owned(),
             platform: Some(Platform::Node),
@@ -617,7 +617,11 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 Some(output) => root.dir().join(output),
                 None => output_of(&root.dir().join(&entry.main), extension(&entry)),
             };
-            let output_by_platform = entry.output.is_none();
+            let output_name = if entry.output.is_none() {
+                OutputName::ByPlatform
+            } else {
+                OutputName::Given
+            };
             Built {
                 ffi: entry.ffi.map(|path| FfiModule {
                     path: path.into(),
@@ -625,7 +629,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
                 }),
                 main: entry.main.into(),
                 output,
-                output_by_platform,
+                output_name,
                 dir: root.dir().to_owned(),
                 platform: entry.platform,
                 args: entry.args,

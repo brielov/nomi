@@ -156,7 +156,7 @@ fn making(make: &Make) -> Result<Making, Report> {
     let kind = make.kind.map_err(|_| make::cannot_optimize_and_debug())?;
     let plain = make.docs.is_none() && make.ffi.is_none() && make.style == Style::Terminal;
     match &make.output {
-        None if plain && make.platform_by_main => Ok(Making::Code(kind)),
+        None if plain && make.platform.is_none() => Ok(Making::Code(kind)),
         Some(Output::DevNull) if plain => Ok(Making::Check),
         _ => Err(flags_need_paths()),
     }

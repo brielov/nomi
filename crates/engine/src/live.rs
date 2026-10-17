@@ -14,7 +14,7 @@ use crate::Snapshot;
 use crate::artifacts::Artifacts;
 use crate::check::{Build, Checked, Goal};
 use crate::console::Personality;
-use crate::index::{self, MemberBuilds, Memo, Setup};
+use crate::index::{self, MemberBuilds, Memo, Setup, Uses};
 use crate::names;
 use crate::schedule::Cancelled;
 use crate::vfs::canonical_or_given;
@@ -47,7 +47,9 @@ pub fn check(
     kept: &MemberBuilds,
     artifacts: Option<&Artifacts>,
 ) -> Result<Option<Live>, Cancelled> {
-    let Some(setup) = Setup::read(snapshot, store, manifest).filter(|setup| setup.complete) else {
+    let Some(setup) =
+        Setup::read(snapshot, store, manifest, Uses::Build).filter(|setup| setup.complete)
+    else {
         return Ok(None);
     };
     let Some(env) = setup.env(&setup.exposing()) else {

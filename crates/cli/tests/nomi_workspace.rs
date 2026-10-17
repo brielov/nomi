@@ -360,6 +360,7 @@ fn an_edit_to_a_member_package_rebuilds_its_module_and_what_depends_on_it() {
     assert_eq!(canonicalized(&interface), 2, "{}", said(&interface));
 }
 
+/// Inside a member, the other members' files are named up from it.
 #[test]
 fn an_error_in_a_member_package_is_a_module_error_in_its_file() {
     let worker = Worker::new();
@@ -373,10 +374,36 @@ fn an_error_in_a_member_package_is_a_module_error_in_its_file() {
     assert!(said.contains("Detected problems in 1 module."), "{said}");
     let bar = said.lines().find(|l| l.starts_with("-- TYPE MISMATCH -"));
     assert!(
-        bar.is_some_and(|bar| bar.ends_with("- packages/shared/src/Shared/Base.elm")),
+        bar.is_some_and(|bar| bar.ends_with(" ../../packages/shared/src/Shared/Base.elm")),
         "{said}"
     );
     assert!(!worker.root.join("apps/web/main.js").exists());
+}
+
+/// Inside a member, its entries checked, the other members' files are
+/// named up from it too.
+#[test]
+fn an_error_in_a_member_package_is_named_from_a_member_checking_its_entries() {
+    let worker = Worker::new();
+    fs::write(
+        worker.root.join("apps/web/nomi.toml"),
+        "[[entry]]\nmain = \"src/Main.elm\"\n",
+    )
+    .unwrap();
+    worker.edit(
+        "Shared/Base",
+        "module Shared.Base exposing (hello)\n\n\nhello : String\nhello =\n    1\n",
+    );
+    let nomi = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let web = worker.root.join("apps/web");
+    let checked = run(nomi, worker.cache.path(), &web, &["check"]);
+    assert!(!checked.status.success(), "{checked:?}");
+    let said = said(&checked);
+    let bar = said.lines().find(|l| l.starts_with("-- TYPE MISMATCH -"));
+    assert!(
+        bar.is_some_and(|bar| bar.ends_with(" ../../packages/shared/src/Shared/Base.elm")),
+        "{said}"
+    );
 }
 
 /// The package `name` 1.0.0 in `dir`: its `elm.json`, depending on

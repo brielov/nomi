@@ -187,10 +187,10 @@ struct Context {
 }
 
 impl Context {
-    /// The context of the file at `path`, from the nearest `elm.json`
-    /// above it (R7).
-    fn of(snapshot: &Snapshot, path: &Path) -> Context {
-        let Some(project) = project_outline(snapshot, path) else {
+    /// The context of a file of the project whose `elm.json` is
+    /// `manifest`, which owns it (R7).
+    fn of(snapshot: &Snapshot, manifest: Option<&Path>) -> Context {
+        let Some(project) = manifest.and_then(|m| outline_at(snapshot, m)) else {
             return Context {
                 compat: Compat::LATEST,
                 source: nomi_syntax::Source::Application,
@@ -207,7 +207,7 @@ impl Context {
     }
 }
 
-/// The project that owns a file, by the nearest `elm.json` above it.
+/// A project, as its `elm.json` says.
 struct ProjectOutline {
     /// The directory of its `elm.json`.
     root: PathBuf,
@@ -216,10 +216,14 @@ struct ProjectOutline {
     compat: Compat,
 }
 
-/// The project that owns the file at `path`.
+/// The project of the nearest `elm.json` above the file at `path`.
 fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<ProjectOutline> {
-    let manifest = nearest(snapshot, path)?;
-    let (outline, compat) = Outline::detect(&snapshot.read_bytes(&manifest).ok()?).ok()?;
+    outline_at(snapshot, &nearest(snapshot, path)?)
+}
+
+/// The project whose `elm.json` is `manifest`.
+fn outline_at(snapshot: &Snapshot, manifest: &Path) -> Option<ProjectOutline> {
+    let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
     Some(ProjectOutline {
         root: manifest.parent()?.to_owned(),
         outline,
@@ -228,10 +232,15 @@ fn project_outline(snapshot: &Snapshot, path: &Path) -> Option<ProjectOutline> {
 }
 
 /// The syntax error elm reports for the file at `path`, if any, at the
-/// region it reports.
-fn diagnostics(snapshot: &Snapshot, path: &Path) -> io::Result<Vec<Diagnostic>> {
+/// region it reports, the file read as the project whose `elm.json` is
+/// `manifest` reads it.
+fn diagnostics(
+    snapshot: &Snapshot,
+    path: &Path,
+    manifest: Option<&Path>,
+) -> io::Result<Vec<Diagnostic>> {
     let text = snapshot.read(path)?;
-    let context = Context::of(snapshot, path);
+    let context = Context::of(snapshot, manifest);
     let parse = parse_module(&text);
     let mut errors = parse.errors().to_vec();
     errors.extend(validate(&parse, Tool::Elm(context.source, context.compat)));

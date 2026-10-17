@@ -60,11 +60,27 @@ fn using(kind: &str, from: &str) -> String {
     )
 }
 
-/// `session` replayed against the files `files` lay out: its transcript,
-/// paths written `<project>`.
-fn transcript(files: &[(&str, String)], session: &Value) -> Value {
+/// A release the registry published, as the store keeps it: its name,
+/// version, and files.
+type Published<'p> = (&'p str, &'p str, &'p [(&'p str, String)]);
+
+/// `session` replayed against the files `files` lay out, the store
+/// holding `published` beside the fixture packages: its transcript, paths
+/// written `<project>`.
+fn transcript(files: &[(&str, String)], published: &[Published], session: &Value) -> Value {
     let temp = tempfile::tempdir().unwrap();
     let (store, packages) = store(&temp.path().join("store"));
+    for (n, (name, version, files)) in published.iter().enumerate() {
+        let hash = format!("{n:040x}");
+        write_file(
+            store.dir(),
+            &format!("releases/{name}/{version}"),
+            &format!("{hash}\n"),
+        );
+        for (path, text) in *files {
+            write_file(store.dir(), &format!("sources/{hash}/{path}"), text);
+        }
+    }
     let memo = built(temp.path(), &store);
     let work = real(temp.path()).join("work");
     for (path, text) in files {
@@ -91,6 +107,7 @@ fn an_application_reaches_into_the_member_packages_it_uses() {
     let web = "apps/web/src/Main.elm";
     let api = "apps/api/src/Main.elm";
     let pkg = "packages/shared/src/Shared.elm";
+    let extra = "apps/api/src/Extra.elm";
     let files = [
         (
             "nomi.toml",
@@ -102,6 +119,10 @@ fn an_application_reaches_into_the_member_packages_it_uses() {
         (web, using("Int", "Shared")),
         ("apps/api/elm.json", app(&[], &["acme/shared"])),
         (api, using("String", "Shared")),
+        (
+            extra,
+            "module Extra exposing (x)\n\n\nx : Int\nx =\n    0\n".to_owned(),
+        ),
     ];
     let change = |text: String| {
         json!({ "method": "textDocument/didChange", "file": pkg,
@@ -113,12 +134,15 @@ fn an_application_reaches_into_the_member_packages_it_uses() {
             { "method": "textDocument/hover", "file": web, "at": 0 },
             { "method": "textDocument/definition", "file": web, "at": 0 },
             change(shared("String", "1")),
+            // Opening a file publishes every open file's diagnostics, the
+            // change still unsaved.
+            { "method": "textDocument/didOpen", "file": extra },
             { "method": "textDocument/didSave", "file": pkg },
             change(shared("Int", "1")),
             { "method": "textDocument/didSave", "file": pkg },
         ],
     });
-    let transcript = transcript(&files, &session);
+    let transcript = transcript(&files, &[], &session);
     // web's `Int` is shared's `String`; api agrees with shared.
     let opened = &transcript["diagnostics"];
     assert_eq!(titles(&opened[web]), ["TYPE MISMATCH"], "{opened:#}");
@@ -140,14 +164,17 @@ fn an_application_reaches_into_the_member_packages_it_uses() {
             "range": { "start": { "line": 4, "character": 0 }, "end": { "line": 4, "character": 4 } },
         })
     );
-    // shared broken: its error is shown once, in its own file, and the
-    // applications keep what they had through its last good build.
-    let broken = &requests[3]["diagnostics"];
-    assert_eq!(titles(&broken[pkg]), ["TYPE MISMATCH"], "{broken:#}");
-    assert_eq!(broken[web], opened[web], "{broken:#}");
-    assert_eq!(titles(&broken[api]), [] as [&str; 0], "{broken:#}");
+    // shared broken, unsaved and then saved: its error is shown once, in
+    // its own file, and the applications keep what they had through its
+    // last good build.
+    for step in [3, 4] {
+        let broken = &requests[step]["diagnostics"];
+        assert_eq!(titles(&broken[pkg]), ["TYPE MISMATCH"], "{broken:#}");
+        assert_eq!(broken[web], opened[web], "{broken:#}");
+        assert_eq!(titles(&broken[api]), [] as [&str; 0], "{broken:#}");
+    }
     // shared's `name` an `Int`: web agrees with it, and api doesn't.
-    let changed = &requests[5]["diagnostics"];
+    let changed = &requests[6]["diagnostics"];
     assert_eq!(titles(&changed[pkg]), [] as [&str; 0], "{changed:#}");
     assert_eq!(titles(&changed[web]), [] as [&str; 0], "{changed:#}");
     assert_eq!(titles(&changed[api]), ["TYPE MISMATCH"], "{changed:#}");
@@ -169,12 +196,100 @@ fn a_directory_two_projects_list_has_one_owner() {
         ),
     ];
     for open in [[a, b, common], [common, b, a]] {
-        let transcript = transcript(&files, &json!({ "open": open }));
+        let transcript = transcript(&files, &[], &json!({ "open": open }));
         let opened = &transcript["diagnostics"];
         // Each project checks Common, but only `a`, first by path, shows
         // its problem.
         assert_eq!(titles(&opened[common]), ["TYPE MISMATCH"], "{opened:#}");
         assert_eq!(titles(&opened[a]), [] as [&str; 0], "{opened:#}");
         assert_eq!(titles(&opened[b]), [] as [&str; 0], "{opened:#}");
+    }
+}
+
+/// The `elm.json` of the package `name` 1.0.0, exposing `module`, that
+/// depends on elm/core and on each of `deps`, a name and its range.
+fn package(name: &str, module: &str, deps: &[(&str, &str)]) -> String {
+    let mut dependencies = json!({ "elm/core": "1.0.0 <= v < 2.0.0" });
+    for (dep, range) in deps {
+        dependencies[dep] = json!(range);
+    }
+    json!({
+        "type": "package",
+        "name": name,
+        "summary": name,
+        "license": "BSD-3-Clause",
+        "version": "1.0.0",
+        "exposed-modules": [module],
+        "elm-version": "0.19.0 <= v < 0.20.0",
+        "dependencies": dependencies,
+        "test-dependencies": {},
+    })
+    .to_string()
+}
+
+#[test]
+fn a_member_package_builds_as_each_project_using_it_resolves() {
+    // `acme/lib`'s `Value` is an `Int` at 1.0.0 and a `String` at 2.0.0.
+    let lib = |version: &'static str, kind: &str| {
+        let files = vec![
+            (
+                "elm.json",
+                package("acme/lib", "Lib", &[]).replace("1.0.0\"", &format!("{version}\"")),
+            ),
+            (
+                "src/Lib.elm",
+                format!(
+                    "module Lib exposing (Value, value)\n\n\ntype alias Value =\n    {kind}\n\n\nvalue : Value\nvalue =\n    Debug.todo \"value\"\n"
+                ),
+            ),
+        ];
+        files
+    };
+    let (old, new) = (lib("1.0.0", "Int"), lib("2.0.0", "String"));
+    let published: [Published; 2] = [("acme/lib", "1.0.0", &old), ("acme/lib", "2.0.0", &new)];
+    let a = "lib/a/src/A.elm";
+    let b = "lib/b/src/B.elm";
+    // The package `b` builds `a` against lib 2.0.0, the newest its range
+    // allows; the application pins lib 1.0.0. Each project's check is in
+    // the order of its directory, so `app` is checked before `lib/b` and
+    // `web` after.
+    for dir in ["app", "web"] {
+        let main = format!("{dir}/src/Main.elm");
+        let files = [
+            (
+                "nomi.toml",
+                format!("[workspace]\nmembers = [\"lib/*\", \"{dir}\"]\n"),
+            ),
+            (
+                "lib/a/elm.json",
+                package("acme/a", "A", &[("acme/lib", "1.0.0 <= v < 3.0.0")]),
+            ),
+            (
+                a,
+                "module A exposing (value)\n\nimport Lib\n\n\nvalue : Lib.Value\nvalue =\n    Lib.value\n"
+                    .to_owned(),
+            ),
+            (
+                "lib/b/elm.json",
+                package("acme/b", "B", &[("acme/a", "1.0.0 <= v < 2.0.0")]),
+            ),
+            (
+                b,
+                "module B exposing (b)\n\nimport A\n\n\nb : ()\nb =\n    always () A.value\n"
+                    .to_owned(),
+            ),
+            (
+                &format!("{dir}/elm.json"),
+                app(&[], &["acme/a", "acme/lib"]),
+            ),
+            (&main, using("Int", "A").replace("name", "value")),
+        ];
+        let files: Vec<(&str, String)> = files.iter().map(|(p, t)| (&**p, t.clone())).collect();
+        for open in [[b, main.as_str()], [main.as_str(), b]] {
+            let transcript = transcript(&files, &published, &json!({ "open": open }));
+            let opened = &transcript["diagnostics"];
+            assert_eq!(titles(&opened[&main]), [] as [&str; 0], "{dir}: {opened:#}");
+            assert_eq!(titles(&opened[b]), [] as [&str; 0], "{dir}: {opened:#}");
+        }
     }
 }

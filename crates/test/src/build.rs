@@ -11,7 +11,7 @@ use nomi_engine::artifacts::Hash;
 use nomi_engine::check::Style;
 use nomi_engine::console::{Console, Personality};
 use nomi_engine::javascript::{Dom, Kind, Target};
-use nomi_engine::make::{self, Make, Output};
+use nomi_engine::make::{self, Make, Output, OutputName};
 use nomi_engine::packages::Resolve;
 use nomi_engine::paths::Cache;
 use nomi_engine::test_deps::{self, Dependencies, Solve, Tested};
@@ -164,8 +164,8 @@ fn elm_make(
         style,
         kind: Ok(Kind::Dev),
         target: Target::default(),
-        platform_by_main: false,
-        output_by_platform: false,
+        platform: Some(Platform::Browser),
+        output_name: OutputName::Given,
         resolve,
         ffi: None,
         members_of: Some(project.root.clone()),
@@ -230,8 +230,8 @@ pub fn build<H: Http + Sync>(
     );
     // Node's kernels, in the file elm-test's templates wrap, whose
     // stand-ins for the browser's globals let tests reach the DOM's.
+    make.platform = Some(Platform::Node);
     make.target = Target {
-        platform: Platform::Node,
         dom: Dom::Polyfilled,
         ..Target::default()
     };

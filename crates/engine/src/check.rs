@@ -16,17 +16,17 @@ use nomi_project::report::ElmCommand;
 use nomi_project::workspace::Workspace;
 use nomi_project::{ModuleName, Name, Outline, Version};
 use nomi_registry::{
-    Bundle, Http, details, report as registry_report, workspace as registry_workspace,
+    Bundle, Http, Store, details, report as registry_report, workspace as registry_workspace,
 };
 
-use crate::artifacts::{Artifacts, Key};
+use crate::artifacts::{Artifacts, Hash, Key};
 use crate::console::{self, Console, Personality};
 use crate::graph::{Env, Foreigns, Graph, Owner, RootMain};
 use crate::install::details_problem;
 use crate::names::{ModuleInterface, Packages};
 use crate::packages::Resolve;
 use crate::project::{self, Project};
-use crate::report::{self, ModuleErrors, one_line};
+use crate::report::{self, ModuleErrors, Names, one_line};
 use crate::schedule::Cancelled;
 use crate::workspace::{self, Members};
 use crate::{Context, Pool, Snapshot, env, names, objects, packages};
@@ -184,24 +184,26 @@ impl Build<'_> {
     }
 }
 
-/// Shows `checked`: in the terminal style, the reports on standard error
-/// and a line saying how it went on standard output (`toFinalMessage`);
-/// in JSON, the report alone, on standard error, as `encodeUgly` writes it.
-pub fn show(
+/// Shows `checked`: in the terminal style, the reports on standard error,
+/// naming files as `names` does, and a line saying how it went on
+/// standard output (`toFinalMessage`); in JSON, the report alone, on
+/// standard error, as `encodeUgly` writes it.
+pub fn show<'a>(
     console: &mut dyn Console,
-    root: &Path,
+    names: impl Into<Names<'a>>,
     checked: &Checked,
     compat: Compat,
     style: Style,
 ) {
+    let names = names.into();
     match (checked, style) {
         (Checked::Fine, Style::Terminal) => {
             console.out("No problems in syntax, module names, imports, names or types.\n");
         }
-        (Checked::Project(_), Style::Terminal) => show_reports(console, root, checked, compat),
+        (Checked::Project(_), Style::Terminal) => show_reports(console, names, checked, compat),
         (Checked::Modules(modules), Style::Terminal) => {
             console.out(&format!("{}\n", problems_summary(modules.len())));
-            show_reports(console, root, checked, compat);
+            show_reports(console, names, checked, compat);
         }
         (Checked::Fine, Style::Json) => {}
         (Checked::Project(report), Style::Json) => {
@@ -215,10 +217,10 @@ pub fn show(
 }
 
 /// The reports of `checked` on standard error, in the terminal style,
-/// without the line saying how it went.
-pub(crate) fn show_reports(
+/// naming files as `names` does, without the line saying how it went.
+pub(crate) fn show_reports<'a>(
     console: &mut dyn Console,
-    root: &Path,
+    names: impl Into<Names<'a>>,
     checked: &Checked,
     compat: Compat,
 ) {
@@ -226,7 +228,7 @@ pub(crate) fn show_reports(
         Checked::Fine => {}
         Checked::Project(report) => console::report(console, report, compat),
         Checked::Modules(modules) => {
-            console::report_doc(console, &report::modules_doc(root, modules), compat);
+            console::report_doc(console, &report::modules_doc(names.into(), modules), compat);
         }
     }
 }
@@ -307,57 +309,101 @@ pub(crate) fn sources(
             workspace::discover(&cx.vfs.snapshot(), dir).transpose()?
         }
     };
-    // elm keeps a project's dependencies as solved until its elm.json
-    // changes (`Details.load`), asking the website nothing; nomi keeps
-    // them by what elm.json says, and by what else it resolves them to,
-    // so that neither reuses a solution the other can't build.
     let artifacts = Artifacts::new(cx.cache);
-    let mut key = Key::new("details")
-        .part("compat", compat.as_str().as_bytes())
-        .part("outline", &project.outline.write())
-        .part("resolve", resolve.as_str().as_bytes())
-        .part("outside", &[u8::from(members_of.is_some())]);
-    for member in workspace.iter().flat_map(Workspace::members) {
-        key = (key.part("member", member.dir.as_os_str().as_encoded_bytes()))
-            .part("outline", &member.outline.write());
-    }
-    let key = key.finish();
+    let key = details_key(project, resolve, members_of, workspace.as_ref());
     let kept = artifacts
         .get(key)
         .and_then(|bytes| decode_releases(&bytes, compat));
     let mut releases = if let Some(releases) = kept {
         releases
     } else {
-        let mut registry = env::registry(
-            cx.cache,
+        let releases = solve(
+            cx,
             &store,
-            cx.http,
-            compat,
-            "I need the list of published packages to check your dependencies",
+            project,
+            personality,
+            workspace.as_ref(),
+            members_of,
         )?;
-        let solution = match (&workspace, members_of) {
-            (None, _) => details::verify(&mut registry, compat, &project.outline)
-                .map_err(|problem| details_problem(&problem, compat, personality)),
-            (Some(workspace), None) => {
-                registry_workspace::verify(&mut registry, compat, workspace, &project.outline)
-                    .map_err(|problem| workspace::resolution_problem(&problem, compat, personality))
-            }
-            (Some(workspace), Some(_)) => {
-                let mut members = registry_workspace::Members::new(workspace, &mut registry);
-                details::verify(&mut members, compat, &project.outline)
-                    .map_err(|problem| details_problem(&problem, compat, personality))
-            }
-        }?;
-        let releases: Vec<(Name, Version)> = solution
-            .iter()
-            .map(|(name, details)| (name.clone(), details.version))
-            .collect();
         // A cache that can't be written only costs a solve next time.
         let _ = artifacts.put(key, encode_releases(&releases).as_bytes());
         releases
     };
     let members = workspace.and_then(|w| Members::among(&w, &mut releases));
-    let fetched = packages::fetch(Pool::global(), &store, cx.http, compat, &releases);
+    fetch(cx, &store, project, &releases, members)
+}
+
+/// The key the project's solution is kept by. elm keeps a project's
+/// dependencies as solved until its elm.json changes (`Details.load`),
+/// asking the website nothing; nomi keeps them by what elm.json says, and
+/// by what else it resolves them to, so that neither reuses a solution
+/// the other can't build.
+fn details_key(
+    project: &Project,
+    resolve: Resolve,
+    members_of: Option<&Path>,
+    workspace: Option<&Workspace>,
+) -> Hash {
+    let mut key = Key::new("details")
+        .part("compat", project.compat.as_str().as_bytes())
+        .part("outline", &project.outline.write())
+        .part("resolve", resolve.as_str().as_bytes())
+        .part("outside", &[u8::from(members_of.is_some())]);
+    for member in workspace.iter().flat_map(|w| w.members()) {
+        key = (key.part("member", member.dir.as_os_str().as_encoded_bytes()))
+            .part("outline", &member.outline.write());
+    }
+    key.finish()
+}
+
+/// The releases the project's dependencies resolve to: alone, as a member
+/// of `workspace`, or with its member packages where the project is
+/// `members_of`'s and none of them.
+fn solve(
+    cx: &Context<'_, impl Http + Sync>,
+    store: &Store,
+    project: &Project,
+    personality: Personality,
+    workspace: Option<&Workspace>,
+    members_of: Option<&Path>,
+) -> Result<Vec<(Name, Version)>, Report> {
+    let compat = project.compat;
+    let mut registry = env::registry(
+        cx.cache,
+        store,
+        cx.http,
+        compat,
+        "I need the list of published packages to check your dependencies",
+    )?;
+    let solution = match (workspace, members_of) {
+        (None, _) => details::verify(&mut registry, compat, &project.outline)
+            .map_err(|problem| details_problem(&problem, compat, personality)),
+        (Some(workspace), None) => {
+            registry_workspace::verify(&mut registry, compat, workspace, &project.outline)
+                .map_err(|problem| workspace::resolution_problem(&problem, compat, personality))
+        }
+        (Some(workspace), Some(_)) => {
+            let mut members = registry_workspace::Members::new(workspace, &mut registry);
+            details::verify(&mut members, compat, &project.outline)
+                .map_err(|problem| details_problem(&problem, compat, personality))
+        }
+    }?;
+    Ok((solution.iter())
+        .map(|(name, details)| (name.clone(), details.version))
+        .collect())
+}
+
+/// What the project builds with, `releases` downloaded from `store` and
+/// `members` beside them.
+fn fetch(
+    cx: &Context<'_, impl Http + Sync>,
+    store: &Store,
+    project: &Project,
+    releases: &[(Name, Version)],
+    members: Option<Members>,
+) -> Result<Sources, Report> {
+    let compat = project.compat;
+    let fetched = packages::fetch(Pool::global(), store, cx.http, compat, releases);
     let direct: Vec<&Name> = project.outline.direct().collect();
     let mut exposing = HashMap::new();
     for member in members.iter().flat_map(|m| &m.packages) {

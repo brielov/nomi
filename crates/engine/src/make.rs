@@ -29,10 +29,10 @@ use crate::objects::{Dependencies, Memo, PackageBuild};
 use crate::packages::Resolve;
 use crate::paths::{Cache, Root, relative};
 use crate::project::{self, Project, check_source_dirs};
-use crate::report::{self, one_line};
+use crate::report::{self, Names, one_line};
 use crate::timings::{self, Phase};
-use crate::workspace::MemberBuild;
-use crate::{Context, Pool, Vfs, javascript};
+use crate::workspace::{MemberBuild, MemberKey};
+use crate::{Context, Pool, Snapshot, Vfs, javascript};
 
 /// What `elm make` was asked for (`Make.Flags`, with the paths).
 #[derive(Clone, Debug)]
@@ -44,15 +44,13 @@ pub struct Make {
     pub style: Style,
     /// What `--debug` and `--optimize` ask for.
     pub kind: Result<javascript::Kind, ClashingFlags>,
-    /// What the code is generated for; upstream's is the default.
+    /// What the code is generated for, but where it runs; upstream's is
+    /// the default.
     pub target: javascript::Target,
-    /// Whether the roots' `main`s choose the platform in place of
-    /// `target`'s: Node for nomi/core's `Program`.
-    pub platform_by_main: bool,
-    /// Whether the output's extension and format are the platform's:
-    /// `.mjs` and an ES module on Node, `.js` and a script in the
-    /// browser, as for an entry whose output nothing names.
-    pub output_by_platform: bool,
+    /// Where the code runs; where nothing says, where the roots' `main`s
+    /// choose: Node for nomi/core's `Program`, else the browser.
+    pub platform: Option<Platform>,
+    pub output_name: OutputName,
     /// Which packages the dependencies resolve to: nomi's commands, `nomi
     /// test` among them, know more than upstream's.
     pub resolve: Resolve,
@@ -83,6 +81,16 @@ pub enum NamedIn {
     Flag,
     /// The entry of `nomi.toml` whose `main` is this.
     Entry(String),
+}
+
+/// What decides the output's extension and format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputName {
+    /// The name given: `.mjs` an ES module, else a script.
+    Given,
+    /// The platform: `.mjs` and an ES module on Node, `.js` and a script
+    /// in the browser, as for an entry whose output nothing names.
+    ByPlatform,
 }
 
 /// That `--debug` and `--optimize` were both given.
@@ -150,8 +158,8 @@ impl Make {
             style,
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target::default(),
-            platform_by_main: false,
-            output_by_platform: false,
+            platform: Some(Platform::Browser),
+            output_name: OutputName::Given,
             resolve: Resolve::Nomi,
             ffi: None,
             members_of: None,
@@ -181,7 +189,6 @@ impl Make {
             style: Style::Terminal,
             kind: Ok(javascript::Kind::Dev),
             target: javascript::Target {
-                platform: platform.unwrap_or(Platform::Browser),
                 format: if module {
                     javascript::Format::EsModule { ffi: None }
                 } else {
@@ -189,8 +196,8 @@ impl Make {
                 },
                 ..javascript::Target::default()
             },
-            platform_by_main: platform.is_none(),
-            output_by_platform: false,
+            platform,
+            output_name: OutputName::Given,
             resolve: Resolve::Nomi,
             ffi: None,
             members_of: None,
@@ -324,12 +331,11 @@ pub fn interfaces(
 pub(crate) struct Shared<'a> {
     pub artifacts: Artifacts,
     pub memo: Mutex<Memo>,
-    /// Each member package built, by name and the elm release built for,
-    /// once in a command: its workspace resolves once, and a command builds
-    /// them for one goal, or a workspace's optimized for all. A package
+    /// Each member package built, once in a command for each release,
+    /// goal and resolution of its dependencies it is built with: a package
     /// alone builds for the latest release its range allows, an app for
     /// its own, and code names kernels as its release does.
-    pub members: Mutex<BTreeMap<(Name, Compat), Arc<PackageBuild>>>,
+    pub members: Mutex<BTreeMap<MemberKey, Arc<PackageBuild>>>,
     /// The workspace's root, which a workspace's build names every
     /// module's path from, in place of each project's own directory.
     pub root: Option<&'a Path>,
@@ -390,11 +396,11 @@ fn build(
     };
     // What fails before the dependencies are ready, which elm's progress
     // says they are.
-    let unready = |console: &mut dyn Console, root: &Path, checked, compat| {
+    let unready = |console: &mut dyn Console, names: Names<'_>, checked, compat| {
         if make.terminal() {
             details_progress(console, 0);
         }
-        show(console, root, &checked, compat, make.style);
+        show(console, names, &checked, compat, make.style);
         None
     };
     let Some(root) = Root::find(cx.vfs, dir) else {
@@ -406,32 +412,24 @@ fn build(
     let members_of = make.members_of.as_deref();
     let loaded = match load(cx, &root, personality, make.resolve, members_of) {
         Ok(loaded) => loaded,
-        Err((report, compat)) => return unready(console, dir, Checked::Project(report), compat),
+        Err((report, compat)) => {
+            return unready(console, dir.into(), Checked::Project(report), compat);
+        }
     };
     let (compat, outline, sources) = (loaded.compat, loaded.outline, loaded.sources);
     let env = match env_of(root.dir(), &outline, compat, sources.foreigns.clone()) {
         Ok(env) => env.with_cwd(dir),
-        Err(report) => return unready(console, dir, Checked::Project(report), compat),
+        Err(report) => return unready(console, dir.into(), Checked::Project(report), compat),
     };
     let root = root.dir().to_owned();
     let snapshot = cx.vfs.snapshot();
-    let members = match &sources.members {
-        None => BTreeMap::new(),
-        Some(members) => {
-            let build = MemberBuild {
-                snapshot: &snapshot,
-                compat,
-                personality,
-                packages: &sources.packages,
-                bundle: &sources.bundle,
-                artifacts: Some(&shared.artifacts),
-                memo: &shared.memo,
-                goal,
-            };
-            match build.in_command(members, shared) {
-                Ok(built) => built.builds,
-                Err(checked) => return unready(console, &members.root, checked, compat),
-            }
+    let members = match member_builds(&snapshot, &sources, compat, personality, goal, shared) {
+        Ok(members) => members,
+        // From inside a member, the other members are up from its
+        // directory.
+        Err(checked) => {
+            let names = Names::From(shared.root.unwrap_or(&root));
+            return unready(console, names, checked, compat);
         }
     };
     // The dependencies build as the modules are found and checked, each
@@ -466,7 +464,7 @@ fn build(
         Ok(dependencies) => dependencies,
         Err(why) => {
             let report = check::packages_problem(&why);
-            return unready(console, dir, Checked::Project(report), compat);
+            return unready(console, dir.into(), Checked::Project(report), compat);
         }
     };
     let built_packages = dependencies.packages.len();
@@ -488,6 +486,33 @@ fn build(
         dependencies,
         built,
     })
+}
+
+/// The member packages of `sources`, built for `goal` into `shared` as a
+/// project of `compat` builds with them in `personality`'s words; or
+/// what was wrong with the first that failed.
+fn member_builds(
+    snapshot: &Snapshot,
+    sources: &Sources,
+    compat: Compat,
+    personality: Personality,
+    goal: Goal,
+    shared: &Shared,
+) -> Result<BTreeMap<Name, Arc<PackageBuild>>, Checked> {
+    let Some(members) = &sources.members else {
+        return Ok(BTreeMap::new());
+    };
+    let build = MemberBuild {
+        snapshot,
+        compat,
+        personality,
+        packages: &sources.packages,
+        bundle: &sources.bundle,
+        artifacts: Some(&shared.artifacts),
+        memo: &shared.memo,
+        goal,
+    };
+    build.in_command(members, shared).map(|built| built.builds)
 }
 
 /// Shows how the build of the project at `root` went, in `make`'s style:
@@ -602,54 +627,21 @@ fn write(
             Ok(target) => target,
             Err(report) => return fail(console, report),
         };
-        if let Some(mut target) = target {
-            if kind == javascript::Kind::Optimize {
-                let uses = javascript::debug_uses(compat, &optimized);
-                if !uses.is_empty() {
-                    return fail(console, report::debug_remnants(&uses));
-                }
-            }
-            let mut made_for = made_for(make, &optimized, &mut target.path);
-            if let Some(ffi) = &make.ffi {
-                match ffi_module(vfs, dir, ffi, &made_for, &target) {
-                    Ok(ffi) => made_for.format = javascript::Format::EsModule { ffi: Some(ffi) },
-                    Err(report) => return fail(console, report),
-                }
-            }
-            let platform = made_for.platform;
-            let package = env.owner().package_name();
-            let bytes = timings::time(Phase::Generate, || {
-                let types = dependencies.into_graph_and_types();
-                let js = javascript::program(
-                    compat,
-                    kind,
-                    made_for,
-                    make.ffi.as_ref(),
-                    &package,
-                    &packages,
-                    types,
-                    optimized,
-                )?;
-                Ok(match &target.html {
-                    Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
-                    None => js,
-                })
-            });
-            let bytes = match bytes {
-                Ok(bytes) => bytes,
+        if let Some(target) = target {
+            let generating = Generating {
+                compat,
+                kind,
+                package: env.owner().package_name(),
+                packages: &packages,
+                dependencies,
+            };
+            let (made, shown) = match generate(vfs, dir, make, generating, optimized, target) {
+                Ok(made) => made,
                 Err(report) => return fail(console, report),
             };
-            let path = dir.join(&target.path);
-            if let Err(report) = create(vfs, &path, &bytes) {
-                return fail(console, report);
-            }
-            let shown = from.map_or_else(|| target.path.clone(), |from| relative(&path, from));
-            diagram = Some(gen_diagram(&target.names, &shown.to_string_lossy()));
-            code = Some(Code {
-                platform,
-                mains: target.names,
-                output: path,
-            });
+            let shown = from.map_or(shown, |from| relative(&made.output, from));
+            diagram = Some(gen_diagram(&made.mains, &shown.to_string_lossy()));
+            code = Some(made);
         }
     }
     // What the build checked is freed while it reports, or not at all
@@ -667,25 +659,97 @@ fn write(
     Some(Wrote { ran, code })
 }
 
+/// What generating a clean build's code reads beside the program.
+struct Generating<'a> {
+    compat: Compat,
+    kind: javascript::Kind,
+    /// The package the project's own modules are homes in.
+    package: String,
+    /// Every package, and the directory of its source.
+    packages: &'a [(Name, PathBuf)],
+    dependencies: Dependencies,
+}
+
+/// The code of the program `optimized` generated for `target` as `make`
+/// asks, and written in `dir`; and its path as given.
+fn generate(
+    vfs: &Vfs,
+    dir: &Path,
+    make: &Make,
+    generating: Generating<'_>,
+    optimized: Optimized,
+    mut target: Target,
+) -> Result<(Code, PathBuf), Report> {
+    let Generating {
+        compat,
+        kind,
+        package,
+        packages,
+        dependencies,
+    } = generating;
+    if kind == javascript::Kind::Optimize {
+        let uses = javascript::debug_uses(compat, &optimized);
+        if !uses.is_empty() {
+            return Err(report::debug_remnants(&uses));
+        }
+    }
+    let mut made_for = made_for(make, &optimized, &mut target.path);
+    if let Some(ffi) = &make.ffi {
+        let ffi = ffi_module(vfs, dir, ffi, &made_for, &target)?;
+        made_for.format = javascript::Format::EsModule { ffi: Some(ffi) };
+    }
+    let platform = made_for.platform;
+    let bytes = timings::time(Phase::Generate, || {
+        let types = dependencies.into_graph_and_types();
+        let program = javascript::Program {
+            compat,
+            kind,
+            target: made_for,
+            ffi: make.ffi.as_ref(),
+            package: &package,
+            packages,
+        };
+        let js = javascript::program(program, types, optimized)?;
+        Ok::<_, Report>(match &target.html {
+            Some(module) => nomi_codegen_js::html::sandwich(&module.to_string(), &js),
+            None => js,
+        })
+    })?;
+    let output = dir.join(&target.path);
+    create(vfs, &output, &bytes)?;
+    let code = Code {
+        platform,
+        mains: target.names,
+        output,
+    };
+    Ok((code, target.path))
+}
+
 /// What `make` generates code for, `optimized` being the program: the
 /// platform its `main` chooses where `make` lets it, with that
 /// platform's extension for `path` and its format where `make` leaves
 /// them to it. A nomi/core `Program` is an entry, as it only runs as one.
 fn made_for(make: &Make, optimized: &Optimized, path: &mut PathBuf) -> javascript::Target {
     let mut made_for = make.target.clone();
-    if javascript::runs_on_node(optimized) {
+    let on_node = javascript::runs_on_node(optimized);
+    if on_node {
         made_for.start = javascript::Start::Entry;
-        if make.platform_by_main {
-            made_for.platform = Platform::Node;
-        }
     }
-    if make.output_by_platform {
-        let (extension, format) = match made_for.platform {
-            Platform::Node => ("mjs", javascript::Format::EsModule { ffi: None }),
-            Platform::Browser => ("js", javascript::Format::Iife),
-        };
-        path.set_extension(extension);
-        made_for.format = format;
+    made_for.platform = match make.platform {
+        Some(platform) => platform,
+        None if on_node => Platform::Node,
+        None => Platform::Browser,
+    };
+    match make.output_name {
+        OutputName::Given => {}
+        OutputName::ByPlatform => {
+            let (extension, format) = match made_for.platform {
+                Platform::Node => ("mjs", javascript::Format::EsModule { ffi: None }),
+                Platform::Browser => ("js", javascript::Format::Iife),
+            };
+            path.set_extension(extension);
+            made_for.format = format;
+        }
     }
     made_for
 }

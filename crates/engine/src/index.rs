@@ -23,6 +23,7 @@ use nomi_registry::{Bundle, Store};
 use nomi_syntax::ast::{self, AstNode};
 use nomi_syntax::{GreenNode, Parse, SyntaxNode};
 
+use crate::Snapshot;
 use crate::artifacts::Artifacts;
 use crate::check::{Goal, env_of};
 use crate::console::Personality;
@@ -35,8 +36,7 @@ use crate::paths::{ELM_JSON, relative, tests_dir};
 use crate::project::package_outline;
 use crate::schedule::Cancelled;
 use crate::vfs::{self, canonical, canonical_or_given};
-use crate::workspace::{self, MemberBuild, Members, MembersBuilt};
-use crate::{Revision, Snapshot};
+use crate::workspace::{self, Keeping, Kept, MemberBuild, MemberKey, Members};
 
 pub use crate::objects::Memo;
 
@@ -317,28 +317,46 @@ pub(crate) struct Setup {
     pub complete: bool,
 }
 
+/// Which of a project's dependencies a [`Setup`] reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Uses {
+    /// Those `elm make` builds it with.
+    Build,
+    /// Those and its tests', as elm-test and elm-language-server see it.
+    Tests,
+}
+
 impl Setup {
-    /// The project whose `elm.json` is `manifest`; none where it isn't
-    /// readable.
-    pub(crate) fn read(snapshot: &Snapshot, store: &Store, manifest: &Path) -> Option<Setup> {
+    /// The project whose `elm.json` is `manifest`, with the dependencies
+    /// `uses` names; none where it isn't readable.
+    pub(crate) fn read(
+        snapshot: &Snapshot,
+        store: &Store,
+        manifest: &Path,
+        uses: Uses,
+    ) -> Option<Setup> {
         let root = manifest.parent()?.to_owned();
         let (outline, compat) = Outline::detect(&snapshot.read_bytes(manifest).ok()?).ok()?;
-        let members = (workspace::discover(snapshot, &root)).and_then(|workspace| {
-            let deps = match &outline {
-                Outline::App(app) => app.direct.keys().chain(app.indirect.keys()).collect(),
-                Outline::Pkg(pkg) => pkg.deps.keys().collect::<Vec<_>>(),
-            };
-            Members::reached(&workspace.ok()?, deps)
-        });
+        let (deps, tests): (Vec<&Name>, Vec<&Name>) = match &outline {
+            Outline::App(app) => (
+                app.direct.keys().chain(app.indirect.keys()).collect(),
+                (app.test_direct.keys())
+                    .chain(app.test_indirect.keys())
+                    .collect(),
+            ),
+            Outline::Pkg(pkg) => (pkg.deps.keys().collect(), pkg.test_deps.keys().collect()),
+        };
+        let used = match uses {
+            Uses::Build => deps.clone(),
+            Uses::Tests => deps.iter().chain(&tests).copied().collect(),
+        };
+        let members = (workspace::discover(snapshot, &root))
+            .and_then(|workspace| Members::reached(&workspace.ok()?, used));
         let (sources, direct) = releases(store, &outline, compat, members.as_ref());
         let is_member = |name: &Name| members.as_ref().is_some_and(|m| m.has(name));
-        let complete = match &outline {
-            Outline::App(app) => (app.direct.keys().chain(app.indirect.keys()))
-                .all(|name| is_member(name) || sources.iter().any(|(n, _)| n == name)),
-            Outline::Pkg(pkg) => (pkg.deps.keys())
-                .all(|name| is_member(name) || sources.iter().any(|(n, _)| n == name)),
-        };
-        Some(Setup {
+        let complete =
+            (deps.iter()).all(|name| is_member(name) || sources.iter().any(|(n, _)| n == *name));
+        let setup = Setup {
             root,
             outline,
             compat,
@@ -347,16 +365,23 @@ impl Setup {
             direct,
             members,
             complete,
+        };
+        Some(match uses {
+            Uses::Build => setup,
+            Uses::Tests => setup.with_tests(store),
         })
     }
 
-    /// The project as elm-test and elm-language-server see it: with its
-    /// test dependencies.
+    /// The project with its test dependencies, those the workspace has as
+    /// members aside, which build from their source.
     fn with_tests(mut self, store: &Store) -> Setup {
+        let members = self.members.as_ref();
+        let is_member = |name: &Name| members.is_some_and(|m| m.has(name));
         match &self.outline {
             Outline::App(app) => {
                 for (name, &version) in app.test_direct.iter().chain(&app.test_indirect) {
-                    if !self.sources.iter().any(|(n, _)| n == name)
+                    if !is_member(name)
+                        && !self.sources.iter().any(|(n, _)| n == name)
                         && let Ok(Some(dir)) = store.get(name, version)
                     {
                         self.sources.push((name.clone(), dir));
@@ -364,8 +389,11 @@ impl Setup {
                 }
             }
             Outline::Pkg(pkg) => {
-                let pending = pkg.test_deps.iter().map(|(n, c)| (n.clone(), *c));
+                let pending = (pkg.test_deps.iter())
+                    .filter(|(name, _)| !is_member(name))
+                    .map(|(n, c)| (n.clone(), *c));
                 resolve(store, self.compat, pending.collect(), &mut self.sources);
+                self.sources.retain(|(name, _)| !is_member(name));
             }
         }
         for name in self.outline.test_direct() {
@@ -419,9 +447,15 @@ impl Setup {
             memo: &shared,
             goal: Goal::Check,
         };
-        let built = kept.build(snapshot.revision(), &build, members);
+        // Held throughout, so that a check and an index of one revision
+        // build each member once between them.
+        let mut keeping = Keeping::Editor {
+            kept: &mut lock(&kept.kept),
+            revision: snapshot.revision(),
+        };
+        let built = build.run(members, &mut keeping);
         *memo = shared.into_inner().unwrap_or_else(PoisonError::into_inner);
-        built
+        Ok(built?.ok().map(|built| built.builds))
     }
 
     /// The project's build environment, with the modules each direct
@@ -437,22 +471,15 @@ impl Setup {
     }
 }
 
-/// The member packages an editor built, by directory: the revision each
-/// last built at, and its last good build, which its dependents check
-/// against while it fails, so that a mistake in a member leaves them as
-/// they were.
+/// The member packages an editor built, by what each was built from: the
+/// revision each last built at, and its last good build, which its
+/// dependents check against while it fails, so that a mistake in a member
+/// leaves them as they were.
 #[derive(Debug, Default)]
 pub struct MemberBuilds {
-    kept: Mutex<HashMap<PathBuf, Kept>>,
+    kept: Mutex<HashMap<MemberKey, Kept>>,
     /// What earlier builds left, which builds of members reuse.
     artifacts: Option<Artifacts>,
-}
-
-/// A member package as an editor last built it.
-#[derive(Debug)]
-struct Kept {
-    revision: Revision,
-    good: Option<Arc<PackageBuild>>,
 }
 
 impl MemberBuilds {
@@ -462,41 +489,6 @@ impl MemberBuilds {
             kept: Mutex::default(),
             artifacts,
         }
-    }
-
-    /// Each of `members` as `build` builds it at `revision`, built once
-    /// there whoever asks; none where one never built.
-    fn build(
-        &self,
-        revision: Revision,
-        build: &MemberBuild,
-        members: &Members,
-    ) -> Result<Option<BTreeMap<Name, Arc<PackageBuild>>>, Cancelled> {
-        // Held throughout, so that a check and an index of one revision
-        // build each member once between them.
-        let mut kept = lock(&self.kept);
-        let mut built = MembersBuilt::default();
-        for member in &members.packages {
-            let good = match kept.get(&member.dir) {
-                Some(now) if now.revision == revision => now.good.clone(),
-                before => {
-                    let before = before.and_then(|kept| kept.good.clone());
-                    let made = build.member(members, member, &mut built)?.ok();
-                    let good = made.map(Arc::new).or(before);
-                    let now = Kept {
-                        revision,
-                        good: good.clone(),
-                    };
-                    kept.insert(member.dir.clone(), now);
-                    good
-                }
-            };
-            let Some(good) = good else {
-                return Ok(None);
-            };
-            built.builds.insert(member.outline.name.clone(), good);
-        }
-        Ok(Some(built.builds))
     }
 }
 
@@ -559,7 +551,7 @@ pub fn index_from(
     kept: &MemberBuilds,
     previous: Option<&Index>,
 ) -> Option<Index> {
-    let setup = Setup::read(snapshot, store, manifest)?.with_tests(store);
+    let setup = Setup::read(snapshot, store, manifest, Uses::Tests)?;
     let exposing = setup.exposing();
     let mut env = setup.env(&exposing)?;
     let tests = tests_dir(&setup.root);
@@ -607,12 +599,19 @@ pub fn index_from(
         .or_else(|_| Graph::from_paths(snapshot, &env, &[]))
         .ok()?;
     let package = env.owner().package_name();
-    // Only an index of the same packages has the same interfaces of them,
-    // and a member's may have changed since.
+    let exposed: HashMap<String, Vec<String>> = (exposing.into_iter())
+        .map(|(name, modules)| {
+            let modules = modules.iter().map(ToString::to_string).collect();
+            (name.to_string(), modules)
+        })
+        .collect();
+    // Only an index of the same packages, exposing the same modules, has
+    // the same interfaces of them, and a member's may have changed since.
     let previous = previous.filter(|p| {
         p.compat == compat
             && p.package == package
             && p.packages == package_dirs
+            && p.exposed == exposed
             && (built.values()).all(|build| {
                 (build.exposed.keys()).all(|m| p.interfaces.get(m) == interfaces.get(m))
             })
@@ -640,12 +639,6 @@ pub fn index_from(
     visit.orphans(snapshot, &paths);
     let modules = visit.modules;
     let package_files = previous.map_or_else(Default::default, |p| Arc::clone(&p.package_files));
-    let exposed = (exposing.into_iter())
-        .map(|(name, modules)| {
-            let modules = modules.iter().map(ToString::to_string).collect();
-            (name.to_string(), modules)
-        })
-        .collect();
     Some(Index {
         compat,
         package,

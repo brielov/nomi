@@ -292,17 +292,16 @@ fn scripts(
             Mode::Optimize if refused => return None,
             Mode::Optimize => javascript::Kind::Optimize,
         };
-        let js = javascript::program(
+        let program = javascript::Program {
             compat,
             kind,
-            javascript::Target::default(),
-            None,
-            "author/project",
-            sources,
-            dependencies.clone(),
-            optimized.clone(),
-        )
-        .expect("the browser lacks no kernel of elm's");
+            target: javascript::Target::default(),
+            ffi: None,
+            package: "author/project",
+            packages: sources,
+        };
+        let js = javascript::program(program, dependencies.clone(), optimized.clone())
+            .expect("the browser lacks no kernel of elm's");
         let file = format!("{}.{}.js", sandbox_id(case), mode.name());
         kept(Suite::JavaScript, compat, &file, &js);
         Some(sha256(&js))

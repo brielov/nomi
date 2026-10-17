@@ -3,7 +3,7 @@
 //! `elm.json` and `nomi.toml` read into the graph `nomi_project` makes;
 //! and the member packages a project uses, built from their source.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -18,12 +18,12 @@ use nomi_project::{
 };
 use nomi_registry::{Bundle, Http, SolverProblem, WorkspaceProblem};
 
-use crate::artifacts::Artifacts;
+use crate::artifacts::{Artifacts, Hash, Key};
 use crate::check::{self, Build, Checked, Goal, Made, Style, env_of, packages_problem};
 use crate::console::{self, Console, Personality};
 use crate::graph::Foreigns;
 use crate::install::details_problem;
-use crate::make::{self, FfiModule, Make, NamedIn, Shared};
+use crate::make::{self, FfiModule, Make, NamedIn, OutputName, Shared};
 use crate::names::{Building, Packages};
 use crate::objects::{self, Memo, PackageBuild};
 use crate::packages::Resolve;
@@ -32,7 +32,7 @@ use crate::project::{Project, elm_json, package_outline};
 use crate::report::one_line;
 use crate::schedule::Cancelled;
 use crate::timings;
-use crate::{Context, Snapshot, javascript, run, vfs};
+use crate::{Context, Revision, Snapshot, javascript, run, vfs};
 
 /// The workspace around `dir`, if there is one: the nearest of its
 /// ancestors whose `nomi.toml` has a `[workspace]`, unless the project
@@ -374,11 +374,9 @@ pub(crate) fn resolution_problem(
     }
 }
 
-/// The member packages a project builds with, and the root of their
-/// workspace, which their reports name paths from.
+/// The member packages a project builds with.
 #[derive(Debug)]
 pub(crate) struct Members {
-    pub root: PathBuf,
     /// In the order they build, each after those it depends on.
     pub packages: Vec<MemberPackage>,
 }
@@ -408,17 +406,13 @@ impl Members {
         workspace: &Workspace,
         deps: impl IntoIterator<Item = &'n Name>,
     ) -> Option<Members> {
-        let mut used: BTreeSet<&Name> = deps.into_iter().collect();
-        // Each member after those it depends on: backwards, a dependent
-        // comes first.
-        for member in workspace.members().iter().rev() {
-            if let Outline::Pkg(pkg) = &member.outline
-                && used.contains(&pkg.name)
-            {
-                used.extend(pkg.deps.keys());
-            }
-        }
-        Members::named(workspace, |name| used.contains(name))
+        let named: Vec<PathBuf> = (deps.into_iter())
+            .filter_map(|name| Some(workspace.package(name)?.dir.clone()))
+            .collect();
+        let used = with_deps(workspace, &named);
+        Members::named(workspace, |name| {
+            (workspace.package(name)).is_some_and(|m| used.contains(m.dir.as_path()))
+        })
     }
 
     /// The member packages of `workspace` whose names `wanted` takes, in
@@ -433,10 +427,7 @@ impl Members {
                 Outline::Pkg(_) | Outline::App(_) => None,
             })
             .collect();
-        (!packages.is_empty()).then(|| Members {
-            root: workspace.root().to_owned(),
-            packages,
-        })
+        (!packages.is_empty()).then_some(Members { packages })
     }
 
     /// Whether `name` is one of them.
@@ -475,30 +466,105 @@ pub(crate) struct MembersBuilt {
     pub ran: Vec<PathBuf>,
 }
 
+/// What a member package's build depends on but its own files: its
+/// directory, and a hash of the release and goal it is built for and of
+/// the registry's packages it, and the members it depends on, reach. Two
+/// projects that resolve a member's dependencies alike share its build.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct MemberKey {
+    dir: PathBuf,
+    inputs: Hash,
+}
+
+/// How a run of member builds keeps them, and what stands for one that
+/// fails.
+pub(crate) enum Keeping<'k> {
+    /// A command's, which nothing revises the files during: each built
+    /// once, the first that fails ending the run.
+    Command(&'k Mutex<BTreeMap<MemberKey, Arc<PackageBuild>>>),
+    /// An editor's: each built once at `revision`, one that fails standing
+    /// as its last good build, so that a mistake in a member leaves its
+    /// dependents as they were.
+    Editor {
+        kept: &'k mut HashMap<MemberKey, Kept>,
+        revision: Revision,
+    },
+}
+
+/// A member package as an editor last built it: the revision, and its
+/// last good build.
+#[derive(Debug)]
+pub(crate) struct Kept {
+    revision: Revision,
+    good: Arc<PackageBuild>,
+}
+
+impl Keeping<'_> {
+    /// The build of the member `key` names: the one kept, or what `build`
+    /// makes, kept; or what was wrong with it, where nothing stands for
+    /// it.
+    fn build(
+        &mut self,
+        key: MemberKey,
+        build: impl FnOnce() -> Result<Result<PackageBuild, Checked>, Cancelled>,
+    ) -> Result<Result<Arc<PackageBuild>, Checked>, Cancelled> {
+        Ok(match self {
+            Keeping::Command(known) => {
+                let known_build = lock(known).get(&key).cloned();
+                if let Some(build) = known_build {
+                    return Ok(Ok(build));
+                }
+                let made = build()?.map(Arc::new);
+                if let Ok(build) = &made {
+                    lock(known).insert(key, build.clone());
+                }
+                made
+            }
+            Keeping::Editor { kept, revision } => {
+                let before = match kept.get(&key) {
+                    Some(now) if now.revision == *revision => return Ok(Ok(now.good.clone())),
+                    before => before.map(|kept| kept.good.clone()),
+                };
+                let good = match (build()?, before) {
+                    (Ok(build), _) => Arc::new(build),
+                    (Err(_), Some(good)) => good,
+                    (Err(checked), None) => return Ok(Err(checked)),
+                };
+                let now = Kept {
+                    revision: *revision,
+                    good: good.clone(),
+                };
+                kept.insert(key, now);
+                Ok(good)
+            }
+        })
+    }
+}
+
 impl MemberBuild<'_> {
-    /// Each of `members` built in order, or taken from `known`, the
-    /// command's builds before; or what was wrong with the first that
-    /// failed. Cancelled once the snapshot is stale.
+    /// Each of `members` built in order, or taken from those `keeping`
+    /// kept; or what was wrong with the first that failed and has nothing
+    /// to stand for it. Cancelled once the snapshot is stale.
     pub(crate) fn run(
         &self,
         members: &Members,
-        known: &Mutex<BTreeMap<(Name, Compat), Arc<PackageBuild>>>,
+        keeping: &mut Keeping<'_>,
     ) -> Result<Result<MembersBuilt, Checked>, Cancelled> {
         let mut built = MembersBuilt::default();
+        let mut keys: BTreeMap<Name, Hash> = BTreeMap::new();
         for member in &members.packages {
             let name = &member.outline.name;
-            let key = (name.clone(), self.compat);
-            let known_build = lock(known).get(&key).cloned();
-            let build = if let Some(build) = known_build {
-                build
-            } else {
-                let build = match self.member(members, member, &mut built)? {
-                    Ok(build) => Arc::new(build),
+            let reached = match self.reached(&member.outline, &built.builds) {
+                Ok(reached) => reached,
+                Err(report) => return Ok(Err(Checked::Project(report))),
+            };
+            let key = self.key(member, &reached, &keys);
+            keys.insert(name.clone(), key.inputs);
+            let build =
+                match keeping.build(key, || self.member(members, member, reached, &mut built))? {
+                    Ok(build) => build,
                     Err(checked) => return Ok(Err(checked)),
                 };
-                lock(known).insert(key, build.clone());
-                build
-            };
             built.builds.insert(name.clone(), build);
         }
         Ok(Ok(built))
@@ -511,15 +577,55 @@ impl MemberBuild<'_> {
         members: &Members,
         shared: &Shared,
     ) -> Result<MembersBuilt, Checked> {
-        (self.run(members, &shared.members)).expect("nothing revises the files while nomi builds")
+        (self.run(members, &mut Keeping::Command(&shared.members)))
+            .expect("nothing revises the files while nomi builds")
     }
 
-    /// `member` built as a project of its own, the members before it in
-    /// `built`.
-    pub(crate) fn member(
+    /// The goal a member builds for: optimizing, its graph and types as
+    /// well as its exposed interfaces; otherwise those alone.
+    fn goal(&self) -> Goal {
+        match self.goal {
+            Goal::Optimize => Goal::Optimize,
+            Goal::Check | Goal::Docs => Goal::Check,
+        }
+    }
+
+    /// The key of `member`'s build, which reaches the registry's packages
+    /// `reached`, the members before it keyed in `keys`.
+    fn key(
+        &self,
+        member: &MemberPackage,
+        reached: &BTreeMap<Name, (PathBuf, PkgOutline)>,
+        keys: &BTreeMap<Name, Hash>,
+    ) -> MemberKey {
+        let goal: &[u8] = match self.goal() {
+            Goal::Optimize => b"optimize",
+            Goal::Check | Goal::Docs => b"check",
+        };
+        let mut key = (Key::new("member build"))
+            .part("compat", self.compat.as_str().as_bytes())
+            .part("goal", goal);
+        for (name, (dir, _)) in reached {
+            key = (key.part("package", name.to_string().as_bytes()))
+                .part("dir", dir.as_os_str().as_encoded_bytes());
+        }
+        for (name, &inputs) in (member.outline.deps.keys()).filter_map(|n| Some((n, keys.get(n)?)))
+        {
+            key = (key.part("member", name.to_string().as_bytes())).hash("built", inputs);
+        }
+        MemberKey {
+            dir: member.dir.clone(),
+            inputs: key.finish(),
+        }
+    }
+
+    /// `member` built as a project of its own against the registry's
+    /// packages it `reached`, the members before it in `built`.
+    fn member(
         &self,
         members: &Members,
         member: &MemberPackage,
+        reached: BTreeMap<Name, (PathBuf, PkgOutline)>,
         built: &mut MembersBuilt,
     ) -> Result<Result<PackageBuild, Checked>, Cancelled> {
         let compat = self.compat;
@@ -528,10 +634,6 @@ impl MemberBuild<'_> {
         if exposed.is_empty() {
             return Ok(Ok(PackageBuild::default()));
         }
-        let reached = match self.reached(pkg, &built.builds) {
-            Ok(reached) => reached,
-            Err(report) => return Ok(Err(Checked::Project(report))),
-        };
         let direct: Vec<(Name, Vec<ModuleName>)> = (pkg.deps.keys())
             .filter_map(|name| {
                 let outline = (reached.get(name).map(|(_, outline)| outline)).or_else(|| {
@@ -565,11 +667,7 @@ impl MemberBuild<'_> {
             packages: Packages::Building(&building),
             artifacts: self.artifacts,
         };
-        let goal = match self.goal {
-            Goal::Optimize => Goal::Optimize,
-            Goal::Check | Goal::Docs => Goal::Check,
-        };
-        let mut modules = build.run(goal)?;
+        let mut modules = build.run(self.goal())?;
         built.ran.append(&mut modules.ran);
         if let Err(why) = building.finish() {
             return Ok(Err(Checked::Project(packages_problem(&why))));
@@ -896,8 +994,7 @@ fn package(
         Ok(loaded) => loaded,
         Err((report, compat)) => return fail(Checked::Project(report), compat),
     };
-    let mut members = (loaded.sources.members).unwrap_or_else(|| Members {
-        root: root.to_owned(),
+    let mut members = (loaded.sources.members).unwrap_or(Members {
         packages: Vec::new(),
     });
     members.packages.push(MemberPackage {
@@ -969,7 +1066,11 @@ fn entry_make(dir: &Path, entry: &Entry, making: Making) -> Result<Make, Report>
     Ok(Make {
         kind: Ok(kind),
         target,
-        output_by_platform: entry.output.is_none(),
+        output_name: if entry.output.is_none() {
+            OutputName::ByPlatform
+        } else {
+            OutputName::Given
+        },
         ffi: (entry.ffi.as_ref()).map(|path| FfiModule {
             path: path.into(),
             named_in: NamedIn::Entry(entry.main.clone()),

@@ -6,12 +6,12 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use nomi_base::Compat;
 use nomi_base::diagnostic::doc::Doc;
+use nomi_base::{Compat, Platform};
 use nomi_engine::check::Style;
 use nomi_engine::console::{self, Console, Personality, StdConsole};
 use nomi_engine::javascript::Target;
-use nomi_engine::make::{self, Make, Output};
+use nomi_engine::make::{self, Make, Output, OutputName};
 use nomi_engine::packages::Resolve;
 use nomi_engine::{bump, publish};
 
@@ -108,8 +108,8 @@ fn parse_make(args: &[&str]) -> Result<Make, terminal::Error> {
         style: report.unwrap_or(Style::Terminal),
         kind: make::kind(debug, optimize),
         target: Target::default(),
-        platform_by_main: false,
-        output_by_platform: false,
+        platform: Some(Platform::Browser),
+        output_name: OutputName::Given,
         resolve: Resolve::Upstream,
         ffi: None,
         members_of: None,

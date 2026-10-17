@@ -26,6 +26,7 @@ use crate::graph::{
     BadModule, Env, Graph, ImportProblem, Module, ModuleProblem, ProjectProblem, Root, Status,
     module_path,
 };
+use crate::paths::relative;
 
 /// One module's problems, as `--report=json` lists them.
 #[derive(Clone, Debug)]
@@ -109,20 +110,58 @@ fn modified(env: &Env, path: &Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
+/// Where a report's bar names its module's file from.
+#[derive(Clone, Copy, Debug)]
+pub enum Names<'a> {
+    /// This directory, the project's, as upstream names them: a file
+    /// outside it in full.
+    Below(&'a Path),
+    /// This directory, a workspace member's, wherever the file is: one in
+    /// another member up from it, as `../../packages/shared/src/Todo.elm`.
+    From(&'a Path),
+}
+
+impl<'a> From<&'a Path> for Names<'a> {
+    fn from(root: &'a Path) -> Names<'a> {
+        Names::Below(root)
+    }
+}
+
+impl<'a> From<&'a PathBuf> for Names<'a> {
+    fn from(root: &'a PathBuf) -> Names<'a> {
+        Names::Below(root)
+    }
+}
+
+impl Names<'_> {
+    /// The name of the file at `path`.
+    fn of(self, path: &Path) -> PathBuf {
+        let (Names::Below(dir) | Names::From(dir)) = self;
+        // Module paths are canonical, which on Windows spells the drive
+        // `\\?\C:` where the directory may not.
+        let canonical = || crate::vfs::canonical(dir).ok();
+        let below = (path.strip_prefix(dir).ok())
+            .map(Path::to_path_buf)
+            .or_else(|| Some(path.strip_prefix(canonical()?).ok()?.to_path_buf()));
+        match (below, self) {
+            (Some(below), _) => below,
+            (None, Names::Below(_)) => path.to_owned(),
+            (None, Names::From(dir)) => {
+                relative(path, &canonical().unwrap_or_else(|| dir.to_owned()))
+            }
+        }
+    }
+}
+
 /// `Error.toDoc`: each module's reports, oldest module first, with a
-/// separator between modules that names them. A report's bar gives its
-/// path from `root`.
-pub(crate) fn modules_doc(root: &Path, modules: &[ModuleErrors]) -> Doc {
+/// separator between modules that names them. A report's bar names its
+/// file as `names` does.
+pub(crate) fn modules_doc(names: Names<'_>, modules: &[ModuleErrors]) -> Doc {
     let mut sorted: Vec<&ModuleErrors> = modules.iter().collect();
     sorted.sort_by_key(|m| m.modified);
-    // Module paths are canonical, which on Windows spells the drive
-    // `\\?\C:` where the root may not.
-    let canonical_root = crate::vfs::canonical(root).ok();
     let mut docs = Vec::new();
     for (i, module) in sorted.iter().enumerate() {
-        let path = (module.path.strip_prefix(root).ok())
-            .or_else(|| module.path.strip_prefix(canonical_root.as_ref()?).ok())
-            .unwrap_or(&module.path);
+        let path = names.of(&module.path);
         let path = path.to_string_lossy();
         for problem in &module.problems {
             docs.extend([

@@ -201,3 +201,143 @@ const SHARED_PACKAGE: &str = r#"{
     "test-dependencies": {}
 }
 "#;
+
+/// A workspace in `root` of the application `web`, whose `Main` imports
+/// `Shared` and `Other` of the member package `shared`, which exposes
+/// both; and a store of the fixture packages. Gives back the store.
+fn web_and_shared(root: &std::path::Path, store: &std::path::Path) -> Store {
+    let web = ELM_JSON.replace(
+        r#""elm/core": "1.0.5""#,
+        r#""elm/core": "1.0.5", "acme/shared": "1.0.0""#,
+    );
+    let main = "module Main exposing (value)\n\nimport Other\nimport Shared\n\n\nvalue : Int\nvalue =\n    Shared.name + Other.other\n";
+    let files = [
+        (
+            "nomi.toml",
+            "[workspace]\nmembers = [\"web\", \"shared\"]\n".to_owned(),
+        ),
+        ("web/elm.json", web),
+        ("web/src/Main.elm", main.to_owned()),
+        (
+            "shared/elm.json",
+            SHARED_PACKAGE.replace(r#"["Shared"]"#, r#"["Shared", "Other"]"#),
+        ),
+        (
+            "shared/src/Shared.elm",
+            "module Shared exposing (name)\n\n\nname : Int\nname =\n    1\n".to_owned(),
+        ),
+        (
+            "shared/src/Other.elm",
+            "module Other exposing (other)\n\n\nother : Int\nother =\n    2\n".to_owned(),
+        ),
+    ];
+    for (path, text) in &files {
+        write_file(root, path, text);
+    }
+    nomi_testkit::packages::store(store).unwrap();
+    Store::new(store.to_owned())
+}
+
+#[test]
+fn a_module_a_member_no_longer_exposes_is_read_again_by_its_importers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap().join("ws");
+    let store = web_and_shared(&root, &dir.path().join("store"));
+    let vfs = Vfs::new();
+    let mut memo = Memo::new();
+    let main = root.join("web/src/Main.elm");
+    let manifest = root.join("web/elm.json");
+    let kept = MemberBuilds::default();
+    let mut index = |previous: Option<&Index>| {
+        let snapshot = vfs.snapshot();
+        index::index_from(
+            &snapshot, &store, &manifest, &main, &mut memo, &kept, previous,
+        )
+        .unwrap()
+    };
+    let first = index(None);
+    assert!(first.named("Main").unwrap().canonical.is_some());
+    vfs.set_overlay(&root.join("shared/elm.json"), SHARED_PACKAGE)
+        .unwrap();
+    let hidden = index(Some(&first));
+    // Main imports a module no dependency exposes now.
+    assert!(hidden.named("Main").unwrap().canonical.is_none());
+}
+
+#[test]
+fn a_member_built_from_a_stale_snapshot_is_never_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap().join("ws");
+    let store = web_and_shared(&root, &dir.path().join("store"));
+    let vfs = Vfs::new();
+    let manifest = root.join("web/elm.json");
+    let shared = root.join("shared/src/Shared.elm");
+    let kept = MemberBuilds::default();
+    let check = |snapshot: &nomi_engine::Snapshot| {
+        live::check(
+            snapshot,
+            &store,
+            &manifest,
+            &[],
+            &mut Memo::new(),
+            &kept,
+            None,
+        )
+    };
+    let stale = vfs.snapshot();
+    vfs.set_overlay(
+        &shared,
+        "module Shared exposing (name)\n\n\nname : Int\nname =\n    3\n",
+    )
+    .unwrap();
+    assert!(
+        check(&stale).is_err(),
+        "a stale snapshot's check is cancelled"
+    );
+    // Broken now, the member has no good build to stand for it: the one
+    // the stale snapshot began wasn't kept.
+    vfs.set_overlay(
+        &shared,
+        "module Shared exposing (name)\n\n\nname : Int\nname =\n    \"3\"\n",
+    )
+    .unwrap();
+    assert!(check(&vfs.snapshot()).unwrap().is_none());
+    vfs.remove_overlay(&shared).unwrap();
+    let fixed = check(&vfs.snapshot()).unwrap().unwrap();
+    assert!(
+        matches!(fixed.checked, Checked::Fine),
+        "{:?}",
+        fixed.checked
+    );
+}
+
+#[test]
+fn a_member_package_only_tests_use_is_built_for_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = nomi_engine::canonical(dir.path()).unwrap().join("ws");
+    let store = web_and_shared(&root, &dir.path().join("store"));
+    let web = ELM_JSON.replace(
+        r#""test-dependencies": { "direct": {}"#,
+        r#""test-dependencies": { "direct": { "acme/shared": "1.0.0" }"#,
+    );
+    write_file(&root, "web/elm.json", &web);
+    write_file(&root, "web/src/Main.elm", B);
+    // The registry's acme/shared, which the member shadows, isn't readable.
+    let hash = "0".repeat(40);
+    let published = dir.path().join("store");
+    write_file(
+        &published,
+        "releases/acme/shared/1.0.0",
+        &format!("{hash}\n"),
+    );
+    write_file(&published, &format!("sources/{hash}/elm.json"), "{");
+    let test = root.join("web/tests/SharedTest.elm");
+    write_file(
+        &root,
+        "web/tests/SharedTest.elm",
+        "module SharedTest exposing (one)\n\nimport Shared\n\n\none : Int\none =\n    Shared.name\n",
+    );
+    let snapshot = Vfs::new().snapshot();
+    let index = index::index(&snapshot, &store, &test, &mut Memo::new()).unwrap();
+    assert!(index.named("SharedTest").unwrap().canonical.is_some());
+}

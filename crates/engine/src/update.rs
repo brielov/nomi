@@ -98,8 +98,9 @@ fn together(
             Outline::Pkg(_) => None,
         })
         .collect();
-    let compat = (apps.first())
-        .and_then(|(_, app)| (Compat::ALL.into_iter()).find(|&c| Version::compiler(c) == app.elm))
+    let compat = (workspace.members().iter())
+        .find(|member| dirs.contains(&member.dir) && matches!(member.outline, Outline::App(_)))
+        .and_then(|member| member.outline.compat().ok())
         .unwrap_or(Compat::LATEST);
     let plan = |console: &mut dyn Console| -> Result<bool, Report> {
         let Some(((dir, app), rest)) = apps.split_first() else {

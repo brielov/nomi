@@ -38,7 +38,8 @@ fn apply(text: &str, edits: &[Edit]) -> String {
 fn a_syntax_error_is_elms_at_its_region() {
     let text = "module Main exposing (x)\n\n\nx =\n    = 1\n";
     let (_dir, vfs, path) = open(text);
-    let found = diagnostics(&vfs.snapshot(), &path).unwrap();
+    let manifest = path.parent().unwrap().with_file_name("elm.json");
+    let found = diagnostics(&vfs.snapshot(), &path, Some(&manifest)).unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].title, "MISSING EXPRESSION");
     assert_eq!(
@@ -52,16 +53,18 @@ fn a_syntax_error_is_elms_at_its_region() {
     );
     let fine = "module Main exposing (x)\n\n\nx =\n    1\n";
     vfs.set_overlay(&path, fine).unwrap();
-    assert_eq!(diagnostics(&vfs.snapshot(), &path).unwrap(), []);
+    let found = diagnostics(&vfs.snapshot(), &path, Some(&manifest)).unwrap();
+    assert_eq!(found, []);
 }
 
 #[test]
 fn the_project_says_which_release_reads_the_file() {
     let (dir, vfs, path) = open("");
-    let context = Context::of(&vfs.snapshot(), &path);
+    let manifest = path.parent().unwrap().with_file_name("elm.json");
+    let context = Context::of(&vfs.snapshot(), Some(&manifest));
     assert_eq!(context.compat, Compat::V0_19_1);
     assert_eq!(context.source, nomi_syntax::Source::Application);
-    let outside = Context::of(&vfs.snapshot(), Path::new("/nowhere/Main.elm"));
+    let outside = Context::of(&vfs.snapshot(), None);
     assert_eq!(outside.compat, Compat::LATEST);
     drop(dir);
 }
