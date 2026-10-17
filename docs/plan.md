@@ -1403,6 +1403,7 @@ Source maps, which 11.1 named, would be per definition: the optimized graph keep
 
 Answers the exit review took, open to review: an entry starts itself, other Node modules don't; registry `nomi/*` hidden only from nomi's personality; children die with nomi on Linux; an automatic port moves on, an explicit one doesn't; the dev server answers local hosts only; `dist/` for entries without `output`.
 
+- [ ] **12.9j** `registry: rm and tree in a workspace`. `nomi rm` and `nomi tree` in a member that uses a member package resolve with the workspace, as `add` does, rather than asking the registry for the member. **Check:** both in the example's `apps/api`, inside it and with `-p`.
 - [ ] **12.10** `release: 0.6`.
 
 Defaults taken, each open to review: two apps can't pin different versions of one package; a member package shadows a published package of its name; no dev-server proxy; one port per browser entry, from 8000, a taken one an error. "The language server works across members" means 12.5's Check.
