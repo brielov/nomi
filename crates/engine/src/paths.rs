@@ -48,6 +48,22 @@ pub fn relative(path: &Path, root: &Path) -> PathBuf {
     up.chain(path[shared..].iter().copied()).collect()
 }
 
+/// `path` with its `.` components dropped and each `..` taking the name
+/// before it away, as written rather than as links on disk lead.
+pub(crate) fn lexical(path: &Path) -> PathBuf {
+    let mut parts: Vec<Component<'_>> = Vec::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir if matches!(parts.last(), Some(Component::Normal(_))) => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    parts.into_iter().collect()
+}
+
 /// The variable naming the cache, like Go's `GOCACHE`.
 pub const NOMI_CACHE: &str = "NOMI_CACHE";
 

@@ -10,16 +10,13 @@
 #[path = "support/website.rs"]
 pub mod website;
 
-use std::ffi::OsString;
 use std::fs;
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::Receiver;
-use std::time::{Duration, Instant};
 
 use nomi_testkit::http::{events, request};
-use nomi_testkit::process::{expect, lines};
+use nomi_testkit::process::{Group, Signal, expect, free_port};
 use website::offline;
 
 /// The ports a copy of the example uses.
@@ -94,20 +91,13 @@ fn replace(root: &Path, path: &str, from: &str, to: &str, count: usize) {
     fs::write(&path, text.replace(from, to)).unwrap();
 }
 
-fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
-}
-
 /// nomi in `root`, offline with `cache`, with `args` and the tests' Node
 /// binary's directory first on the PATH.
 fn nomi(cache: &Path, root: &Path, args: &[&str]) -> Command {
-    let node = nomi_testkit::node();
-    let mut path = OsString::from(node.parent().unwrap());
-    path.push(":");
-    path.push(std::env::var_os("PATH").unwrap_or_default());
     let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
-    nomi.current_dir(root).env("PATH", path).args(args);
+    nomi.current_dir(root)
+        .env("PATH", nomi_testkit::path_with_node())
+        .args(args);
     nomi
 }
 
@@ -146,18 +136,18 @@ fn it_builds_and_its_tests_pass_from_the_root() {
 }
 
 /// What nomi says on standard error up to its watching again.
-fn batch(stderr: &Receiver<String>, run: &mut Child) -> String {
-    expect(stderr, "[nomi] Watching for changes...", run).join("\n")
+fn batch(stderr: &Receiver<String>) -> String {
+    expect(stderr, "[nomi] Watching for changes...").join("\n")
 }
 
 /// Waits for the api to say it listens on `port`, unless it said so in
 /// `said`; what nomi said meanwhile.
-fn listening(said: &str, stderr: &Receiver<String>, run: &mut Child, port: u16) -> String {
+fn listening(said: &str, stderr: &Receiver<String>, port: u16) -> String {
     let line = format!("listening on http://localhost:{port}");
     if said.contains(&line) {
         String::new()
     } else {
-        expect(stderr, &line, run).join("\n")
+        expect(stderr, &line).join("\n")
     }
 }
 
@@ -171,19 +161,19 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
         landing: free_port(),
     };
     let (_work, root) = example(&ports);
-    let mut run = nomi(cache.path(), &root, &["run", "--watch"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = lines(run.stderr.take().unwrap());
-    let started = batch(&stderr, &mut run);
+    let mut run = Group::spawn(
+        nomi(cache.path(), &root, &["run", "--watch"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    );
+    let stderr = run.stderr();
+    let started = batch(&stderr);
     for (member, port) in [("apps/web", ports.web), ("apps/landing", ports.landing)] {
         let serving = format!("[nomi] Serving {member} at http://localhost:{port}");
         assert!(started.lines().any(|line| line == serving), "{started}");
     }
     assert!(started.contains("[nomi] Starting apps/api"), "{started}");
-    let mut said = vec![listening(&started, &stderr, &mut run, ports.api), started];
+    let mut said = vec![listening(&started, &stderr, ports.api), started];
 
     // The api lets the page's origin read its answers and post to it.
     let origin = format!("http://localhost:{}", ports.web);
@@ -238,12 +228,12 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
         "\"completed\"",
         2,
     );
-    let rebuilt = batch(&stderr, &mut run);
+    let rebuilt = batch(&stderr);
     assert!(rebuilt.contains("[nomi] Restarting apps/api"), "{rebuilt}");
     assert!(rebuilt.contains("[nomi] Reloading apps/web"), "{rebuilt}");
     assert!(!rebuilt.contains("apps/landing"), "{rebuilt}");
-    expect(&events, "event: reload", &mut run);
-    said.push(listening(&rebuilt, &stderr, &mut run, ports.api));
+    expect(&events, "event: reload");
+    said.push(listening(&rebuilt, &stderr, ports.api));
     said.push(rebuilt);
     let todos = request(ports.api, "GET", "/todos").unwrap();
     assert_eq!(
@@ -253,28 +243,10 @@ fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page
     let code = request(ports.web, "GET", "/Main.js").unwrap();
     assert!(code.text().contains("completed"));
 
-    signal_term(&run);
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
     // Neither the api's start nor its restart repeats DEV mode's advice.
     said.extend(stderr.iter());
     let said = said.join("\n");
     assert!(!said.contains("Compiled in DEV mode"), "{said}");
-}
-
-fn signal_term(child: &Child) {
-    let sent = Command::new("kill")
-        .args(["-TERM".to_owned(), child.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(sent.success());
-}
-
-/// The exit code of `run` once it ends, killed after 30 seconds.
-fn ended(run: &mut Child) -> Option<i32> {
-    let start = Instant::now();
-    while run.try_wait().unwrap().is_none() && start.elapsed().as_secs() < 30 {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let _ = run.kill();
-    run.wait().unwrap().code()
 }

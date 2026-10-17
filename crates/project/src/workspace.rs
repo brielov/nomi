@@ -9,7 +9,7 @@ use std::fmt;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use crate::{Manifest, Name, Outline};
+use crate::{Entry, Manifest, Name, Outline};
 
 /// A member pattern from `[workspace] members`, kept as written.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -319,6 +319,16 @@ impl Workspace {
             [] => Err(Unmatched::Unknown),
             _ => Err(Unmatched::Ambiguous(last)),
         }
+    }
+
+    /// This workspace with the member in `dir` running `entries` in place
+    /// of those its `nomi.toml` gives.
+    pub fn with_entries(mut self, dir: &Path, entries: Vec<Entry>) -> Workspace {
+        if let Some(member) = self.members.iter_mut().find(|m| m.dir == dir) {
+            let workspace = member.manifest.take().and_then(|m| m.workspace);
+            member.manifest = Some(Manifest { workspace, entries });
+        }
+        self
     }
 
     /// The member packages `member`'s modules depend on, directly.

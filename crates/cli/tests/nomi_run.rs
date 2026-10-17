@@ -8,17 +8,15 @@
 #[path = "support/website.rs"]
 pub mod website;
 
-use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use nomi_testkit::http::{events, request};
-use nomi_testkit::process::{expect, lines};
+use nomi_testkit::process::{Group, Signal, expect, free_port, next_lines};
 use website::offline;
 
 /// A program that exits with the code it is given, after printing it;
@@ -86,16 +84,19 @@ fn app(dir: &Path, program: &str, nomi_toml: Option<&str>) {
 /// `nomi run` with `args` in `root`, offline with `cache`, with the tests'
 /// Node binary's directory first on the PATH.
 fn nomi_run(cache: &Path, root: &Path, args: &[&str]) -> Command {
-    let node = nomi_testkit::node();
-    let mut path = OsString::from(node.parent().unwrap());
-    path.push(":");
-    path.push(std::env::var_os("PATH").unwrap_or_default());
     let mut run = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
     run.current_dir(root)
-        .env("PATH", path)
+        .env("PATH", nomi_testkit::path_with_node())
         .arg("run")
         .args(args);
     run
+}
+
+/// `nomi run` with `args` in `root`, as [`nomi_run`] gives it, started in
+/// a group of its own with its streams piped.
+fn spawn_in(cache: &Path, root: &Path, args: &[&str]) -> Group {
+    let mut run = nomi_run(cache, root, args);
+    Group::spawn(run.stdout(Stdio::piped()).stderr(Stdio::piped()))
 }
 
 const ENTRY: &str = "[[entry]]\nmain = \"src/Main.elm\"\n";
@@ -162,33 +163,15 @@ fn sigterm_and_sigint_reach_the_program_which_finalizes_and_nomi_exits_as_it_doe
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
-    for (signal, code) in [("-TERM", 143), ("-INT", 130)] {
-        let mut run = nomi_run(cache.path(), &root, &["--", "wait"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(run.stdout.take().unwrap());
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        assert_eq!(line, "waiting: ()\n");
-        let sent = Command::new("kill")
-            .args([signal.to_owned(), run.id().to_string()])
-            .status()
-            .unwrap();
-        assert!(sent.success());
-        let signalled = Instant::now();
-        while run.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 15 {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = run.kill();
-        let ran = run.wait_with_output().unwrap();
-        assert_eq!(ran.status.code(), Some(code), "{signal}: {ran:?}");
+    for (signal, code) in [(Signal::TERM, 143), (Signal::INT, 130)] {
+        let mut run = spawn_in(cache.path(), &root, &["--", "wait"]);
+        let stdout = run.stdout();
+        assert_eq!(next_lines(&stdout, 1), ["waiting: ()"]);
+        run.signal(signal);
+        assert_eq!(run.ended(), Some(code), "{signal:?}");
         // Printed by the program after the signal: it was passed on, and
         // the program, not nomi, ended the run.
-        let mut rest = String::new();
-        stdout.read_line(&mut rest).unwrap();
-        assert_eq!(rest, "finalized: ()\n", "{signal}");
+        assert_eq!(next_lines(&stdout, 1), ["finalized: ()"], "{signal:?}");
     }
 }
 
@@ -298,55 +281,31 @@ fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
     let cache = website::fixture_cache();
     let (_work, root) = project(VERSIONED, Some(ENTRY));
     version(&root, "\"1\"");
-    let mut run = nomi_run(cache.path(), &root, &["--watch"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = lines(run.stdout.take().unwrap());
-    let stderr = lines(run.stderr.take().unwrap());
-    let mut said = expect(&stderr, "Starting src/Main.elm", &mut run);
-    assert_eq!(
-        expect(&stdout, "version 1: ()", &mut run),
-        [] as [String; 0]
-    );
+    let mut run = spawn_in(cache.path(), &root, &["--watch"]);
+    let (stdout, stderr) = (run.stdout(), run.stderr());
+    let mut said = expect(&stderr, "Starting src/Main.elm");
+    assert_eq!(expect(&stdout, "version 1: ()"), [] as [String; 0]);
     // The old program is stopped as SIGTERM stops it, its finalizer
     // running, before the new one starts.
     version(&root, "\"22\"");
-    said.extend(expect(&stderr, "src/Version.elm changed", &mut run));
-    said.extend(expect(&stderr, "Restarting src/Main.elm", &mut run));
-    assert_eq!(
-        expect(&stdout, "version 22: ()", &mut run),
-        ["finalized 1: ()"]
-    );
+    said.extend(expect(&stderr, "src/Version.elm changed"));
+    said.extend(expect(&stderr, "Restarting src/Main.elm"));
+    assert_eq!(expect(&stdout, "version 22: ()"), ["finalized 1: ()"]);
     // A build that fails stops the program and waits for the next change.
     version(&root, "333");
-    said.extend(expect(&stderr, "-- TYPE MISMATCH", &mut run));
+    said.extend(expect(&stderr, "-- TYPE MISMATCH"));
     said.extend(expect(
         &stderr,
         "Stopping src/Main.elm, as its build failed",
-        &mut run,
     ));
-    said.extend(expect(&stderr, "Watching for changes...", &mut run));
-    assert_eq!(
-        expect(&stdout, "finalized 22: ()", &mut run),
-        [] as [String; 0]
-    );
+    said.extend(expect(&stderr, "Watching for changes..."));
+    assert_eq!(expect(&stdout, "finalized 22: ()"), [] as [String; 0]);
     version(&root, "\"4444\"");
-    expect(&stdout, "version 4444: ()", &mut run);
+    expect(&stdout, "version 4444: ()");
     // SIGTERM stops the program and the watch.
-    let sent = Command::new("kill")
-        .args(["-TERM".to_owned(), run.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(sent.success());
-    expect(&stdout, "finalized 4444: ()", &mut run);
-    let signalled = Instant::now();
-    while run.try_wait().unwrap().is_none() && signalled.elapsed().as_secs() < 30 {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let _ = run.kill();
-    assert_eq!(run.wait().unwrap().code(), Some(143));
+    run.signal(Signal::TERM);
+    expect(&stdout, "finalized 4444: ()");
+    assert_eq!(run.ended(), Some(143));
     // Nor the first start nor a restart repeats DEV mode's advice.
     said.extend(stderr.iter());
     assert!(
@@ -362,23 +321,16 @@ fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
-    let mut run = nomi_run(cache.path(), &root, &["--watch", "--", "3"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = lines(run.stdout.take().unwrap());
-    let stderr = lines(run.stderr.take().unwrap());
-    expect(&stdout, "3: ()", &mut run);
-    expect(&stderr, "src/Main.elm exited with code 3", &mut run);
+    let mut run = spawn_in(cache.path(), &root, &["--watch", "--", "3"]);
+    let (stdout, stderr) = (run.stdout(), run.stderr());
+    expect(&stdout, "3: ()");
+    expect(&stderr, "src/Main.elm exited with code 3");
     fs::write(
         root.join("src/Main.elm"),
         PROGRAM.replace("say code", "say (code ++ \"!\")"),
     )
     .unwrap();
-    expect(&stdout, "3!: ()", &mut run);
-    let _ = run.kill();
-    let _ = run.wait();
+    expect(&stdout, "3!: ()");
 }
 
 /// A program for the browser, by its `main`'s type.
@@ -387,34 +339,16 @@ const WORKER: &str = "module Main exposing (main)\n\n\nmain : Program () () ()\n
                       , update = \\_ model -> ( model, Cmd.none )\n        \
                       , subscriptions = \\_ -> Sub.none\n        }\n";
 
-/// A port nothing listens on just now.
-fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().port()
-}
-
-/// Sends `signal` to `child`.
-fn signal(child: &Child, signal: &str) {
-    let sent = Command::new("kill")
-        .args([signal.to_owned(), child.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(sent.success());
-}
-
 #[test]
 fn a_browser_entry_is_served_until_nomi_is_stopped() {
     let cache = website::fixture_cache();
     let port = free_port();
     let nomi_toml = format!("{ENTRY}port = {port}\n");
     let (_work, root) = project(WORKER, Some(&nomi_toml));
-    let mut run = nomi_run(cache.path(), &root, &[])
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = lines(run.stderr.take().unwrap());
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stderr = run.stderr();
     let serving = format!("Serving src/Main.elm at http://localhost:{port}");
-    expect(&stderr, &serving, &mut run);
+    expect(&stderr, &serving);
     // Built where its main's type says, without a platform: a script for
     // the browser, in a page titled by its project.
     let page = request(port, "GET", "/").unwrap();
@@ -436,8 +370,8 @@ fn a_browser_entry_is_served_until_nomi_is_stopped() {
     assert!(!code.text().contains("Compiled in DEV mode"), "{code:?}");
     assert!(root.join("elm-stuff/nomi/run/src/Main.js").is_file());
     assert!(!root.join("elm-stuff/nomi/run/src/Main.mjs").exists());
-    signal(&run, "-TERM");
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
 }
 
 #[test]
@@ -458,17 +392,13 @@ fn a_taken_port_serves_nothing() {
     assert!(root.join("elm-stuff/nomi/run/src/Main.js").is_file());
 }
 
-/// The next line of `lines` with `wanted` in it, killing `child` and
-/// failing after a minute.
-fn line_with(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> String {
+/// The next line of `lines` with `wanted` in it, failing after a minute.
+fn line_with(lines: &Receiver<String>, wanted: &str) -> String {
     loop {
         match lines.recv_timeout(Duration::from_secs(60)) {
             Ok(line) if line.contains(wanted) => return line,
             Ok(_) => {}
-            Err(e) => {
-                let _ = child.kill();
-                panic!("no line with {wanted:?}: {e}");
-            }
+            Err(e) => panic!("no line with {wanted:?}: {e}"),
         }
     }
 }
@@ -498,23 +428,23 @@ fn a_taken_port_assigned_moves_to_the_next_free_one() {
         }
     };
     let (_work, root) = project(WORKER, Some(ENTRY));
-    let mut run = nomi_run(cache.path(), &root, &[])
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = lines(run.stderr.take().unwrap());
-    let line = line_with(&stderr, "Serving src/Main.elm", &mut run);
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stderr = run.stderr();
+    let line = line_with(&stderr, "Serving src/Main.elm");
     assert!(line.ends_with(", as port 8000 is taken"), "{line}");
     let port = served_at(&[line], "src/Main.elm");
     assert_ne!(port, 8000);
     assert_eq!(request(port, "GET", "/").unwrap().status, 200);
-    signal(&run, "-TERM");
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
 }
 
 /// A program that says it is waiting, then waits with a finalizer; or,
 /// given `exit` and a code, waits until a file `go` appears in the
-/// directory it runs in, then exits with that code.
+/// directory it runs in, then exits with that code; given `slow`, waits
+/// with a finalizer that takes a minute and hears no signal meanwhile;
+/// given `helper`, first starts a process that prints `helper` and runs
+/// on with its standard streams.
 const GATED: &str = r#"module Main exposing (main)
 
 import Json.Decode
@@ -534,14 +464,34 @@ main =
             case env.args of
                 [ "exit", code ] ->
                     say "waiting"
-                        |> Task.andThen (\_ -> Nomi.Ffi.task "gate" Json.Encode.null (Json.Decode.succeed ()))
+                        |> Task.andThen (\_ -> ffi "gate")
                         |> Task.mapError (\_ -> "no gate")
                         |> Task.andThen (\_ -> Nomi.Process.exit (Maybe.withDefault 1 (String.toInt code)))
 
-                _ ->
+                [ "slow" ] ->
                     say "waiting"
                         |> Task.andThen (\_ -> Process.sleep 60000)
-                        |> Nomi.Task.ensure (say "finalized")
+                        |> Nomi.Task.ensure (ffi "hold" |> Task.onError (\_ -> Task.succeed ()))
+
+                [ "helper" ] ->
+                    ffi "helper"
+                        |> Task.mapError (\_ -> "no helper")
+                        |> Task.andThen (\_ -> wait)
+
+                _ ->
+                    wait
+
+
+wait : Task x ()
+wait =
+    say "waiting"
+        |> Task.andThen (\_ -> Process.sleep 60000)
+        |> Nomi.Task.ensure (say "finalized")
+
+
+ffi : String -> Task Nomi.Ffi.Error ()
+ffi name =
+    Nomi.Ffi.task name Json.Encode.null (Json.Decode.succeed ())
 
 
 say : String -> Task x ()
@@ -549,9 +499,28 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-const GATE: &str = "import { existsSync } from \"node:fs\";\n\n\
-                    export async function gate() {\n  \
-                    while (!existsSync(\"go\")) await new Promise((r) => setTimeout(r, 10));\n}\n";
+/// [`GATED`]'s FFI module. The gate gives up after a minute, so a test
+/// that fails before writing `go` leaves nothing waiting.
+const GATE: &str = r#"import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+
+export async function gate() {
+  const deadline = Date.now() + 60_000;
+  while (!existsSync("go")) {
+    if (Date.now() > deadline) throw new Error("no go within a minute");
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+// Blocks the thread, so the program's signal handlers can't run.
+export async function hold() {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60_000);
+}
+
+export async function helper() {
+  spawn("sh", ["-c", "echo helper; exec sleep 300"], { stdio: "inherit" });
+}
+"#;
 
 /// A workspace of two applications of [`GATED`], `apps/api` and
 /// `apps/worker`, whose entries take `api` and `worker` as their `args`.
@@ -572,46 +541,23 @@ fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
     (work, root)
 }
 
-/// `nomi run` at the root of `root`, its streams piped.
-fn spawn_at_root(cache: &Path, root: &Path) -> Child {
-    nomi_run(cache, root, &[])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap()
-}
-
-/// How `run` ended, killing it if it hasn't within 30 seconds.
-fn ended(run: &mut Child) -> Option<i32> {
-    let start = Instant::now();
-    while run.try_wait().unwrap().is_none() && start.elapsed().as_secs() < 30 {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let _ = run.kill();
-    run.wait().unwrap().code()
-}
-
 #[test]
 fn every_entry_runs_under_its_member_and_sigterm_finalizes_them_all() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
-    let mut run = spawn_at_root(cache.path(), &root);
-    let stdout = lines(run.stdout.take().unwrap());
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stdout = run.stdout();
     assert_eq!(
-        two_lines(&stdout, &mut run),
+        next_lines(&stdout, 2),
         ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
     );
-    let sent = Command::new("kill")
-        .args(["-TERM".to_owned(), run.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(sent.success());
+    run.signal(Signal::TERM);
     assert_eq!(
-        two_lines(&stdout, &mut run),
+        next_lines(&stdout, 2),
         ["[apps/api]    finalized: ()", "[apps/worker] finalized: ()"]
     );
-    assert_eq!(ended(&mut run), Some(143));
+    assert_eq!(run.ended(), Some(143));
 }
 
 #[test]
@@ -625,38 +571,22 @@ fn at_the_root_browser_entries_are_served_beside_the_programs() {
     app(&web, WORKER, Some(&nomi_toml));
     fs::create_dir_all(web.join("public")).unwrap();
     fs::write(web.join("public/index.html"), "<p>web</p>\n").unwrap();
-    let mut run = spawn_at_root(cache.path(), &root);
-    let stdout = lines(run.stdout.take().unwrap());
-    let stderr = lines(run.stderr.take().unwrap());
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let (stdout, stderr) = (run.stdout(), run.stderr());
     let serving = format!("[nomi] Serving apps/web at http://localhost:{port}");
-    expect(&stderr, &serving, &mut run);
+    expect(&stderr, &serving);
     assert_eq!(
-        two_lines(&stdout, &mut run),
+        next_lines(&stdout, 2),
         ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
     );
     let page = request(port, "GET", "/a/route").unwrap();
     assert_eq!(page.text(), "<p>web</p>\n");
-    signal(&run, "-TERM");
+    run.signal(Signal::TERM);
     assert_eq!(
-        two_lines(&stdout, &mut run),
+        next_lines(&stdout, 2),
         ["[apps/api]    finalized: ()", "[apps/worker] finalized: ()"]
     );
-    assert_eq!(ended(&mut run), Some(143));
-}
-
-/// The next two lines of `lines`, which come in either order, sorted;
-/// killing `child` and failing after a minute.
-fn two_lines(lines: &Receiver<String>, child: &mut Child) -> Vec<String> {
-    let mut two: Vec<String> = (0..2)
-        .map(|_| {
-            (lines.recv_timeout(Duration::from_secs(60))).unwrap_or_else(|e| {
-                let _ = child.kill();
-                panic!("no line: {e}")
-            })
-        })
-        .collect();
-    two.sort();
-    two
+    assert_eq!(run.ended(), Some(143));
 }
 
 #[test]
@@ -664,36 +594,152 @@ fn an_entry_that_fails_stops_the_others_and_gives_nomi_its_code() {
     nomi_testkit::require_node();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"exit\", \"3\"]", "[\"wait\"]");
-    let mut run = spawn_at_root(cache.path(), &root);
-    let stdout = lines(run.stdout.take().unwrap());
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stdout = run.stdout();
     assert_eq!(
-        two_lines(&stdout, &mut run),
+        next_lines(&stdout, 2),
         ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
     );
     fs::write(root.join("go"), "").unwrap();
-    expect(&stdout, "[apps/worker] finalized: ()", &mut run);
-    assert_eq!(ended(&mut run), Some(3));
+    expect(&stdout, "[apps/worker] finalized: ()");
+    assert_eq!(run.ended(), Some(3));
 }
 
 #[test]
-fn arguments_go_to_one_entry() {
+fn nomi_exits_once_its_programs_have_though_a_process_they_started_holds_their_output() {
+    nomi_testkit::require_node();
     let cache = website::fixture_cache();
-    let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
-    let ran = nomi_run(cache.path(), &root, &["--", "3"])
-        .output()
-        .unwrap();
-    assert_eq!(ran.status.code(), Some(1), "{ran:?}");
-    assert!(
-        stderr(&ran).contains("-- ARGUMENTS FOR WHICH ENTRY?"),
-        "{ran:?}"
-    );
-    assert!(!root.join("apps/api/elm-stuff").exists());
+    let (_work, root) = gated("[\"helper\"]", "[\"wait\"]");
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stdout = run.stdout();
+    expect(&stdout, "[apps/api]    helper");
+    run.signal(Signal::TERM);
+    // The helper runs on for minutes, holding api's pipes open.
+    assert_eq!(run.ended(), Some(143));
 }
 
-/// Waits for `events`, a page's event stream, to say reload, killing
-/// `child` and failing after a minute.
-fn reloaded(events: &Receiver<String>, child: &mut Child) {
-    expect(events, "event: reload", child);
+#[test]
+fn a_program_that_does_not_stop_within_the_grace_is_killed() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"slow\"]");
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let (stdout, stderr) = (run.stdout(), run.stderr());
+    assert_eq!(
+        next_lines(&stdout, 2),
+        ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
+    );
+    run.signal(Signal::TERM);
+    expect(&stdout, "[apps/api]    finalized: ()");
+    expect(
+        &stderr,
+        "[apps/worker] The program did not stop within 15 seconds, so I killed it.",
+    );
+    assert_eq!(run.ended(), Some(143));
+}
+
+/// The processes whose parent is `parent`, by their ids.
+#[cfg(target_os = "linux")]
+fn children(parent: u32) -> Vec<u32> {
+    let parent = parent.to_string();
+    (fs::read_dir("/proc").unwrap().flatten())
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+            // `pid (comm) state ppid ...`, the name in parentheses.
+            let fields = stat.rsplit_once(')').map_or("", |(_, rest)| rest);
+            fields.split_whitespace().nth(1) == Some(parent.as_str())
+        })
+        .collect()
+}
+
+/// Whether the process `pid` has ended, reaped or not.
+#[cfg(target_os = "linux")]
+fn has_ended(pid: u32) -> bool {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+    let state = stat.rsplit_once(')').map_or("", |(_, rest)| rest);
+    !matches!(state.split_whitespace().next(), Some(s) if s != "Z" && s != "X")
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn programs_end_when_nomi_is_killed() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
+    let mut run = spawn_in(cache.path(), &root, &[]);
+    let stdout = run.stdout();
+    assert_eq!(
+        next_lines(&stdout, 2),
+        ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
+    );
+    let programs = children(run.id());
+    assert_eq!(programs.len(), 2, "{programs:?}");
+    run.signal(Signal::KILL);
+    // Each is sent SIGTERM, where else it would wait a minute.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !programs.iter().all(|&pid| has_ended(pid)) {
+        assert!(Instant::now() < deadline, "{programs:?} still run");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// `nomi run` with `args` in `root`, as [`nomi_run`] gives it, on a
+/// terminal of its own that `script` makes: what is written to `script`
+/// is typed there, and what nomi and its programs print, both streams,
+/// is its output.
+#[cfg(target_os = "linux")]
+fn on_a_terminal(cache: &Path, root: &Path) -> (Group, std::process::ChildStdin, Receiver<String>) {
+    let run = nomi_run(cache, root, &[]);
+    let line = std::iter::once(run.get_program())
+        .chain(run.get_args())
+        .map(|word| format!("'{}'", word.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut script = Command::new("script");
+    script
+        .args(["--quiet", "--return", "--command", &line, "/dev/null"])
+        .current_dir(root)
+        .env("SHELL", "/bin/sh")
+        .envs(run.get_envs().filter_map(|(k, v)| Some((k, v?))))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    let mut group = Group::spawn(&mut script);
+    let typed = group.child().stdin.take().unwrap();
+    let said = group.stdout();
+    (group, typed, said)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_terminal_interrupt_reaches_the_programs_itself_and_a_second_kills_them() {
+    use std::io::Write as _;
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = gated("[\"wait\"]", "[\"slow\"]");
+    let (mut run, mut typed, said) = on_a_terminal(cache.path(), &root);
+    // Both programs' lines, in either order.
+    expect(&said, "waiting: ()");
+    expect(&said, "waiting: ()");
+    // The terminal sends both programs SIGINT itself, and nomi passes
+    // nothing on, so each sees one: api finalizes, and the worker starts
+    // its finalizer, which holds it.
+    typed.write_all(b"\x03").unwrap();
+    expect(&said, "finalized: ()");
+    // A second kills the worker at once, without waiting out the grace.
+    typed.write_all(b"\x03").unwrap();
+    assert_eq!(run.ended(), Some(130));
+    let rest: Vec<String> = said.iter().collect();
+    assert!(
+        !rest.iter().any(|line| line.contains("did not stop")),
+        "{rest:?}"
+    );
+}
+
+/// Waits for `events`, a page's event stream, to say reload, failing
+/// after a minute.
+fn reloaded(events: &Receiver<String>) {
+    expect(events, "event: reload");
 }
 
 #[test]
@@ -703,12 +749,9 @@ fn with_watch_a_browser_entry_is_served_and_reloaded_as_it_changes() {
     let nomi_toml = format!("{ENTRY}static = \"public\"\nport = {port}\n");
     let (_work, root) = project(WORKER, Some(&nomi_toml));
     fs::create_dir_all(root.join("public")).unwrap();
-    let mut run = nomi_run(cache.path(), &root, &["--watch"])
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = lines(run.stderr.take().unwrap());
-    expect(&stderr, "Watching for changes...", &mut run);
+    let mut run = spawn_in(cache.path(), &root, &["--watch"]);
+    let stderr = run.stderr();
+    expect(&stderr, "Watching for changes...");
     let (status, events) = events(port, "/__nomi/events").unwrap();
     assert_eq!(status, 200);
     let edited = WORKER.replace(
@@ -716,19 +759,19 @@ fn with_watch_a_browser_entry_is_served_and_reloaded_as_it_changes() {
         "\\_ -> ( always () \"edited\", Cmd.none )",
     );
     fs::write(root.join("src/Main.elm"), edited).unwrap();
-    expect(&stderr, "Reloading src/Main.elm", &mut run);
-    reloaded(&events, &mut run);
+    expect(&stderr, "Reloading src/Main.elm");
+    reloaded(&events);
     let code = request(port, "GET", "/Main.js").unwrap();
     assert!(code.text().contains("edited"), "{code:?}");
     // A static file reloads the page without a build.
     let output = root.join("elm-stuff/nomi/run/src/Main.js");
     let built = fs::metadata(&output).unwrap().modified().unwrap();
     fs::write(root.join("public/app.css"), "p {}\n").unwrap();
-    expect(&stderr, "Reloading src/Main.elm", &mut run);
-    reloaded(&events, &mut run);
+    expect(&stderr, "Reloading src/Main.elm");
+    reloaded(&events);
     assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), built);
-    signal(&run, "-TERM");
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
 }
 
 #[test]
@@ -744,26 +787,23 @@ fn with_watch_a_page_whose_first_build_failed_is_served_once_fixed() {
     let broken = WORKER.replace("( (), Cmd.none )", "( 1, Cmd.none )");
     app(&root.join("apps/w1"), &broken, Some(ENTRY));
     app(&root.join("apps/w2"), WORKER, Some(ENTRY));
-    let mut run = nomi_run(cache.path(), &root, &["--watch"])
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = lines(run.stderr.take().unwrap());
-    let started = expect(&stderr, "[nomi] Watching for changes...", &mut run);
+    let mut run = spawn_in(cache.path(), &root, &["--watch"]);
+    let stderr = run.stderr();
+    let started = expect(&stderr, "[nomi] Watching for changes...");
     assert!(
         started.iter().any(|line| line.contains("-- TYPE MISMATCH")),
         "{started:?}"
     );
     let w2 = served_at(&started, "apps/w2");
     fs::write(root.join("apps/w1/src/Main.elm"), WORKER).unwrap();
-    let fixed = expect(&stderr, "[nomi] Watching for changes...", &mut run);
+    let fixed = expect(&stderr, "[nomi] Watching for changes...");
     let w1 = served_at(&fixed, "apps/w1");
     assert_ne!(w1, w2);
     for port in [w1, w2] {
         assert_eq!(request(port, "GET", "/").unwrap().status, 200);
     }
-    signal(&run, "-TERM");
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
 }
 
 /// A workspace of `packages/shared`, the package acme/shared exposing
@@ -834,8 +874,8 @@ fn shared(root: &Path, version: &str) {
 
 /// What nomi says on standard error for the next change, up to its
 /// watching again.
-fn batch(stderr: &Receiver<String>, run: &mut Child) -> String {
-    expect(stderr, "[nomi] Watching for changes...", run).join("\n")
+fn batch(stderr: &Receiver<String>) -> String {
+    expect(stderr, "[nomi] Watching for changes...").join("\n")
 }
 
 #[test]
@@ -844,43 +884,38 @@ fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
     let cache = website::fixture_cache();
     let port = free_port();
     let (_work, root) = full_stack(port);
-    let mut run = nomi_run(cache.path(), &root, &["--watch"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stdout = lines(run.stdout.take().unwrap());
-    let stderr = lines(run.stderr.take().unwrap());
-    let started = batch(&stderr, &mut run);
+    let mut run = spawn_in(cache.path(), &root, &["--watch"]);
+    let (stdout, stderr) = (run.stdout(), run.stderr());
+    let started = batch(&stderr);
     assert!(
         started.contains(&format!(
             "[nomi] Serving apps/web at http://localhost:{port}"
         )),
         "{started}"
     );
-    expect(&stdout, "[apps/api] version 1: ()", &mut run);
+    expect(&stdout, "[apps/api] version 1: ()");
     let (_, events) = events(port, "/__nomi/events").unwrap();
 
     // A module of web's alone reloads web, and api runs on.
     fs::write(root.join("apps/web/src/Main.elm"), web("!")).unwrap();
-    let web_edit = batch(&stderr, &mut run);
+    let web_edit = batch(&stderr);
     assert!(web_edit.contains("[nomi] Reloading apps/web"), "{web_edit}");
     assert!(!web_edit.contains("[nomi] Restarting"), "{web_edit}");
-    reloaded(&events, &mut run);
+    reloaded(&events);
 
     // A static file reloads web without a build.
     fs::write(root.join("apps/web/public/app.css"), "p {}\n").unwrap();
-    let static_edit = batch(&stderr, &mut run);
+    let static_edit = batch(&stderr);
     assert!(
         static_edit.contains("[nomi] Reloading apps/web"),
         "{static_edit}"
     );
     assert!(!static_edit.contains("Building"), "{static_edit}");
-    reloaded(&events, &mut run);
+    reloaded(&events);
 
     // The package's body restarts api and reloads web.
     shared(&root, "\"22\"");
-    let body_edit = batch(&stderr, &mut run);
+    let body_edit = batch(&stderr);
     assert!(
         body_edit.contains("[nomi] Restarting apps/api"),
         "{body_edit}"
@@ -890,14 +925,14 @@ fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
         "{body_edit}"
     );
     assert_eq!(
-        expect(&stdout, "[apps/api] version 22: ()", &mut run),
+        expect(&stdout, "[apps/api] version 22: ()"),
         ["[apps/api] finalized 1: ()"]
     );
-    reloaded(&events, &mut run);
+    reloaded(&events);
 
     // A comment changes no code, so nothing restarts or reloads.
     shared(&root, "\"22\" -- the version");
-    let comment = batch(&stderr, &mut run);
+    let comment = batch(&stderr);
     assert!(
         comment.contains("[nomi] packages/shared/src/Version.elm changed"),
         "{comment}"
@@ -908,26 +943,82 @@ fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
 
     // A type error in the package stops api and leaves web's page as it is.
     shared(&root, "333");
-    let broken = batch(&stderr, &mut run);
+    let broken = batch(&stderr);
     assert!(broken.contains("-- TYPE MISMATCH"), "{broken}");
     assert!(
         broken.contains("[nomi] Stopping apps/api, as its build failed"),
         "{broken}"
     );
     assert!(!broken.contains("Reloading"), "{broken}");
-    expect(&stdout, "[apps/api] finalized 22: ()", &mut run);
+    expect(&stdout, "[apps/api] finalized 22: ()");
     let page = request(port, "GET", "/").unwrap();
     assert_eq!(page.status, 200);
 
     // Its fix starts api again and reloads web.
     shared(&root, "\"4444\"");
-    let fixed = batch(&stderr, &mut run);
+    let fixed = batch(&stderr);
     assert!(fixed.contains("[nomi] Starting apps/api"), "{fixed}");
     assert!(fixed.contains("[nomi] Reloading apps/web"), "{fixed}");
-    expect(&stdout, "[apps/api] version 4444: ()", &mut run);
-    reloaded(&events, &mut run);
+    expect(&stdout, "[apps/api] version 4444: ()");
+    reloaded(&events);
 
-    signal(&run, "-TERM");
-    expect(&stdout, "[apps/api] finalized 4444: ()", &mut run);
-    assert_eq!(ended(&mut run), Some(143));
+    run.signal(Signal::TERM);
+    expect(&stdout, "[apps/api] finalized 4444: ()");
+    assert_eq!(run.ended(), Some(143));
+}
+
+#[test]
+fn with_watch_a_page_moves_as_its_entry_does() {
+    let cache = website::fixture_cache();
+    let (old, new) = (free_port(), free_port());
+    let (_work, root) = project(WORKER, Some(&format!("{ENTRY}port = {old}\n")));
+    let mut run = spawn_in(cache.path(), &root, &["--watch"]);
+    let stderr = run.stderr();
+    expect(
+        &stderr,
+        &format!("Serving src/Main.elm at http://localhost:{old}"),
+    );
+    let moved = format!("{ENTRY}port = {new}\noutput = \"dist/app.js\"\n");
+    fs::write(root.join("nomi.toml"), moved).unwrap();
+    expect(
+        &stderr,
+        &format!("Serving src/Main.elm at http://localhost:{new}"),
+    );
+    let page = request(new, "GET", "/").unwrap();
+    assert!(
+        page.text().contains("<script src=\"/app.js\"></script>"),
+        "{page:?}"
+    );
+    assert_eq!(request(new, "GET", "/app.js").unwrap().status, 200);
+    assert!(request(old, "GET", "/").is_err());
+    run.signal(Signal::TERM);
+    assert_eq!(run.ended(), Some(143));
+}
+
+#[test]
+fn with_watch_one_member_restarts_as_the_member_packages_it_uses_change() {
+    nomi_testkit::require_node();
+    let cache = website::fixture_cache();
+    let (_work, root) = full_stack(free_port());
+    let api = root.join("apps/api");
+    for (dir, args) in [
+        (&api, &["--watch"][..]),
+        (&root, &["--watch", "-p", "apps/api"]),
+    ] {
+        shared(&root, "\"1\"");
+        let mut run = spawn_in(cache.path(), dir, args);
+        let (stdout, stderr) = (run.stdout(), run.stderr());
+        expect(&stdout, "version 1: ()");
+        shared(&root, "\"22\"");
+        let restarted = expect(&stderr, "Restarting src/Main.elm");
+        assert!(
+            restarted
+                .iter()
+                .any(|line| line.contains("Version.elm changed")),
+            "{args:?}: {restarted:?}"
+        );
+        assert_eq!(expect(&stdout, "version 22: ()"), ["finalized 1: ()"]);
+        run.signal(Signal::TERM);
+        assert_eq!(run.ended(), Some(143), "{args:?}");
+    }
 }

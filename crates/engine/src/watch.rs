@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use walkdir::{DirEntry, WalkDir};
 
-use crate::paths::relative;
+use crate::paths::{lexical, relative};
 
 /// How often the files are looked at, and how long elm-test waits for
 /// changes made together.
@@ -84,6 +84,7 @@ impl Snapshot {
     /// The project at `root`, watching `files` and, from
     /// [`Snapshot::watch`], what the project names.
     pub fn new(root: &Path, files: Vec<PathBuf>) -> Snapshot {
+        let files = lexically(files);
         let mut snapshot = Snapshot {
             root: root.to_owned(),
             roots: roots(&files),
@@ -97,15 +98,19 @@ impl Snapshot {
     }
 
     /// Watches `paths` from now on, and every file in the directories
-    /// `every`, as `watcher.add` does: what they hold already isn't a
-    /// change.
+    /// `every`, in place of those watched before, as `watcher.add` and
+    /// `watcher.unwatch` do: what they hold already isn't a change, nor is
+    /// what is no longer watched.
     pub fn watch(&mut self, paths: Vec<PathBuf>, every: Vec<PathBuf>) {
+        let (paths, every) = (lexically(paths), lexically(every));
         if paths != self.paths || every != self.every {
             self.roots = roots(self.files.iter().chain(&paths).chain(&every));
             self.paths = paths;
             self.every = every;
-            let now = self.look();
-            for (path, seen) in now {
+            let roots = &self.roots;
+            self.seen
+                .retain(|path, _| roots.iter().any(|root| sees(root, path)));
+            for (path, seen) in self.look() {
                 self.seen.entry(path).or_insert(seen);
             }
         }
@@ -168,6 +173,15 @@ impl Snapshot {
             path: path.to_owned(),
         }
     }
+}
+
+/// Each of `paths` as [`lexical`] spells it, so that one path isn't
+/// watched twice under two spellings.
+fn lexically(mut paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    for path in &mut paths {
+        *path = lexical(path);
+    }
+    paths
 }
 
 /// `paths`, each once, without those another's walk sees.
@@ -322,6 +336,41 @@ mod tests {
                 change(Event::Changed, root, "public/css/app.css"),
                 change(Event::Changed, root, "src/ffi.mjs")
             ]
+        );
+    }
+
+    #[test]
+    fn a_path_no_longer_watched_is_no_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for path in ["src/A.elm", "lib/B.elm"] {
+            fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+            fs::write(root.join(path), "a").unwrap();
+        }
+        let mut snapshot = Snapshot::new(root, Vec::new());
+        snapshot.watch(vec![root.join("src"), root.join("lib")], Vec::new());
+        assert!(snapshot.changes().is_empty());
+        snapshot.watch(vec![root.join("src")], Vec::new());
+        assert!(snapshot.changes().is_empty());
+        fs::write(root.join("lib/B.elm"), "bb").unwrap();
+        assert!(snapshot.changes().is_empty());
+    }
+
+    #[test]
+    fn a_path_spelt_two_ways_is_watched_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("apps/web")).unwrap();
+        let mut snapshot = Snapshot::new(root, Vec::new());
+        snapshot.watch(
+            vec![root.join("apps/web/../../src"), root.join("./src")],
+            Vec::new(),
+        );
+        fs::write(root.join("src/A.elm"), "a").unwrap();
+        assert_eq!(
+            snapshot.changes(),
+            [change(Event::Added, root, "src/A.elm")]
         );
     }
 }

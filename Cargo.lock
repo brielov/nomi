@@ -1138,6 +1138,7 @@ dependencies = [
  "lsp-server",
  "lsp-types",
  "nomi-base",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

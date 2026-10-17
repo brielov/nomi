@@ -102,6 +102,16 @@ pub fn node() -> PathBuf {
     }
 }
 
+/// The PATH with the directory of [`node`] first, so a program run under
+/// `node` runs on the tests' Node.
+pub fn path_with_node() -> std::ffi::OsString {
+    let node = node();
+    let mut path = std::ffi::OsString::from(node.parent().expect("node is in a directory"));
+    path.push(if cfg!(windows) { ";" } else { ":" });
+    path.push(std::env::var_os("PATH").unwrap_or_default());
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::parallel_on;

@@ -61,13 +61,16 @@ zip = { version = "8.6", default-features = false, features = ["deflate"] }
 
 # architecture.md §13, where a lint can check it.
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Denied rather than forbidden: `nomi run` sets its programs' parent-death
+# signal in the one `unsafe` block nomi has, which expects it.
+unsafe_code = "deny"
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
 unused_qualifications = "warn"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
+undocumented_unsafe_blocks = "warn"
 todo = "warn"
 allow_attributes_without_reason = "warn"
 # T2, T4

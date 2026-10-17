@@ -90,6 +90,21 @@ pub(crate) fn alone(snapshot: &Snapshot, root: &Path) -> Option<Result<Workspace
     Some(load(snapshot, root, manifest))
 }
 
+/// The project at `root`, standing alone, as a workspace of its one
+/// member, with its `nomi.toml` if it has one.
+pub(crate) fn of_project(snapshot: &Snapshot, root: &Path) -> Result<Workspace, Report> {
+    let path = root.join(NOMI_TOML);
+    let manifest = (snapshot.is_file(&path))
+        .then(|| manifest(snapshot, &path, NOMI_TOML))
+        .transpose()?;
+    let member = Member::new(
+        PathBuf::new(),
+        outline(snapshot, root, Path::new(""))?,
+        manifest,
+    );
+    Workspace::new(root.to_owned(), vec![member]).map_err(|e| problem(&e))
+}
+
 /// `workspace` with each member package also after the member packages
 /// its resolution reaches through registry packages, as one depending on
 /// a published package that depends on a member's name does. A member

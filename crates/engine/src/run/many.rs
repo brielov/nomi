@@ -3,14 +3,16 @@
 //! `args`, its lines shown under the name of its member, until they have
 //! all ended, or, while a program is served, until nomi is stopped. One
 //! that fails stops the others and gives nomi its code, and SIGINT or
-//! SIGTERM stops them all within one grace.
+//! SIGTERM stops them all within one grace. The watch runs its programs
+//! here too, a single one on nomi's own streams.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use nomi_base::{Compat, Platform, Report};
@@ -24,8 +26,8 @@ pub(super) use watch::watch;
 
 use super::port::{Port, ports};
 use super::{
-    Caught, GRACE, Served, Stderr, Stop, exit_code, no_node, node, not_a_module, send, serve,
-    serving,
+    Caught, GRACE, Served, Signalled, Stderr, Stop, exit_code, no_node, node, not_a_module, send,
+    serve, serving,
 };
 use crate::Context;
 use crate::console::{self, Console};
@@ -72,7 +74,7 @@ pub(super) fn run(
     let Some(servers) = servers(console, root, &builds.entries, &labels, &ports) else {
         return 1;
     };
-    let mut running = Running::new(servers);
+    let mut running = Running::new(servers, Streams::Prefixed, Vec::new());
     let programs =
         (builds.entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Node);
     for (built, prefix) in programs {
@@ -194,10 +196,28 @@ fn label(dir: &Path, several: bool, main: &str) -> String {
     }
 }
 
-/// A line a program printed.
+/// How the programs' lines and nomi's own reach nomi's streams.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Streams {
+    /// Each program's lines read and shown after its prefix, and nomi's
+    /// own after `[nomi]`, as several programs share them.
+    Prefixed,
+    /// The one program's streams are nomi's, and nomi's lines are bare.
+    Shared,
+}
+
+impl Streams {
+    /// What comes before a line nomi says itself.
+    fn nomi(self) -> &'static str {
+        match self {
+            Streams::Prefixed => "[nomi] ",
+            Streams::Shared => "",
+        }
+    }
+}
+
+/// A line a program printed, after its prefix.
 struct Line {
-    /// The program's place in [`Running::programs`].
-    from: usize,
     stream: Stream,
     text: String,
 }
@@ -216,14 +236,27 @@ struct Program {
     ended: Option<ExitStatus>,
 }
 
-/// The programs started, the threads reading their lines, and the
-/// servers serving the browser programs.
+/// Why programs are killed rather than left to stop.
+#[derive(Clone, Copy)]
+enum Killing {
+    /// A second SIGINT asked for it.
+    Asked,
+    /// They didn't stop within [`GRACE`], which nomi says.
+    Overdue,
+}
+
+/// The programs started and the servers serving the browser programs.
 struct Running {
-    /// Every program started, whether it has ended or not, each where
-    /// its lines name it.
-    programs: Vec<Program>,
-    readers: Vec<JoinHandle<()>>,
+    /// The programs started that haven't ended or whose end hasn't been
+    /// taken, by the ids [`Running::start`] gave them.
+    programs: BTreeMap<usize, Program>,
+    /// The id the next program takes.
+    next: usize,
     servers: Vec<Server>,
+    streams: Streams,
+    /// The arguments every program takes in place of its entry's, where
+    /// any are given.
+    args: Vec<OsString>,
     send: Sender<Line>,
     lines: Receiver<Line>,
 }
@@ -231,42 +264,59 @@ struct Running {
 /// How often the programs are looked at while no line comes.
 const TICK: Duration = Duration::from_millis(10);
 
+/// How long nomi reads what the programs printed once they have all
+/// ended: a process one started may hold its pipes open far longer.
+const LINGER: Duration = Duration::from_secs(1);
+
 impl Running {
-    /// No program yet, beside `servers`.
-    fn new(servers: Vec<Server>) -> Running {
+    /// No program yet, beside `servers`; programs to start with `args`
+    /// where given, their lines shown as `streams` says.
+    fn new(servers: Vec<Server>, streams: Streams, args: Vec<OsString>) -> Running {
         let (send, lines) = mpsc::channel();
         Running {
-            programs: Vec::new(),
-            readers: Vec::new(),
+            programs: BTreeMap::new(),
+            next: 0,
             servers,
+            streams,
+            args,
             send,
             lines,
         }
     }
 
-    /// Starts `built` under `node` with its entry's `args`, its standard
-    /// output and error read line by line, shown after `prefix`; its
-    /// place among the programs.
+    /// Starts `built` under `node` with its entry's `args`, or those
+    /// every program takes, its standard output and error read line by
+    /// line and shown after `prefix` where they are piped; its id.
     fn start(&mut self, built: &EntryBuilt<'_>, prefix: String) -> std::io::Result<usize> {
-        let args: Vec<OsString> = built.entry.args.iter().map(OsString::from).collect();
-        let mut child = node(&built.output, &args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let from = self.programs.len();
-        let out = child.stdout.take().expect("standard output is piped");
-        let err = child.stderr.take().expect("standard error is piped");
-        self.readers
-            .push(read(out, from, Stream::Out, self.send.clone()));
-        self.readers
-            .push(read(err, from, Stream::Err, self.send.clone()));
-        self.programs.push(Program {
+        let entry: Vec<OsString>;
+        let args = if self.args.is_empty() {
+            entry = built.entry.args.iter().map(OsString::from).collect();
+            &entry
+        } else {
+            &self.args
+        };
+        let mut node = node(&built.output, args);
+        if self.streams == Streams::Prefixed {
+            node.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+        }
+        let mut child = node.spawn()?;
+        if let Some(out) = child.stdout.take() {
+            read(out, prefix.clone(), Stream::Out, self.send.clone());
+        }
+        if let Some(err) = child.stderr.take() {
+            read(err, prefix.clone(), Stream::Err, self.send.clone());
+        }
+        let id = self.next;
+        self.next += 1;
+        let program = Program {
             prefix,
             child,
             ended: None,
-        });
-        Ok(from)
+        };
+        self.programs.insert(id, program);
+        Ok(id)
     }
 
     /// Shows the programs' lines until they have all ended and nothing is
@@ -275,25 +325,26 @@ impl Running {
     fn supervise(mut self, console: &mut dyn Console, caught: &mut Caught) -> u8 {
         loop {
             self.show(console);
-            if let Some((signal, sent)) = caught.take() {
-                return self.drain(console, caught, sent.then_some(signal), signal.code());
+            if let Some(signal) = caught.take() {
+                return self.drain(console, caught, signal.passed_on(), signal.stop.code());
             }
             self.reap();
-            let failed = (self.programs.iter())
+            let failed = (self.programs.values())
                 .filter_map(|p| p.ended.map(exit_code))
                 .find(|&code| code != 0);
             if let Some(code) = failed {
                 return self.drain(console, caught, Some(Stop::Terminate), code);
             }
-            if self.ended() && self.servers.is_empty() {
+            if self.programs.values().all(|p| p.ended.is_some()) && self.servers.is_empty() {
                 return self.drain(console, caught, None, 0);
             }
         }
     }
 
     /// Stops every program still running, as [`Running::stop`] does, then
-    /// the servers, and shows every last line; `code`, or 130 if SIGINT
-    /// comes meanwhile.
+    /// the servers, and shows the last lines, those read within
+    /// [`LINGER`] or until nomi is sent another signal; `code`, or 130 if
+    /// SIGINT comes meanwhile.
     fn drain(
         mut self,
         console: &mut dyn Console,
@@ -301,25 +352,29 @@ impl Running {
         signal: Option<Stop>,
         mut code: u8,
     ) -> u8 {
-        let every: Vec<usize> = (0..self.programs.len()).collect();
-        if let Some((Stop::Interrupt, _)) = self.stop(console, caught, &every, signal) {
+        let every: Vec<usize> = self.programs.keys().copied().collect();
+        if let Some(Stop::Interrupt) = self.stop(console, caught, &every, signal).map(|s| s.stop) {
             code = Stop::Interrupt.code();
         }
         let Running {
-            programs,
-            readers,
             servers,
             send,
             lines,
+            ..
         } = self;
         drop(servers);
         drop(send);
-        // The readers end as the programs' pipes close.
-        while let Ok(line) = lines.recv() {
-            print(&programs, console, &line);
-        }
-        for reader in readers {
-            let _ = reader.join();
+        // The readers end as the programs' pipes close, unless a process
+        // a program started holds one: they are left to end with nomi.
+        let until = Instant::now() + LINGER;
+        while let Some(left) = until.checked_duration_since(Instant::now())
+            && caught.take().is_none()
+        {
+            match lines.recv_timeout(left.min(TICK)) {
+                Ok(line) => print(console, &line),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
         code
     }
@@ -327,57 +382,63 @@ impl Running {
     /// Stops the programs `chosen` names that are still running, sending
     /// each `signal` at once where given (a terminal's reaches them
     /// already), waits for them together within [`GRACE`] and kills those
-    /// left; the first signal nomi is sent meanwhile, SIGINT killing
-    /// them at once.
+    /// left, and forgets them; the first signal nomi is sent meanwhile,
+    /// SIGINT killing them at once.
     fn stop(
         &mut self,
         console: &mut dyn Console,
         caught: &mut Caught,
         chosen: &[usize],
         signal: Option<Stop>,
-    ) -> Option<(Stop, bool)> {
+    ) -> Option<Signalled> {
         if let Some(signal) = signal {
-            let running = (self.programs.iter_mut().enumerate())
-                .filter(|(i, p)| p.ended.is_none() && chosen.contains(i));
-            for child in running.map(|(_, p)| &mut p.child) {
-                let _ = send(child, signal);
+            for id in chosen {
+                if let Some(program) = self.programs.get(id).filter(|p| p.ended.is_none()) {
+                    let _ = send(&program.child, signal);
+                }
             }
         }
         let start = Instant::now();
         let mut first = None;
         self.reap();
-        while !chosen.iter().all(|&i| self.programs[i].ended.is_some()) {
+        let ended = |programs: &BTreeMap<usize, Program>| {
+            (chosen.iter()).all(|id| programs.get(id).is_none_or(|p| p.ended.is_some()))
+        };
+        while !ended(&self.programs) {
             if let Some(signal) = caught.take() {
                 first = first.or(Some(signal));
-                if let (Stop::Interrupt, _) = signal {
-                    self.kill(console, chosen, true);
+                if signal.stop == Stop::Interrupt {
+                    self.kill(console, chosen, Killing::Asked);
                     break;
                 }
             }
             if start.elapsed() >= GRACE {
-                self.kill(console, chosen, false);
+                self.kill(console, chosen, Killing::Overdue);
                 break;
             }
             self.show(console);
             self.reap();
         }
+        for id in chosen {
+            self.programs.remove(id);
+        }
         first
     }
 
-    /// Kills the programs `chosen` names that are still running, saying
-    /// so unless `interrupted` asked for it.
-    fn kill(&mut self, console: &mut dyn Console, chosen: &[usize], interrupted: bool) {
-        for &i in chosen {
-            let program = &mut self.programs[i];
-            if program.ended.is_some() {
+    /// Kills the programs `chosen` names that are still running, as
+    /// `killing` says.
+    fn kill(&mut self, console: &mut dyn Console, chosen: &[usize], killing: Killing) {
+        for id in chosen {
+            let Some(program) = self.programs.get_mut(id).filter(|p| p.ended.is_none()) else {
                 continue;
-            }
-            if !interrupted {
-                console.err(&format!(
+            };
+            match killing {
+                Killing::Asked => {}
+                Killing::Overdue => console.err(&format!(
                     "{}The program did not stop within {} seconds, so I killed it.\n",
                     program.prefix,
                     GRACE.as_secs()
-                ));
+                )),
             }
             let _ = program.child.kill();
             program.ended = program.child.wait().ok();
@@ -386,48 +447,40 @@ impl Running {
 
     /// Notes how each program that has ended since last looked at ended.
     fn reap(&mut self) {
-        for program in self.programs.iter_mut().filter(|p| p.ended.is_none()) {
+        for program in self.programs.values_mut().filter(|p| p.ended.is_none()) {
             program.ended = program.child.try_wait().ok().flatten();
         }
     }
 
-    /// Whether every program has ended.
-    fn ended(&self) -> bool {
-        self.programs.iter().all(|p| p.ended.is_some())
+    /// How the program `id` ended, if it has, forgetting it then.
+    fn ended(&mut self, id: usize) -> Option<ExitStatus> {
+        let ended = self.programs.get(&id)?.ended?;
+        self.programs.remove(&id);
+        Some(ended)
     }
 
     /// Shows the lines that come within a [`TICK`].
     fn show(&self, console: &mut dyn Console) {
-        match self.lines.recv_timeout(TICK) {
-            Ok(line) => {
-                print(&self.programs, console, &line);
-                for line in self.lines.try_iter() {
-                    print(&self.programs, console, &line);
-                }
+        if let Ok(line) = self.lines.recv_timeout(TICK) {
+            print(console, &line);
+            for line in self.lines.try_iter() {
+                print(console, &line);
             }
-            Err(RecvTimeoutError::Timeout) => {}
-            // Every program's pipes are closed; their ends come soon.
-            Err(RecvTimeoutError::Disconnected) => thread::sleep(TICK),
         }
     }
 }
 
-/// Shows `line`, of one of `programs`, after its prefix.
-fn print(programs: &[Program], console: &mut dyn Console, line: &Line) {
-    let text = format!("{}{}\n", programs[line.from].prefix, line.text);
+/// Shows `line` on the stream it came from.
+fn print(console: &mut dyn Console, line: &Line) {
     match line.stream {
-        Stream::Out => console.out(&text),
-        Stream::Err => console.err(&text),
+        Stream::Out => console.out(&line.text),
+        Stream::Err => console.err(&line.text),
     }
 }
 
-/// Reads `pipe` line by line into `send`, on a thread of its own.
-fn read(
-    pipe: impl Read + Send + 'static,
-    from: usize,
-    stream: Stream,
-    send: Sender<Line>,
-) -> JoinHandle<()> {
+/// Reads `pipe` line by line into `send`, each after `prefix`, on a
+/// thread of its own that ends as the pipe closes or nomi does.
+fn read(pipe: impl Read + Send + 'static, prefix: String, stream: Stream, send: Sender<Line>) {
     thread::spawn(move || {
         let mut pipe = BufReader::new(pipe);
         let mut bytes = Vec::new();
@@ -437,13 +490,14 @@ fn read(
         {
             let text = String::from_utf8_lossy(&bytes);
             let text = text.strip_suffix('\n').unwrap_or(&text);
-            let text = text.strip_suffix('\r').unwrap_or(text).to_owned();
-            if send.send(Line { from, stream, text }).is_err() {
+            let text = text.strip_suffix('\r').unwrap_or(text);
+            let text = format!("{prefix}{text}\n");
+            if send.send(Line { stream, text }).is_err() {
                 break;
             }
             bytes.clear();
         }
-    })
+    });
 }
 
 #[cfg(test)]

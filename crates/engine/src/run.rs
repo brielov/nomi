@@ -11,28 +11,25 @@ mod many;
 mod port;
 
 use std::ffi::OsString;
-use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use nomi_base::{Compat, Platform, Report};
 use nomi_project::workspace::Workspace;
 use nomi_project::{Entry, Manifest, ModuleName, report};
 use nomi_registry::Http;
 
-use crate::artifacts::Hash;
-use crate::console::{self, Console, Personality};
+use crate::console::{self, Console};
 use crate::javascript::{Advice, Start, Target};
 use crate::make::{self, Code, FfiModule, Make, NamedIn, OutputName};
-use crate::paths::{NOMI_TOML, Root, relative};
-use crate::project::{Project, no_outline};
+use crate::paths::{NOMI_TOML, Root, lexical, relative};
+use crate::project::no_outline;
 use crate::report::one_line;
 use crate::scope::{self, Scope};
 use crate::serve::{Reloads, Server, Site};
-use crate::watch::{Change, POLL, Snapshot, message};
 use crate::{Context, workspace};
 use port::{FIRST_PORT, Port};
 
@@ -339,11 +336,12 @@ fn serving(name: &str, server: &Server, port: Port) -> String {
 }
 
 /// Builds and runs `program` as [`run`] does, then again as the project
-/// changes, as [`watch_one`] does; or, where no entry is named and there
-/// are several, runs them all and again as the workspace changes, as
-/// `many` does. It runs until nomi is sent SIGINT or SIGTERM; the code to
-/// exit with is then the shell's for that signal, 130 or 143, or 1 if the
-/// watch couldn't start.
+/// changes; or, where no entry is named and there are several, runs them
+/// all and again as the workspace changes. One watch does both, as
+/// `many` has it: one program is watched as a workspace whose one member
+/// runs it alone. It runs until nomi is sent SIGINT or SIGTERM; the
+/// code to exit with is then the shell's for that signal, 130 or 143, or
+/// 1 if the watch couldn't start.
 pub fn watch(
     cx: &Context<'_, impl Http + Sync>,
     console: &mut dyn Console,
@@ -357,218 +355,133 @@ pub fn watch(
         program,
         member,
         args,
-        |console, workspace, dirs| many::watch(cx, console, member, workspace, dirs),
-        |cx, console| watch_one(cx, console, program, args),
+        |console, workspace, dirs| {
+            many::watch(cx, console, &Watched::Members(member), workspace, dirs)
+        },
+        |cx, console| match alone(cx, program) {
+            Ok((workspace, dir)) => {
+                let watched = Watched::One { program, args };
+                many::watch(cx, console, &watched, workspace, vec![dir])
+            }
+            Err(report) => {
+                console::report(console, &report, Compat::LATEST);
+                1
+            }
+        },
     )
 }
 
-/// Builds and runs `program` as [`one`] does, then again each time the
-/// project's source directories, `elm.json`, `nomi.toml` or the entry's
-/// FFI module change, stopping the program first. A failed build leaves
-/// it stopped until the next change, and one that ends by itself is
-/// started again on the next change. A browser program is served, its
-/// page reloaded when its code changes or its static files do, which
-/// needs no build; a failed build leaves it on its old code. It runs
-/// until nomi is sent SIGINT or SIGTERM, which stops the program as
-/// [`run`] passes signals on.
-fn watch_one(
+/// What a watch runs, read again as the manifests change.
+#[derive(Clone, Copy)]
+enum Watched<'a> {
+    /// The entries of the members in scope, as `-p` names them if given.
+    Members(Option<&'a str>),
+    /// The one program `nomi run` was asked for, in the project around
+    /// the directory, with `args` in place of its entry's where given;
+    /// its streams are its own, and nomi's lines bare.
+    One {
+        program: &'a Program,
+        args: &'a [OsString],
+    },
+}
+
+impl Watched<'_> {
+    /// The workspace and the directories of the members whose entries run,
+    /// as the files now say; `None` where nothing runs.
+    fn read(
+        self,
+        cx: &Context<'_, impl Http + Sync>,
+    ) -> Result<Option<(Workspace, Vec<PathBuf>)>, Report> {
+        match self {
+            Watched::Members(member) => Ok(scoped(cx, member)?.map(|(workspace, dirs)| {
+                let dirs = counted(&workspace, &dirs);
+                let dirs = dirs.into_iter().map(|(dir, _)| dir.clone()).collect();
+                (workspace, dirs)
+            })),
+            Watched::One { program, .. } => {
+                let (workspace, dir) = alone(cx, program)?;
+                Ok(Some((workspace, vec![dir])))
+            }
+        }
+    }
+}
+
+/// The workspace `program` runs in, the project around the directory
+/// being a member of the one around it or standing alone, with that
+/// project running `program` alone; and the project's directory in it.
+fn alone(
     cx: &Context<'_, impl Http + Sync>,
-    console: &mut dyn Console,
     program: &Program,
-    args: &[OsString],
-) -> u8 {
-    let console = &mut Stderr(console);
-    let Some(root) = Root::find(cx.vfs, cx.dir) else {
-        console::report(console, &no_outline("to run"), Compat::LATEST);
-        return 1;
+) -> Result<(Workspace, PathBuf), Report> {
+    let root = Root::find(cx.vfs, cx.dir).ok_or_else(|| no_outline("to run"))?;
+    let entry = match program {
+        Program::Entry(chosen) => entry(cx, &root, chosen.as_deref())?,
+        Program::Module(main) => Entry {
+            main: (relative(&lexical(&cx.dir.join(main)), root.dir()).to_string_lossy())
+                .into_owned(),
+            output: None,
+            platform: Some(Platform::Node),
+            ffi: None,
+            args: Vec::new(),
+            static_dir: None,
+            port: None,
+        },
     };
-    let mut caught = match Caught::new() {
-        Ok(caught) => caught,
-        Err(e) => {
-            console.err(&format!("I could not watch for signals: {e}\n"));
-            return 1;
-        }
+    let snapshot = cx.vfs.snapshot();
+    let workspace = match workspace::discover(&snapshot, root.dir()) {
+        Some(found) => workspace::resolved(cx, found?)?,
+        None => workspace::of_project(&snapshot, root.dir())?,
     };
-    let manifests = vec![root.elm_json(), root.dir().join(NOMI_TOML)];
-    let mut snapshot = Snapshot::new(root.dir(), manifests);
-    let mut queue: Vec<Change> = Vec::new();
-    let mut live = Live::default();
-    let mut rebuild = true;
-    loop {
-        if rebuild {
-            let built = build(cx, console, program);
-            if let Err(report) = live.replace(console, built, args) {
-                console::report(console, &report, Compat::LATEST);
-                return 1;
-            }
-            let statics = (live.page.as_ref()).and_then(|page| page.static_dir.clone());
-            snapshot.watch(watched(cx, &root, program), statics.into_iter().collect());
-            console.err("Watching for changes...\n");
-        }
-        while queue.is_empty() {
-            if let Some((signal, sent)) = caught.take() {
-                if let Some(mut child) = live.child {
-                    let _ = stop(console, &mut child, sent.then_some(signal));
-                }
-                return signal.code();
-            }
-            live.reap(console);
-            queue.extend(snapshot.changes());
-            if queue.is_empty() {
-                thread::sleep(POLL);
-            }
-        }
-        // Changes made together join the build they start.
-        thread::sleep(POLL);
-        queue.extend(snapshot.changes());
-        rebuild = live.changed(console, &queue);
-        queue.clear();
-        cx.vfs.disk_changed();
-    }
+    let dir = workspace::member_dir(&workspace, root.dir());
+    Ok((workspace.with_entries(&dir, vec![entry]), dir))
 }
 
-/// What runs while [`watch_one`] watches: a Node program, or a page.
-#[derive(Default)]
-struct Live {
-    child: Option<Child>,
-    page: Option<Page>,
-    /// The entry's `main`, which nomi's lines name it by.
-    main: String,
-}
-
-/// A browser program served while [`watch_one`] watches.
-struct Page {
-    server: Server,
-    /// Its code, absolute.
-    output: PathBuf,
-    /// The hash of its code when last built.
-    code: Hash,
-    /// The directory of its static files, absolute.
-    static_dir: Option<PathBuf>,
-}
-
-impl Page {
-    /// Whether a change to `path` reloads the page without a build.
-    fn serves(&self, path: &Path) -> bool {
-        (self.static_dir.as_ref()).is_some_and(|dir| path.starts_with(dir))
-    }
-}
-
-impl Live {
-    /// Stops what runs and starts what `built` built, if anything: a Node
-    /// program, with `args`, or a page, served or, if served already,
-    /// reloaded where its code changed; a failed build leaves a page as
-    /// it is. Why a page couldn't be served, if it couldn't.
-    fn replace(
-        &mut self,
-        console: &mut dyn Console,
-        built: Option<(Built, Code)>,
-        args: &[OsString],
-    ) -> Result<(), Report> {
-        let old = self.child.take();
-        let Some((built, code)) = built else {
-            if let Some(mut old) = old {
-                console.err(&format!("Stopping {}, as its build failed\n", self.main));
-                let _ = stop(console, &mut old, Some(Stop::Terminate));
-            }
-            return Ok(());
-        };
-        self.main = built.main.display().to_string();
-        let verb = if let Some(mut old) = old {
-            let _ = stop(console, &mut old, Some(Stop::Terminate));
-            "Restarting"
-        } else {
-            "Starting"
-        };
-        if code.platform == Platform::Node {
-            console.err(&format!("{verb} {}\n", self.main));
-            self.page = None;
-            self.child = (built.node(args).spawn())
-                .inspect_err(|e| console::report(console, &no_node(e), Compat::LATEST))
-                .ok();
-            return Ok(());
-        }
-        let hash = code_hash(&built.output);
-        match &mut self.page {
-            Some(page) => {
-                if page.code != hash {
-                    console.err(&format!("Reloading {}\n", self.main));
-                    page.code = hash;
-                    page.server.reload();
-                }
-            }
-            None => {
-                self.page = Some(Page {
-                    server: serve_built(console, &built, &code, Reloads::Heard)?,
-                    static_dir: (built.static_dir.as_ref()).map(|dir| built.dir.join(dir)),
-                    output: built.output,
-                    code: hash,
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Says so once the program has ended by itself.
-    fn reap(&mut self, console: &mut dyn Console) {
-        if let Some(status) = (self.child.as_mut()).and_then(|c| c.try_wait().ok().flatten()) {
-            let code = exit_code(status);
-            console.err(&format!("{} exited with code {code}\n", self.main));
-            self.child = None;
-        }
-    }
-
-    /// Says what `queue` changed, reloading the page where its static
-    /// files did; and whether it needs a build: not where it changed only
-    /// those, or only the page's code, which a build wrote.
-    fn changed(&self, console: &mut dyn Console, queue: &[Change]) -> bool {
-        let Some(page) = &self.page else {
-            console.err(&format!("{}\n", message(queue)));
-            return true;
-        };
-        let queue: Vec<Change> = (queue.iter())
-            .filter(|change| change.path() != page.output)
-            .cloned()
-            .collect();
-        if queue.is_empty() {
-            return false;
-        }
-        console.err(&format!("{}\n", message(&queue)));
-        if queue.iter().any(|change| page.serves(change.path())) {
-            console.err(&format!("Reloading {}\n", self.main));
-            page.server.reload();
-        }
-        queue.iter().any(|change| !page.serves(change.path()))
-    }
-}
-
-/// The hash of the code at `output`, as a build left it.
-fn code_hash(output: &Path) -> Hash {
-    Hash::of(&fs::read(output).unwrap_or_default())
-}
-
-/// `node` running `output` with `args`.
+/// `node` running `output` with `args`, ending with nomi as
+/// [`dies_with_nomi`] has it.
 fn node(output: &Path, args: &[OsString]) -> Command {
     let mut node = Command::new("node");
     node.arg(output).args(args);
+    dies_with_nomi(&mut node);
     node
 }
 
-/// What changes [`watch`] watches for besides the manifests: the
-/// project's source directories, the module run and its FFI module, as
-/// the project now names them.
-fn watched(cx: &Context<'_, impl Http + Sync>, root: &Root, program: &Program) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = Project::read(cx.vfs, root, Personality::Nomi)
-        .map(|project| (project.outline.source_dirs().into_iter()).map(|d| root.dir().join(d)))
-        .into_iter()
-        .flatten()
-        .collect();
-    if let Ok(built) = chosen(cx, program) {
-        paths.push(built.dir.join(&built.main));
-        paths.extend(built.ffi.map(|ffi| built.dir.join(ffi.path)));
+/// Has the process `command` starts sent SIGTERM when nomi ends first,
+/// however nomi ends, SIGKILL included, so that a program finalizes
+/// rather than runs on unwatched. Linux sends it once the thread that
+/// started the process ends, and nomi starts its programs on the thread
+/// that runs the command, which outlives them.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "a parent-death signal is set between fork and exec, which only `pre_exec` reaches"
+)]
+fn dies_with_nomi(command: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+
+    use rustix::process::{Signal, getpid, getppid, set_parent_process_death_signal};
+
+    let nomi = getpid();
+    // SAFETY: the closure runs in the child between fork and exec, where
+    // only async-signal-safe work is sound: it makes two system calls,
+    // allocating nothing and taking no lock, and on failure returns an
+    // error built from a code, which allocates nothing either.
+    unsafe {
+        command.pre_exec(move || {
+            set_parent_process_death_signal(Some(Signal::TERM))?;
+            // nomi may have ended before the signal was asked for.
+            if getppid() == Some(nomi) {
+                Ok(())
+            } else {
+                Err(rustix::io::Errno::SRCH.into())
+            }
+        });
     }
-    paths
 }
+
+/// Elsewhere a program stays in nomi's process group, so whatever stops
+/// the group, as a terminal's Ctrl-C does, stops it too.
+#[cfg(not(target_os = "linux"))]
+fn dies_with_nomi(_: &mut Command) {}
 
 /// Builds `program`, showing how it went; what was built and the code
 /// written, if it was.
@@ -716,13 +629,6 @@ fn entry(
     }
 }
 
-/// `path` without its `.` components, as entries are compared.
-fn lexical(path: &Path) -> PathBuf {
-    path.components()
-        .filter(|c| *c != Component::CurDir)
-        .collect()
-}
-
 /// A console whose standard output is the other's standard error, so
 /// standard output is the program's alone.
 struct Stderr<'a>(&'a mut dyn Console);
@@ -759,11 +665,9 @@ impl Console for Stderr<'_> {
 /// a second signal stops a Node program without its finalizers.
 #[cfg(unix)]
 fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
-    use rustix::process::{Pid, Signal, kill_process};
+    use rustix::process::Pid;
     use signal_hook::consts::{SIGINT, SIGTERM};
     use signal_hook::iterator::SignalsInfo;
-    use signal_hook::iterator::exfiltrator::WithOrigin;
-    use signal_hook::low_level::siginfo::Cause;
 
     // Caught before the child starts, so neither signal can stop nomi
     // alone once it has.
@@ -773,13 +677,8 @@ fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
     let pid = Pid::from_child(&child);
     let forwarding = thread::spawn(move || {
         for origin in signals.forever() {
-            if let Cause::Sent(_) = origin.cause {
-                let signal = if origin.signal == SIGINT {
-                    Signal::INT
-                } else {
-                    Signal::TERM
-                };
-                let _ = kill_process(pid, signal);
+            if let Some(stop) = signalled(&origin).passed_on() {
+                let _ = signal(pid, stop);
             }
         }
     });
@@ -797,7 +696,7 @@ fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
 }
 
 /// A signal that stops a program, as nomi passes it on.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stop {
     Interrupt,
     Terminate,
@@ -813,44 +712,53 @@ impl Stop {
     }
 }
 
+/// Who sent nomi a signal.
+#[derive(Clone, Copy, Debug)]
+enum Origin {
+    /// The terminal, which sends its signals to the programs too.
+    Terminal,
+    /// A process, which sent it to nomi alone.
+    Process,
+}
+
+/// A signal nomi was sent, and by whom.
+#[derive(Clone, Copy, Debug)]
+struct Signalled {
+    stop: Stop,
+    origin: Origin,
+}
+
+impl Signalled {
+    /// The signal to pass on to the programs: none where the terminal
+    /// sent it, as it reached them already.
+    fn passed_on(self) -> Option<Stop> {
+        match self.origin {
+            Origin::Terminal => None,
+            Origin::Process => Some(self.stop),
+        }
+    }
+}
+
 /// How long a program has to stop before it is killed: longer than the
 /// runtime's own shutdown deadline, which a server lengthens to its drain
 /// and 5 seconds more.
 const GRACE: Duration = Duration::from_secs(15);
 
-/// Stops `child`, sending it `signal` if one is given (a terminal's
-/// reaches it already), and kills it if it hasn't ended within [`GRACE`].
-fn stop(
-    console: &mut dyn Console,
-    child: &mut Child,
-    signal: Option<Stop>,
-) -> io::Result<ExitStatus> {
-    if let Some(signal) = signal {
-        send(child, signal)?;
-    }
-    let start = Instant::now();
-    while start.elapsed() < GRACE {
-        if let Some(status) = child.try_wait()? {
-            return Ok(status);
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    console.err(&format!(
-        "The program did not stop within {} seconds, so I killed it.\n",
-        GRACE.as_secs()
-    ));
-    child.kill()?;
-    child.wait()
-}
-
+/// Sends `child` `signal`.
 #[cfg(unix)]
 fn send(child: &Child, signal: Stop) -> io::Result<()> {
-    use rustix::process::{Pid, Signal, kill_process};
-    let signal = match signal {
+    self::signal(rustix::process::Pid::from_child(child), signal)
+}
+
+/// Sends the process `pid` `stop`'s signal.
+#[cfg(unix)]
+fn signal(pid: rustix::process::Pid, stop: Stop) -> io::Result<()> {
+    use rustix::process::{Signal, kill_process};
+    let signal = match stop {
         Stop::Interrupt => Signal::INT,
         Stop::Terminate => Signal::TERM,
     };
-    Ok(kill_process(Pid::from_child(child), signal)?)
+    Ok(kill_process(pid, signal)?)
 }
 
 /// Windows has no signal a program can finish on, so it ends at once.
@@ -859,9 +767,12 @@ fn send(child: &mut Child, _: Stop) -> io::Result<()> {
     child.kill()
 }
 
+#[cfg(unix)]
+use signal_hook::iterator::exfiltrator::WithOrigin;
+
 /// The SIGINT and SIGTERM nomi is sent while it watches, caught.
 #[cfg(unix)]
-struct Caught(signal_hook::iterator::SignalsInfo<signal_hook::iterator::exfiltrator::WithOrigin>);
+struct Caught(signal_hook::iterator::SignalsInfo<WithOrigin>);
 
 #[cfg(unix)]
 impl Caught {
@@ -872,31 +783,33 @@ impl Caught {
         ])?))
     }
 
-    /// The last signal since the last call, and whether a process sent
-    /// it rather than the terminal.
-    fn take(&mut self) -> Option<(Stop, bool)> {
-        use signal_hook::low_level::siginfo::Cause;
-        let origin = self.0.pending().last()?;
-        Some((
-            stop_by(origin.signal),
-            matches!(origin.cause, Cause::Sent(_)),
-        ))
+    /// The last signal since the last call.
+    fn take(&mut self) -> Option<Signalled> {
+        self.0.pending().last().map(|origin| signalled(&origin))
     }
 
     /// The next signal, once it comes.
     fn wait(&mut self) -> Stop {
         let origin = (self.0.forever().next()).expect("the signals are never closed");
-        stop_by(origin.signal)
+        signalled(&origin).stop
     }
 }
 
-/// How the signal numbered `signal`, SIGINT or SIGTERM, stops a program.
+/// The signal `origin` tells of, SIGINT or SIGTERM: sent by a process
+/// where it names one, and otherwise by the terminal.
 #[cfg(unix)]
-fn stop_by(signal: std::ffi::c_int) -> Stop {
-    if signal == signal_hook::consts::SIGINT {
-        Stop::Interrupt
-    } else {
-        Stop::Terminate
+fn signalled(origin: &signal_hook::low_level::siginfo::Origin) -> Signalled {
+    use signal_hook::low_level::siginfo::Cause;
+    Signalled {
+        stop: if origin.signal == signal_hook::consts::SIGINT {
+            Stop::Interrupt
+        } else {
+            Stop::Terminate
+        },
+        origin: match origin.cause {
+            Cause::Sent(_) => Origin::Process,
+            _ => Origin::Terminal,
+        },
     }
 }
 
@@ -911,7 +824,7 @@ impl Caught {
         Ok(Caught)
     }
 
-    fn take(&mut self) -> Option<(Stop, bool)> {
+    fn take(&mut self) -> Option<Signalled> {
         None
     }
 

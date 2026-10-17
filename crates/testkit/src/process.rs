@@ -1,12 +1,21 @@
 //! Running a child within a time limit, with its input fed and its pipes
-//! read as it runs, so neither side of a pipe blocks the other; and
-//! reading a running child's lines as they come.
+//! read as it runs, so neither side of a pipe blocks the other; reading a
+//! running child's lines as they come; and running a program in a process
+//! group that the test, however it ends, stops whole.
 
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, BufReader, Read, Write as _};
+use std::net::TcpListener;
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use rustix::process::Pid;
+#[cfg(unix)]
+pub use rustix::process::Signal;
 
 /// How often [`run_within`] looks whether a child with a limit has
 /// ended: elm parses a module in milliseconds, and the syntax oracle runs
@@ -107,9 +116,10 @@ pub fn lines(read: impl Read + Send + 'static) -> Receiver<String> {
     lines
 }
 
-/// Waits for a line of `lines` holding `wanted`, killing `child` and
-/// failing after a minute; the lines before it.
-pub fn expect(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> Vec<String> {
+/// Waits for a line of `lines` holding `wanted`, failing after a minute;
+/// the lines before it. A [`Group`] the lines come from is stopped as the
+/// test fails.
+pub fn expect(lines: &Receiver<String>, wanted: &str) -> Vec<String> {
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut before = Vec::new();
     loop {
@@ -117,10 +127,134 @@ pub fn expect(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> Vec<
         match lines.recv_timeout(left) {
             Ok(line) if line.contains(wanted) => return before,
             Ok(line) => before.push(line),
-            Err(e) => {
-                let _ = child.kill();
-                panic!("no line with {wanted:?} ({e}); before it: {before:?}");
-            }
+            Err(e) => panic!("no line with {wanted:?} ({e}); before it: {before:?}"),
+        }
+    }
+}
+
+/// The next `count` lines of `lines`, which may come in any order,
+/// sorted; failing after a minute.
+pub fn next_lines(lines: &Receiver<String>, count: usize) -> Vec<String> {
+    let mut next: Vec<String> = (0..count)
+        .map(|_| {
+            (lines.recv_timeout(Duration::from_secs(60))).unwrap_or_else(|e| panic!("no line: {e}"))
+        })
+        .collect();
+    next.sort();
+    next
+}
+
+/// A port on 127.0.0.1 nothing listens on just now, and none this
+/// process has given before: another process may still take it before
+/// the test binds it, but no two tests here share one.
+pub fn free_port() -> u16 {
+    static GIVEN: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+    loop {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a port is free");
+        let port = listener.local_addr().expect("it is bound").port();
+        if GIVEN
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(port)
+        {
+            return port;
+        }
+    }
+}
+
+/// A program a test started in a process group of its own, which is
+/// stopped with every process of the group however the test ends: sent
+/// SIGTERM, then SIGKILL once [`Group::GRACE`] has passed, so nothing it
+/// started outlives the test.
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct Group {
+    child: Child,
+}
+
+#[cfg(unix)]
+impl Group {
+    /// How long the group has to stop on SIGTERM before it is killed.
+    const GRACE: Duration = Duration::from_secs(20);
+
+    /// Starts `command` as the leader of a new process group.
+    pub fn spawn(command: &mut Command) -> Group {
+        use std::os::unix::process::CommandExt as _;
+        let child = command
+            .process_group(0)
+            .spawn()
+            .expect("the program starts");
+        Group { child }
+    }
+
+    /// The leader's process id.
+    pub fn id(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// The leader, as started.
+    pub fn child(&mut self) -> &mut Child {
+        &mut self.child
+    }
+
+    /// Each line of the leader's standard output, which is piped, as it
+    /// comes.
+    pub fn stdout(&mut self) -> Receiver<String> {
+        lines(self.child.stdout.take().expect("standard output is piped"))
+    }
+
+    /// Each line of the leader's standard error, which is piped, as it
+    /// comes.
+    pub fn stderr(&mut self) -> Receiver<String> {
+        lines(self.child.stderr.take().expect("standard error is piped"))
+    }
+
+    /// Sends the leader alone `signal`.
+    pub fn signal(&self, signal: Signal) {
+        rustix::process::kill_process(self.pid(), signal).expect("the leader is signalled");
+    }
+
+    /// The leader's exit code once it ends, failing if it hasn't within
+    /// 30 seconds; `None` where a signal ended it.
+    pub fn ended(&mut self) -> Option<i32> {
+        let status = wait_for(&mut self.child, Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("the program is still running after 30 seconds"));
+        status.code()
+    }
+
+    fn pid(&self) -> Pid {
+        Pid::from_child(&self.child)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Group {
+    fn drop(&mut self) {
+        use rustix::process::{kill_process_group, test_kill_process_group};
+        let group = self.pid();
+        // The leader stays unreaped until the group is signalled, so its
+        // id can't name another group meanwhile.
+        let _ = kill_process_group(group, Signal::TERM);
+        let deadline = Instant::now() + Self::GRACE;
+        let _ = wait_for(&mut self.child, Self::GRACE);
+        while test_kill_process_group(group).is_ok() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let _ = kill_process_group(group, Signal::KILL);
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// How `child` ended, if it has within `limit`.
+#[cfg(unix)]
+fn wait_for(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            _ => return None,
         }
     }
 }

@@ -10,16 +10,16 @@
 #[path = "support/website.rs"]
 pub mod website;
 
-use std::ffi::OsString;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
+use std::process::{Command, Stdio};
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nomi_testkit::process::{Group, Signal};
 use website::offline;
 
 /// Loaded before the server with `--import`: on SIGUSR2 it writes a line
@@ -70,20 +70,11 @@ fn example() -> (tempfile::TempDir, PathBuf) {
     (work, root)
 }
 
-/// The PATH with the tests' Node binary's directory first.
-fn path_to_node() -> OsString {
-    let node = nomi_testkit::node();
-    let mut path = OsString::from(node.parent().unwrap());
-    path.push(":");
-    path.push(std::env::var_os("PATH").unwrap_or_default());
-    path
-}
-
 /// nomi in `root`, offline with `cache`, with `args`.
 fn nomi(cache: &Path, root: &Path, args: &[&str]) -> Command {
     let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
     nomi.current_dir(root)
-        .env("PATH", path_to_node())
+        .env("PATH", nomi_testkit::path_with_node())
         .args(args);
     nomi
 }
@@ -99,19 +90,6 @@ fn build(root: &Path) {
     .output()
     .unwrap();
     assert!(built.status.success(), "{built:?}");
-}
-
-/// The lines `pipe` gives, as they come.
-fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
-    let (send, lines) = mpsc::channel();
-    thread::spawn(move || {
-        for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-            if send.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    lines
 }
 
 /// The port in the line `listening on <port>` among `stderr`, which the
@@ -153,7 +131,7 @@ fn response(stream: &mut TcpStream) -> (u16, String) {
 /// The example serving on the port it picked, stopped when dropped.
 struct Server {
     port: u16,
-    child: Child,
+    child: Group,
     stderr: Receiver<String>,
     _work: tempfile::TempDir,
 }
@@ -172,13 +150,13 @@ impl Server {
 
     /// `command` serving, given `PORT=0`, on the port it says it took.
     fn start(work: tempfile::TempDir, mut command: Command) -> Server {
-        let mut child = command
-            .env("PORT", "0")
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stderr = lines(child.stderr.take().unwrap());
+        let mut child = Group::spawn(
+            command
+                .env("PORT", "0")
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped()),
+        );
+        let stderr = child.stderr();
         let mut server = Server {
             port: 0,
             child,
@@ -233,17 +211,13 @@ impl Server {
         }
     }
 
-    fn signal(&self, signal: &str) {
-        let sent = Command::new("kill")
-            .args([format!("-{signal}"), self.child.id().to_string()])
-            .status()
-            .unwrap();
-        assert!(sent.success());
+    fn signal(&self, signal: Signal) {
+        self.child.signal(signal);
     }
 
     /// The probe's report: live fibers, heap in use and active handles.
     fn probe(&self) -> (usize, usize, String) {
-        self.signal("USR2");
+        self.signal(Signal::USR2);
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let line = (self.stderr)
@@ -262,25 +236,19 @@ impl Server {
     /// lines it wrote to stderr past the development mode's warning.
     fn exit(&mut self) -> (Option<i32>, Vec<String>) {
         let started = Instant::now();
-        while self.child.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 15 {
+        let child = self.child.child();
+        while child.try_wait().unwrap().is_none() && started.elapsed().as_secs() < 15 {
             thread::sleep(Duration::from_millis(10));
         }
-        let code = (self.child.try_wait().unwrap()).and_then(|status| status.code());
+        let code = (child.try_wait().unwrap()).and_then(|status| status.code());
         if code.is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            let _ = child.kill();
+            let _ = child.wait();
         }
         let lines = (self.stderr.iter())
             .filter(|line| !line.starts_with("Compiled in DEV mode."))
             .collect();
         (code, lines)
-    }
-}
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 
@@ -299,7 +267,7 @@ fn sigterm_lets_a_response_in_flight_complete_then_writes_the_todos_and_exits() 
     server.until_in_flight(1);
     assert!(!root.join("data/todos.json").exists());
     // To `nomi run`, which passes it on.
-    server.signal("TERM");
+    server.signal(Signal::TERM);
     let signalled = Instant::now();
     loop {
         match TcpStream::connect(("127.0.0.1", server.port)) {
@@ -341,7 +309,7 @@ fn a_client_that_disconnects_interrupts_its_request() {
         server.send(&request("GET", "/todos", "")),
         (200, "{}".to_owned())
     );
-    server.signal("TERM");
+    server.signal(Signal::TERM);
     assert_eq!(server.exit(), (Some(143), vec![]));
 }
 
@@ -364,7 +332,7 @@ fn a_handler_that_dies_answers_500_and_writes_one_line() {
         server.send(&request("GET", "/todos", "")),
         (200, "{}".to_owned())
     );
-    server.signal("TERM");
+    server.signal(Signal::TERM);
     assert_eq!(
         server.exit(),
         (
@@ -457,7 +425,7 @@ fn nothing_leaks_under_load() {
         "the heap grew from {heap} to {} bytes",
         after.1
     );
-    server.signal("TERM");
+    server.signal(Signal::TERM);
     let (code, errors) = server.exit();
     assert_eq!(code, Some(143));
     assert!(
