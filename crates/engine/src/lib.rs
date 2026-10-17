@@ -32,7 +32,7 @@ pub mod report;
 pub mod run;
 pub mod schedule;
 pub mod scope;
-pub mod serve;
+mod serve;
 pub mod test_deps;
 mod timings;
 mod trash;

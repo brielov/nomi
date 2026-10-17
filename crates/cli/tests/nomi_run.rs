@@ -428,6 +428,9 @@ fn a_browser_entry_is_served_until_nomi_is_stopped() {
         page.text().contains(&format!("<title>{title}</title>")),
         "{page:?}"
     );
+    // Nothing reloads it without --watch.
+    assert!(!page.text().contains("/__nomi/events"), "{page:?}");
+    assert_eq!(request(port, "GET", "/__nomi/events").unwrap().status, 404);
     let code = request(port, "GET", "/Main.js").unwrap();
     assert!(!code.text().contains("export const Elm"), "{code:?}");
     assert!(!code.text().contains("Compiled in DEV mode"), "{code:?}");
@@ -453,6 +456,60 @@ fn a_taken_port_serves_nothing() {
         "{ran:?}"
     );
     assert!(root.join("elm-stuff/nomi/run/src/Main.js").is_file());
+}
+
+/// The next line of `lines` with `wanted` in it, killing `child` and
+/// failing after a minute.
+fn line_with(lines: &Receiver<String>, wanted: &str, child: &mut Child) -> String {
+    loop {
+        match lines.recv_timeout(Duration::from_secs(60)) {
+            Ok(line) if line.contains(wanted) => return line,
+            Ok(_) => {}
+            Err(e) => {
+                let _ = child.kill();
+                panic!("no line with {wanted:?}: {e}");
+            }
+        }
+    }
+}
+
+/// The port the line of `lines` saying `name` is served gives.
+fn served_at(lines: &[String], name: &str) -> u16 {
+    let serving = format!("Serving {name} at http://localhost:");
+    let at = (lines.iter())
+        .find_map(|line| line.split_once(&serving))
+        .unwrap_or_else(|| panic!("{name} isn't served: {lines:?}"))
+        .1;
+    let digits: String = at.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().unwrap()
+}
+
+#[test]
+fn a_taken_port_assigned_moves_to_the_next_free_one() {
+    let cache = website::fixture_cache();
+    // Held here once another test's server lets it go, or held all along
+    // by something else.
+    let start = Instant::now();
+    let _taken = loop {
+        match TcpListener::bind("127.0.0.1:8000") {
+            Ok(taken) => break Some(taken),
+            Err(_) if start.elapsed() > Duration::from_secs(60) => break None,
+            Err(_) => std::thread::sleep(Duration::from_millis(50)),
+        }
+    };
+    let (_work, root) = project(WORKER, Some(ENTRY));
+    let mut run = nomi_run(cache.path(), &root, &[])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = lines(run.stderr.take().unwrap());
+    let line = line_with(&stderr, "Serving src/Main.elm", &mut run);
+    assert!(line.ends_with(", as port 8000 is taken"), "{line}");
+    let port = served_at(&[line], "src/Main.elm");
+    assert_ne!(port, 8000);
+    assert_eq!(request(port, "GET", "/").unwrap().status, 200);
+    signal(&run, "-TERM");
+    assert_eq!(ended(&mut run), Some(143));
 }
 
 /// A program that says it is waiting, then waits with a finalizer; or,
@@ -578,7 +635,7 @@ fn at_the_root_browser_entries_are_served_beside_the_programs() {
         ["[apps/api]    waiting: ()", "[apps/worker] waiting: ()"]
     );
     let page = request(port, "GET", "/a/route").unwrap();
-    assert!(page.text().starts_with("<p>web</p>\n<script>"), "{page:?}");
+    assert_eq!(page.text(), "<p>web</p>\n");
     signal(&run, "-TERM");
     assert_eq!(
         two_lines(&stdout, &mut run),
@@ -670,6 +727,41 @@ fn with_watch_a_browser_entry_is_served_and_reloaded_as_it_changes() {
     expect(&stderr, "Reloading src/Main.elm", &mut run);
     reloaded(&events, &mut run);
     assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), built);
+    signal(&run, "-TERM");
+    assert_eq!(ended(&mut run), Some(143));
+}
+
+#[test]
+fn with_watch_a_page_whose_first_build_failed_is_served_once_fixed() {
+    let cache = website::fixture_cache();
+    let work = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(work.path()).unwrap();
+    fs::write(
+        root.join("nomi.toml"),
+        "[workspace]\nmembers = [\"apps/*\"]\n",
+    )
+    .unwrap();
+    let broken = WORKER.replace("( (), Cmd.none )", "( 1, Cmd.none )");
+    app(&root.join("apps/w1"), &broken, Some(ENTRY));
+    app(&root.join("apps/w2"), WORKER, Some(ENTRY));
+    let mut run = nomi_run(cache.path(), &root, &["--watch"])
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = lines(run.stderr.take().unwrap());
+    let started = expect(&stderr, "[nomi] Watching for changes...", &mut run);
+    assert!(
+        started.iter().any(|line| line.contains("-- TYPE MISMATCH")),
+        "{started:?}"
+    );
+    let w2 = served_at(&started, "apps/w2");
+    fs::write(root.join("apps/w1/src/Main.elm"), WORKER).unwrap();
+    let fixed = expect(&stderr, "[nomi] Watching for changes...", &mut run);
+    let w1 = served_at(&fixed, "apps/w1");
+    assert_ne!(w1, w2);
+    for port in [w1, w2] {
+        assert_eq!(request(port, "GET", "/").unwrap().status, 200);
+    }
     signal(&run, "-TERM");
     assert_eq!(ended(&mut run), Some(143));
 }

@@ -35,7 +35,12 @@ impl Response {
 /// Sends `method` of `target` to the server on `port` of 127.0.0.1 and
 /// reads its whole answer, the connection closed after it.
 pub fn request(port: u16, method: &str, target: &str) -> io::Result<Response> {
-    let mut stream = connect(port, method, target, "close")?;
+    request_to(&format!("127.0.0.1:{port}"), port, method, target)
+}
+
+/// [`request`], its `Host` header `host`.
+pub fn request_to(host: &str, port: u16, method: &str, target: &str) -> io::Result<Response> {
+    let mut stream = connect(host, port, method, target, "close")?;
     let mut reader = BufReader::new(&mut stream);
     let (status, headers) = head(&mut reader)?;
     let mut rest = Vec::new();
@@ -56,19 +61,31 @@ pub fn request(port: u16, method: &str, target: &str) -> io::Result<Response> {
 /// Opens the event stream at `target` on `port`: its status, and each
 /// line after its head as it comes.
 pub fn events(port: u16, target: &str) -> io::Result<(u16, Receiver<String>)> {
-    let stream = connect(port, "GET", target, "keep-alive")?;
+    let stream = connect(
+        &format!("127.0.0.1:{port}"),
+        port,
+        "GET",
+        target,
+        "keep-alive",
+    )?;
     stream.set_read_timeout(None)?;
     let mut reader = BufReader::new(stream);
     let (status, _) = head(&mut reader)?;
     Ok((status, lines(reader)))
 }
 
-fn connect(port: u16, method: &str, target: &str, connection: &str) -> io::Result<TcpStream> {
+fn connect(
+    host: &str,
+    port: u16,
+    method: &str,
+    target: &str,
+    connection: &str,
+) -> io::Result<TcpStream> {
     let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))?;
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     write!(
         stream,
-        "{method} {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: {connection}\r\n\r\n"
+        "{method} {target} HTTP/1.1\r\nHost: {host}\r\nConnection: {connection}\r\n\r\n"
     )?;
     Ok(stream)
 }

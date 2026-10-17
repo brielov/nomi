@@ -22,8 +22,9 @@ use crate::artifacts::Hash;
 use crate::console::{self, Console};
 use crate::make::Shared;
 use crate::paths::{ELM_JSON, NOMI_TOML};
+use crate::run::port::{Port, ports};
 use crate::run::{Caught, Stderr, Stop, code_hash, counted, exit_code, no_node, scoped};
-use crate::serve::Server;
+use crate::serve::{Reloads, Server};
 use crate::watch::{Change, POLL, Snapshot, message};
 use crate::workspace::{self, EntryBuilt, Making, with_deps};
 
@@ -110,6 +111,8 @@ struct Slot {
     /// Its name in nomi's lines, and its programs' prefix.
     label: String,
     prefix: String,
+    /// Where it is served if it's a browser program.
+    port: Option<Port>,
     /// Where it ran when last built.
     platform: Option<Platform>,
     /// Its code, absolute, once built.
@@ -209,11 +212,13 @@ impl Watch {
             .collect();
         let labels: Vec<String> = entries.iter().map(|(m, e)| label_of(m, e)).collect();
         let prefixes = prefixes_of(&labels, console.err_is_terminal());
+        let ports = ports(entries.iter().map(|&(_, entry)| entry));
         let mut old = std::mem::take(&mut self.slots);
-        for (((member, entry), label), prefix) in entries.into_iter().zip(labels).zip(prefixes) {
+        let each = entries.into_iter().zip(labels).zip(prefixes).zip(ports);
+        for ((((member, entry), label), prefix), port) in each {
             let kept = old
                 .iter()
-                .position(|s| s.member == member.dir && s.entry == *entry);
+                .position(|s| s.member == member.dir && s.entry == *entry && s.port == port);
             let slot = match kept {
                 Some(i) => Slot {
                     label,
@@ -225,6 +230,7 @@ impl Watch {
                     entry: entry.clone(),
                     label,
                     prefix,
+                    port,
                     platform: None,
                     output: None,
                     code: None,
@@ -465,23 +471,21 @@ impl Watch {
         {
             return Some(signal);
         }
-        let mut pages = 0;
+        let ports: Vec<Option<Port>> = slots.iter().map(|slot| slot.port).collect();
         for ((slot, built), next) in slots.iter_mut().zip(built).zip(nexts) {
             if let Some((built, _)) = built {
                 slot.platform = Some(built.platform);
                 slot.output = Some(built.output.clone());
             }
-            apply(console, running, root, slot, built, next, pages);
-            if slot.platform == Some(Platform::Browser) {
-                pages += 1;
-            }
+            apply(console, running, root, slot, built, next, &ports);
         }
         None
     }
 }
 
 /// Does what `next` says to `slot`, built as `built`, its code's hash
-/// with it, the `nth` page of the workspace at `root` where it is one.
+/// with it, of the workspace at `root`, a page served on its port of
+/// `ports`.
 fn apply(
     console: &mut dyn Console,
     running: &mut Running,
@@ -489,7 +493,7 @@ fn apply(
     slot: &mut Slot,
     built: Option<(&EntryBuilt<'_>, Hash)>,
     next: Next,
-    nth: usize,
+    ports: &[Option<Port>],
 ) {
     let label = &slot.label;
     match (next, built) {
@@ -515,9 +519,12 @@ fn apply(
         }
         (Next::Serve, Some((built, hash))) => {
             slot.live = Live::Idle;
-            match served(root, built, nth) {
+            let port = slot
+                .port
+                .expect("a browser program doesn't run on Node by its manifest");
+            match served(root, built, port, ports, Reloads::Heard) {
                 Ok(server) => {
-                    console.err(&format!("[nomi] {}", serving(label, &server)));
+                    console.err(&format!("[nomi] {}", serving(label, &server, port)));
                     slot.live = Live::Served(server);
                     slot.code = Some(hash);
                 }
@@ -551,7 +558,7 @@ mod tests {
             title: "web".to_owned(),
             static_dir: None,
         };
-        let served = Live::Served(Server::start(site, 0).unwrap());
+        let served = Live::Served(Server::start(site, [0], Reloads::Heard).unwrap());
         let (node, browser) = (Platform::Node, Platform::Browser);
         let cases = [
             (&Live::Idle, None, None, Next::Keep),

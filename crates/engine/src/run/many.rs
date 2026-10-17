@@ -22,20 +22,21 @@ mod watch;
 
 pub(super) use watch::watch;
 
+use super::port::{Port, ports};
 use super::{
-    Caught, FIRST_PORT, GRACE, Served, Stderr, Stop, exit_code, no_node, node, not_a_module, send,
-    serve, serving,
+    Caught, GRACE, Served, Stderr, Stop, exit_code, no_node, node, not_a_module, send, serve,
+    serving,
 };
 use crate::Context;
 use crate::console::{self, Console};
 use crate::make::has_ext;
 use crate::paths::relative;
-use crate::serve::Server;
+use crate::serve::{Reloads, Server};
 use crate::workspace::{self, EntryBuilt, Making, Outcome};
 
 /// Builds the entries of the members of `workspace` in `dirs`, then
-/// serves each browser program among them, each on its entry's `port` or
-/// the next from [`FIRST_PORT`], and runs each Node program until every
+/// serves each browser program among them on its port of [`ports`], and
+/// runs each Node program until every
 /// one has ended, or while one is served until nomi is stopped, showing
 /// on standard error how the builds went. The code to exit with: the
 /// first failed program's, 130 or 143 when nomi was stopped by SIGINT or
@@ -67,7 +68,8 @@ pub(super) fn run(
             return 1;
         }
     };
-    let Some(servers) = servers(console, root, &builds.entries, &labels) else {
+    let ports = ports(builds.entries.iter().map(|built| built.entry));
+    let Some(servers) = servers(console, root, &builds.entries, &labels, &ports) else {
         return 1;
     };
     let mut running = Running::new(servers);
@@ -91,20 +93,23 @@ fn unrunnable(built: &EntryBuilt<'_>, root: &Path) -> Option<Report> {
 }
 
 /// Serves each browser program of `entries`, as [`served`] does, saying
-/// where by its label of `labels`; the servers, or `None` once what went
-/// wrong is shown.
+/// where by its label of `labels`, each on its port of `ports`; the
+/// servers, or `None` once what went wrong is shown.
 fn servers(
     console: &mut dyn Console,
     root: &Path,
     entries: &[EntryBuilt<'_>],
     labels: &[String],
+    ports: &[Option<Port>],
 ) -> Option<Vec<Server>> {
-    let browser = (entries.iter().zip(labels)).filter(|(b, _)| b.platform == Platform::Browser);
+    let browser = (entries.iter().zip(labels).zip(ports))
+        .filter(|((b, _), _)| b.platform == Platform::Browser);
     let mut servers = Vec::new();
-    for (nth, (built, label)) in browser.enumerate() {
-        match served(root, built, nth) {
+    for ((built, label), port) in browser {
+        let port = port.expect("a browser program doesn't run on Node by its manifest");
+        match served(root, built, port, ports, Reloads::Never) {
             Ok(server) => {
-                console.err(&format!("[nomi] {}", serving(label, &server)));
+                console.err(&format!("[nomi] {}", serving(label, &server, port)));
                 servers.push(server);
             }
             Err(report) => {
@@ -116,12 +121,17 @@ fn servers(
     Some(servers)
 }
 
-/// Serves the browser program `built`, the `nth` browser entry of the
-/// workspace at `root`, on its entry's `port` or [`FIRST_PORT`] plus
-/// `nth`.
-fn served(root: &Path, built: &EntryBuilt<'_>, nth: usize) -> Result<Server, Report> {
+/// Serves the browser program `built`, of the workspace at `root`, on
+/// `port`, one of `ports`, its pages listening for reloads as `reloads`
+/// says.
+fn served(
+    root: &Path,
+    built: &EntryBuilt<'_>,
+    port: Port,
+    ports: &[Option<Port>],
+    reloads: Reloads,
+) -> Result<Server, Report> {
     let dir = root.join(&built.member.dir);
-    let nth = u16::try_from(nth).unwrap_or(u16::MAX);
     serve(Served {
         main: &built
             .member
@@ -132,7 +142,9 @@ fn served(root: &Path, built: &EntryBuilt<'_>, nth: usize) -> Result<Server, Rep
         output: &built.output,
         module: &built.module,
         static_dir: built.entry.static_dir.as_ref().map(|d| dir.join(d)),
-        port: (built.entry.port).unwrap_or_else(|| FIRST_PORT.saturating_add(nth)),
+        port,
+        ports,
+        reloads,
         from: root,
         dir: &dir,
     })

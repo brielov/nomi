@@ -8,6 +8,7 @@
 //! runs, each under its member's name.
 
 mod many;
+mod port;
 
 use std::ffi::OsString;
 use std::fs;
@@ -30,9 +31,10 @@ use crate::paths::{NOMI_TOML, Root, relative};
 use crate::project::{Project, no_outline};
 use crate::report::one_line;
 use crate::scope::{self, Scope};
-use crate::serve::{Server, Site};
+use crate::serve::{Reloads, Server, Site};
 use crate::watch::{Change, POLL, Snapshot, message};
 use crate::{Context, workspace};
+use port::{FIRST_PORT, Port};
 
 /// What `nomi run` was asked to run.
 #[derive(Clone, Debug)]
@@ -240,7 +242,7 @@ fn serve_one(console: &mut dyn Console, built: &Built, code: &Code) -> u8 {
         }
     };
     // Served until dropped, once nomi is stopped.
-    let _server = match serve_built(console, built, code) {
+    let _server = match serve_built(console, built, code, Reloads::Never) {
         Ok(server) => server,
         Err(report) => {
             console::report(console, &report, Compat::LATEST);
@@ -251,25 +253,29 @@ fn serve_one(console: &mut dyn Console, built: &Built, code: &Code) -> u8 {
 }
 
 /// Starts the dev server of the browser program `built` wrote as `code`,
-/// saying where.
-fn serve_built(console: &mut dyn Console, built: &Built, code: &Code) -> Result<Server, Report> {
+/// its pages listening for reloads as `reloads` says, saying where.
+fn serve_built(
+    console: &mut dyn Console,
+    built: &Built,
+    code: &Code,
+    reloads: Reloads,
+) -> Result<Server, Report> {
     let main = built.main.to_string_lossy();
+    let port = built.port.map_or(Port::Assigned(FIRST_PORT), Port::Given);
     let server = serve(Served {
         main: &main,
         output: &built.output,
         module: code.mains.first().expect("an entry has one main"),
         static_dir: built.static_dir.as_ref().map(|dir| built.dir.join(dir)),
-        port: built.port.unwrap_or(FIRST_PORT),
+        port,
+        ports: &[Some(port)],
+        reloads,
         from: &built.dir,
         dir: &built.dir,
     })?;
-    console.err(&serving(&main, &server));
+    console.err(&serving(&main, &server, port));
     Ok(server)
 }
-
-/// The port the first browser entry without one is served on, and the
-/// next the next.
-const FIRST_PORT: u16 = 8000;
 
 /// A browser program to serve.
 struct Served<'a> {
@@ -281,7 +287,11 @@ struct Served<'a> {
     module: &'a ModuleName,
     /// The directory of its static files, absolute.
     static_dir: Option<PathBuf>,
-    port: u16,
+    port: Port,
+    /// The ports of every browser entry of the run, which an assigned
+    /// `port` moves past.
+    ports: &'a [Option<Port>],
+    reloads: Reloads,
     /// Where the directory is named from when it is missing.
     from: &'a Path,
     /// Its project's directory, absolute, whose name titles a page the
@@ -305,21 +315,27 @@ fn serve(served: Served<'_>) -> Result<Server, Report> {
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned()),
         static_dir,
     };
-    Server::start(site, served.port).map_err(|e| match e.kind() {
-        io::ErrorKind::AddrInUse => port_taken(served.main, served.port),
+    let ports = port::tries(served.port, served.ports);
+    let port = served.port.number();
+    Server::start(site, ports, served.reloads).map_err(|e| match e.kind() {
+        io::ErrorKind::AddrInUse => port_taken(served.main, port),
         _ => one_line(
             "PROBLEM SERVING",
-            &format!(
-                "I could not serve {} on port {}: {e}",
-                served.main, served.port
-            ),
+            &format!("I could not serve {} on port {port}: {e}", served.main),
         ),
     })
 }
 
-/// What nomi says once `server` serves the entry it names `name`.
-fn serving(name: &str, server: &Server) -> String {
-    format!("Serving {name} at http://localhost:{}\n", server.port())
+/// What nomi says once `server` serves the entry it names `name`, on
+/// `port` or past it.
+fn serving(name: &str, server: &Server, port: Port) -> String {
+    let at = server.port();
+    let moved = if at == port.number() {
+        String::new()
+    } else {
+        format!(", as port {} is taken", port.number())
+    };
+    format!("Serving {name} at http://localhost:{at}{moved}\n")
 }
 
 /// Builds and runs `program` as [`run`] does, then again as the project
@@ -483,7 +499,7 @@ impl Live {
             }
             None => {
                 self.page = Some(Page {
-                    server: serve_built(console, &built, &code)?,
+                    server: serve_built(console, &built, &code, Reloads::Heard)?,
                     static_dir: (built.static_dir.as_ref()).map(|dir| built.dir.join(dir)),
                     output: built.output,
                     code: hash,
