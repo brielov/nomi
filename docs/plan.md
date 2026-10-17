@@ -1406,7 +1406,9 @@ Answers the exit review took, open to review: an entry starts itself, other Node
 - [x] **12.9j** `registry: rm and tree in a workspace`. `nomi rm` and `nomi tree` in a member that uses a member package resolve with the workspace, as `add` does, rather than asking the registry for the member. **Check:** both in the example's `apps/api`, inside it and with `-p`.
 
   Done: in a workspace `rm` plans through the member overlay, still without re-solving, then checks the workspace as `add` does and restores the elm.json if it fails; `tree` resolves and reports as the workspace does and shows member packages with their dependencies; `outdated` reads through the overlay, so a shadowing member is never outdated; nomi's `diff` and `bump` build a member package's docs with the workspace, upstream's personality unchanged and `publish` verifying against the registry. Tests: transcripts of `tree` and `rm` in `apps/api` and with `-p`, `rm` failing on disagreeing pins and restoring, `outdated`; `diff` and `bump` against a loopback registry finding a member package's new function, `elm diff` failing as upstream. Five of the transcripts fail on the old code. CI is green.
-- [ ] **12.10** `release: 0.6`.
+- [x] **12.10** `release: 0.6`.
+
+  Done: an exit review of M11 and M12 by six readers found 18 must-fix and about 70 smaller findings, fixed in 12.9c–12.9j with a failing test for each bug; the README's Workspaces section, its commands run on a copy of the example; the tests, javascript and lsp corpus suites unchanged (14 of 14, 81 apps, 7,439); the workspace version 0.6.0, tagged `v0.6.0`.
 
 Defaults taken, each open to review: two apps can't pin different versions of one package; a member package shadows a published package of its name; no dev-server proxy; one port per browser entry, from 8000, a taken one an error. "The language server works across members" means 12.5's Check.
 
