@@ -76,6 +76,7 @@ effectWith template description run =
     Test.test description <|
         \() ->
             Elm.Kernel.NomiTest.mark
+                description
                 (Task.andThen run (fresh template))
                 (Expect.fail "Nomi.Test.effect runs only under nomi test.")
 

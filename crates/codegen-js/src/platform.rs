@@ -10,6 +10,8 @@ use crate::runtime::{self, Override};
 const BUNDLED_KERNELS: &[&str] = &[
     "Nomi",
     "NomiBytes",
+    "NomiCompress",
+    "NomiCrypto",
     "NomiFs",
     "NomiHttpClient",
     "NomiHttpServer",

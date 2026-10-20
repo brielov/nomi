@@ -19,11 +19,45 @@ import Result exposing (Ok, Err)
 // through `Nomi.Test.Runner`.
 var _NomiTest_effects = new WeakMap();
 
-var _NomiTest_mark = F2(function(task, placeholder)
+// Each effectful test's seed, by its task: its description, hashed, so a
+// test's random values are its own and the same on every run.
+var _NomiTest_seeds = new WeakMap();
+
+var _NomiTest_mark = F3(function(description, task, placeholder)
 {
 	_NomiTest_effects.set(placeholder, task);
+	_NomiTest_seeds.set(task, _NomiTest_hash(description));
 	return placeholder;
 });
+
+// FNV-1a over the text's UTF-16 units.
+function _NomiTest_hash(text)
+{
+	var hash = 0x811c9dc5;
+	for (var i = 0; i < text.length; i++)
+	{
+		hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+	}
+	return hash;
+}
+
+// A generator of bytes from `seed`, splitmix32's, which fills an array as
+// `crypto.getRandomValues` does.
+function _NomiTest_generator(seed)
+{
+	var state = seed >>> 0;
+	return function(array) {
+		for (var i = 0; i < array.length; i++)
+		{
+			state = (state + 0x9e3779b9) >>> 0;
+			var z = state;
+			z = Math.imul(z ^ (z >>> 16), 0x21f0aaad);
+			z = Math.imul(z ^ (z >>> 15), 0x735a2d97);
+			array[i] = (z ^ (z >>> 15)) & 0xff;
+		}
+		return array;
+	};
+}
 
 function _NomiTest_effect(expectation)
 {
@@ -41,6 +75,7 @@ function _NomiTest_attempt(task)
 {
 	return _Runtime.async(function(resume) {
 		var runtime = new _Runtime.Runtime({ clock: new _Runtime.TestClock() });
+		runtime.random = _NomiTest_generator(_NomiTest_seeds.get(task) || 0);
 		runtime.fork(task, function(exit) {
 			runtime.shutdown().then(function() {
 				resume(_Runtime.succeed(_NomiTest_result(exit)));

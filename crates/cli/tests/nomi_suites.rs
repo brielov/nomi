@@ -16,6 +16,9 @@
 //!   fiber waiting for a signal leaves the clock free.
 //! - `http`: a server and its clients on `Nomi.Net.loopback` under nomi
 //!   test, a handler's sleep and a request's timeout on the test's clock.
+//! - `crypto`: hashes and HMACs against published vectors, randomness
+//!   seeded per test, argon2id and bcrypt, and compression whole and
+//!   streamed, corrupt input refused.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -70,4 +73,9 @@ fn the_process_suite_passes() {
 #[test]
 fn the_http_suite_passes() {
     passes("http");
+}
+
+#[test]
+fn the_crypto_suite_passes() {
+    passes("crypto");
 }

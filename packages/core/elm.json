@@ -14,6 +14,10 @@
         "Nomi.Stream",
         "Nomi.Path",
         "Nomi.Net",
+        "Nomi.Crypto",
+        "Nomi.Random",
+        "Nomi.Password",
+        "Nomi.Compress",
         "Nomi.Fs",
         "Nomi.Stdio",
         "Nomi.Process"
