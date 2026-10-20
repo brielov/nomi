@@ -38,7 +38,9 @@ function run(scenario, { fixture = program, signals = [], deadline } = {}) {
       child.kill("SIGKILL");
       reject(new Error(`${scenario} did not exit\nstdout: ${stdout}\nstderr: ${stderr}`));
     }, 10_000);
-    child.on("exit", (code, signal) => {
+    // Once its output is read too: `exit` can come first, as on Windows,
+    // whose pipes are written asynchronously.
+    child.on("close", (code, signal) => {
       clearTimeout(timer);
       resolve({ code, signal, stdout: stdout.trim().split("\n"), stderr, ms: Date.now() - started });
     });
