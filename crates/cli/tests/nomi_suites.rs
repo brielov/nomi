@@ -9,6 +9,8 @@
 //!   loses nothing, lines split across chunks, a line reader leaves the
 //!   rest of the stream, reads are answered in order whether a task or the
 //!   kernel makes the reader, and the fakes' stdio.
+//! - `fs`: `Nomi.Fs` in memory on the virtual clock (watches, file times,
+//!   streams, temporary directories) and `Nomi.Path`.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -48,4 +50,9 @@ fn the_bytes_suite_passes() {
 #[test]
 fn the_stream_suite_passes() {
     passes("stream");
+}
+
+#[test]
+fn the_fs_suite_passes() {
+    passes("fs");
 }

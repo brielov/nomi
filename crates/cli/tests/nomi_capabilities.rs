@@ -30,18 +30,23 @@ use website::offline;
 /// same to a fake input holding the bytes standard input held, writing to
 /// a fake output; `late` waits 200 ms for a line, then reads by lines;
 /// `flood` writes 200 chunks of 64 KiB, saying on stderr as each is
-/// taken; `bad-files` uses memory file systems given files the disk can't
+/// taken; `owned` opens `big.bin` and watches `.` in a fiber, waits for
+/// a change of that watch in another, says so, and once a line comes
+/// interrupts the first, says what the change was and that it's done,
+/// then waits for another line; `bad-files` uses memory file systems given files the disk can't
 /// hold; `exit` exits 3 with finalizers to run, and `exit <code>` with the
 /// code.
 const PROGRAM: &str = r#"module Main exposing (main)
 
 import Bytes
+import Bytes.Decode
 import Bytes.Encode
 import Nomi exposing (Env)
 import Nomi.Fake as Fake
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Process
+import Nomi.Queue as Queue
 import Nomi.Stdio as Stdio
 import Nomi.Stream as Stream
 import Nomi.Task
@@ -85,6 +90,28 @@ main =
 
                 [ "flood" ] ->
                     flood env 1
+
+                [ "owned" ] ->
+                    Queue.unbounded
+                        |> Task.andThen
+                            (\watches ->
+                                Fiber.fork
+                                    (Fs.reader "big.bin" env.fs
+                                        |> Task.andThen (\from -> Fs.watch "." env.fs |> Task.andThen (\watch -> Queue.offer watch watches) |> Task.map (\_ -> from))
+                                        |> Task.andThen (\from -> Stream.read from |> Task.mapError (\_ -> Fs.Other "read"))
+                                        |> Task.andThen (\_ -> Process.sleep 3600000)
+                                        |> Task.mapError Fs.errorToString
+                                    )
+                                    |> Task.andThen (\owner -> Queue.take watches |> Task.map (Tuple.pair owner))
+                            )
+                        |> Task.andThen
+                            (\( owner, watch ) ->
+                                Fiber.fork (Fs.change watch |> Task.mapError Fs.errorToString |> Task.andThen (\changed -> say ("change: " ++ Debug.toString changed ++ "\n") env))
+                                    |> Task.andThen (\waiting -> say "opened\n" env |> Task.map (\_ -> waiting))
+                                    |> Task.andThen (\waiting -> next env |> Task.andThen (\_ -> Fiber.interrupt owner) |> Task.andThen (\_ -> Fiber.join waiting))
+                            )
+                        |> Task.andThen (\_ -> say "closed\n" env)
+                        |> Task.andThen (\_ -> next env)
 
                 [ "bad-files" ] ->
                     [ [ ( "../x", "x" ) ], [ ( "", "x" ) ], [ ( "a", "x" ), ( "a/b", "y" ) ], [ ( "a/b", "y" ), ( "a", "x" ) ] ]
@@ -163,22 +190,146 @@ cases fs =
     , outcome "read new/deeper/inner/x.txt" (Fs.read "new/deeper/inner/x.txt" fs)
     , outcome "subdir more: makeDirectory ." (Fs.makeDirectory "." (Fs.subdir "more" fs))
     , outcome "subdir more: list ." (Fs.list "." (Fs.subdir "more" fs))
-    , outcome "remove new" (Fs.remove "new" fs)
-    , outcome "remove more" (Fs.remove "more" fs)
+    , outcome "remove new" (Fs.remove { recursive = True } "new" fs)
+    , outcome "remove more" (Fs.remove { recursive = True } "more" fs)
     , outcome "readOnly: read a.txt" (Fs.read "a.txt" readOnly)
     , outcome "readOnly: write a.txt" (Fs.write "a.txt" "x" readOnly)
     , outcome "readOnly: append a.txt" (Fs.append "a.txt" "x" readOnly)
-    , outcome "readOnly: remove a.txt" (Fs.remove "a.txt" readOnly)
+    , outcome "readOnly: remove a.txt" (Fs.remove { recursive = True } "a.txt" readOnly)
     , outcome "readOnly: makeDirectory d" (Fs.makeDirectory "d" readOnly)
     , outcome "readOnly, subdir dir: write b.txt" (Fs.write "b.txt" "x" (Fs.subdir "dir" readOnly))
+    , outcome "readOnly: rename a.txt b.txt" (Fs.rename "a.txt" "b.txt" readOnly)
+    , outcome "readOnly: copy a.txt b.txt" (Fs.copy "a.txt" "b.txt" readOnly)
+    , outcome "readOnly: symlink a.txt l" (Fs.symlink "a.txt" "l" readOnly)
+    , outcome "readOnly: writer a.txt" (Fs.writer "a.txt" readOnly |> Task.map (\_ -> ()))
+    , outcome "readOnly: temporaryDirectory" (Fs.temporaryDirectory readOnly |> Task.map (\_ -> ()))
+    , outcome "remove dir, not recursive" (Fs.remove { recursive = False } "dir" fs)
+    , outcome "remove dir/sub/b.txt, not recursive" (Fs.remove { recursive = False } "dir/sub/b.txt" fs)
+    , outcome "writeBytes bad.txt" (Fs.writeBytes "bad.txt" (bytes [ 0x61, 0xFF ]) fs)
+    , outcome "read bad.txt" (Fs.read "bad.txt" fs)
+    , outcome "readBytes bad.txt" (Fs.readBytes "bad.txt" fs |> Task.map Bytes.width)
+    , outcome "remove bad.txt, not recursive" (Fs.remove { recursive = False } "bad.txt" fs)
+    , outcome "stat a.txt" (Fs.stat "a.txt" fs |> Task.map (\s -> ( s.kind, s.size )))
+    , outcome "stat dir" (Fs.stat "dir" fs |> Task.map (\s -> ( s.kind, s.size )))
+    , outcome "stat missing" (Fs.stat "missing" fs |> Task.map .kind)
+    , outcome "rename a.txt moved.txt" (Fs.rename "a.txt" "moved.txt" fs)
+    , outcome "read moved.txt" (Fs.read "moved.txt" fs)
+    , outcome "exists a.txt" (Fs.exists "a.txt" fs)
+    , outcome "rename moved.txt a.txt" (Fs.rename "moved.txt" "a.txt" fs)
+    , outcome "rename missing x" (Fs.rename "missing" "x" fs)
+    , outcome "rename a.txt dir" (Fs.rename "a.txt" "dir" fs)
+    , outcome "rename dir a.txt" (Fs.rename "dir" "a.txt" fs)
+    , outcome "rename dir dir/sub/inner" (Fs.rename "dir" "dir/sub/inner" fs)
+    , outcome "rename a.txt nope/a.txt" (Fs.rename "a.txt" "nope/a.txt" fs)
+    , outcome "rename a.txt ." (Fs.rename "a.txt" "." fs)
+    , outcome "write over.txt" (Fs.write "over.txt" "over" fs)
+    , outcome "rename over.txt dir/sub/b.txt" (Fs.rename "over.txt" "dir/sub/b.txt" fs)
+    , outcome "read dir/sub/b.txt" (Fs.read "dir/sub/b.txt" fs)
+    , outcome "copy dir copied" (Fs.copy "dir" "copied" fs)
+    , outcome "list copied/sub" (Fs.list "copied/sub" fs)
+    , outcome "read copied/sub/b.txt" (Fs.read "copied/sub/b.txt" fs)
+    , outcome "copy dir copied" (Fs.copy "dir" "copied" fs)
+    , outcome "copy a.txt dir/sub" (Fs.copy "a.txt" "dir/sub" fs)
+    , outcome "copy dir dir/sub/inside" (Fs.copy "dir" "dir/sub/inside" fs)
+    , outcome "copy missing x" (Fs.copy "missing" "x" fs)
+    , outcome "copy a.txt nope/x" (Fs.copy "a.txt" "nope/x" fs)
+    , outcome "remove copied" (Fs.remove { recursive = True } "copied" fs)
+    , outcome "symlink a.txt link.txt" (Fs.symlink "a.txt" "link.txt" fs)
+    , outcome "read link.txt" (Fs.read "link.txt" fs)
+    , outcome "readLink link.txt" (Fs.readLink "link.txt" fs)
+    , outcome "realPath link.txt" (Fs.realPath "link.txt" fs)
+    , outcome "stat link.txt" (Fs.stat "link.txt" fs |> Task.map .kind)
+    , outcome "symlink a.txt link.txt" (Fs.symlink "a.txt" "link.txt" fs)
+    , outcome "symlink ../../x out" (Fs.symlink "../../x" "out" fs)
+    , outcome "symlink /etc/passwd abs" (Fs.symlink "/etc/passwd" "abs" fs)
+    , outcome "subdir dir: symlink ../a.txt up" (Fs.symlink "../a.txt" "up" (Fs.subdir "dir" fs))
+    , outcome "symlink ../a.txt dir/up" (Fs.symlink "../a.txt" "dir/up" fs)
+    , outcome "read dir/up" (Fs.read "dir/up" fs)
+    , outcome "subdir dir: read up" (Fs.read "up" (Fs.subdir "dir" fs))
+    , outcome "symlink nowhere dangling" (Fs.symlink "nowhere" "dangling" fs)
+    , outcome "read dangling" (Fs.read "dangling" fs)
+    , outcome "exists dangling" (Fs.exists "dangling" fs)
+    , outcome "readLink dangling" (Fs.readLink "dangling" fs)
+    , outcome "symlink sub dir/sublink" (Fs.symlink "sub" "dir/sublink" fs)
+    , outcome "list dir/sublink" (Fs.list "dir/sublink" fs)
+    , outcome "realPath dir/sublink/../sublink/b.txt" (Fs.realPath "dir/sublink/../sublink/b.txt" fs)
+    , outcome "realPath ." (Fs.realPath "." fs)
+    , outcome "realPath missing" (Fs.realPath "missing" fs)
+    , outcome "readLink a.txt" (Fs.readLink "a.txt" fs)
+    , outcome "rename link.txt link2.txt" (Fs.rename "link.txt" "link2.txt" fs)
+    , outcome "readLink link2.txt" (Fs.readLink "link2.txt" fs)
+    , outcome "remove link2.txt" (Fs.remove { recursive = False } "link2.txt" fs)
+    , outcome "exists a.txt" (Fs.exists "a.txt" fs)
+    , outcome "remove dangling" (Fs.remove { recursive = False } "dangling" fs)
+    , outcome "remove dir/up" (Fs.remove { recursive = False } "dir/up" fs)
+    , outcome "remove dir/sublink" (Fs.remove { recursive = False } "dir/sublink" fs)
+    , outcome "stream w.txt" (streamed fs)
+    , outcome "reader missing" (Fs.reader "missing" fs |> Task.map (\_ -> ()))
+    , outcome "reader dir" (Fs.reader "dir" fs |> Task.andThen (\from -> Stream.read from |> Task.mapError (\_ -> Fs.Other "read")) |> Task.map (\_ -> ()))
+    , outcome "writer dir" (Fs.writer "dir" fs |> Task.map (\_ -> ()))
+    , outcome "remove w.txt" (Fs.remove { recursive = False } "w.txt" fs)
+    , outcome "temporaryDirectory" (temporary fs)
     , outcome "read a.txt" (Fs.read "a.txt" fs)
-    , outcome "remove ." (Fs.remove "." fs)
-    , outcome "remove dir" (Fs.remove "dir" fs)
+    , outcome "remove ." (Fs.remove { recursive = True } "." fs)
+    , outcome "remove dir" (Fs.remove { recursive = True } "dir" fs)
     , outcome "exists dir/sub/b.txt" (Fs.exists "dir/sub/b.txt" fs)
-    , outcome "remove dir" (Fs.remove "dir" fs)
-    , outcome "remove new.txt" (Fs.remove "new.txt" fs)
+    , outcome "remove dir" (Fs.remove { recursive = True } "dir" fs)
+    , outcome "remove new.txt" (Fs.remove { recursive = True } "new.txt" fs)
     , outcome "list ." (Fs.list "." fs)
     ]
+
+
+bytes : List Int -> Bytes.Bytes
+bytes ints =
+    Bytes.Encode.encode (Bytes.Encode.sequence (List.map Bytes.Encode.unsignedInt8 ints))
+
+
+{-| A file written, appended to and read as streams.
+-}
+streamed : Fs -> Task String String
+streamed fs =
+    let
+        text =
+            String.join "" >> Bytes.Encode.string >> Bytes.Encode.encode
+
+        put open chunks =
+            open "w.txt" fs
+                |> Task.mapError Fs.errorToString
+                |> Task.andThen
+                    (\to ->
+                        Task.sequence (List.map (\chunk -> Stream.write (text [ chunk ]) to) chunks)
+                            |> Task.andThen (\_ -> Stream.close to)
+                            |> Task.andThen (\_ -> Stream.write (text [ "late" ]) to |> Task.map (\_ -> False) |> Task.onError (\_ -> Task.succeed True))
+                            |> Task.mapError Stream.errorToString
+                            |> Task.andThen
+                                (\refused ->
+                                    if refused then
+                                        Task.succeed ()
+
+                                    else
+                                        Task.fail "written after close"
+                                )
+                    )
+    in
+    put Fs.writer [ "ab", "c" ]
+        |> Task.andThen (\_ -> put Fs.appender [ "d" ])
+        |> Task.andThen (\_ -> Fs.reader "w.txt" fs |> Task.mapError Fs.errorToString)
+        |> Task.andThen (Stream.readAll { limit = 100 } >> Task.mapError Stream.errorToString)
+        |> Task.map (\all -> Bytes.Decode.decode (Bytes.Decode.string (Bytes.width all)) all |> Maybe.withDefault "?")
+
+
+{-| A temporary directory written to and listed, and whether the
+capability it was made from sees it.
+-}
+temporary : Fs -> Task Fs.Error ( List String, Bool )
+temporary fs =
+    Fs.temporaryDirectory fs
+        |> Task.andThen
+            (\scratch ->
+                Fs.write "t.txt" "t" scratch
+                    |> Task.andThen (\_ -> Fs.list "." scratch)
+                    |> Task.andThen (\listed -> Fs.exists "t.txt" fs |> Task.map (Tuple.pair listed))
+            )
 
 
 links : Fs -> List (Task x String)
@@ -195,7 +346,17 @@ links fs =
     , outcome "exists escape/secret.txt" (Fs.exists "escape/secret.txt" fs)
     , outcome "subdir escape: read secret.txt" (Fs.read "secret.txt" (Fs.subdir "escape" fs))
     , outcome "subdir up: list ." (Fs.list "." (Fs.subdir "up" fs))
-    , outcome "remove secret.txt" (Fs.remove "secret.txt" fs)
+    , outcome "stat secret.txt" (Fs.stat "secret.txt" fs |> Task.map .kind)
+    , outcome "realPath escape" (Fs.realPath "escape" fs)
+    , outcome "readLink secret.txt" (Fs.readLink "secret.txt" fs)
+    , outcome "copy escape/secret.txt x" (Fs.copy "escape/secret.txt" "x" fs)
+    , outcome "copy plain.txt escape/x" (Fs.copy "plain.txt" "escape/x" fs)
+    , outcome "rename plain.txt escape/x" (Fs.rename "plain.txt" "escape/x" fs)
+    , outcome "symlink plain.txt escape/l" (Fs.symlink "plain.txt" "escape/l" fs)
+    , outcome "reader secret.txt" (Fs.reader "secret.txt" fs |> Task.map (\_ -> ()))
+    , outcome "writer escape/new.txt" (Fs.writer "escape/new.txt" fs |> Task.map (\_ -> ()))
+    , outcome "watch escape" (Fs.watch "escape" fs |> Task.map (\_ -> ()))
+    , outcome "remove secret.txt" (Fs.remove { recursive = True } "secret.txt" fs)
     , outcome "exists secret.txt" (Fs.exists "secret.txt" fs)
     ]
 
@@ -212,6 +373,13 @@ report : Env -> List (Task x String) -> Task x ()
 report env tasks =
     Task.sequence tasks
         |> Task.andThen (\outcomes -> say (String.concat (List.map (\line -> line ++ "\n") outcomes)) env)
+
+
+{-| Waits for a line of input.
+-}
+next : Env -> Task String ()
+next env =
+    Stdio.line env.stdin |> Task.mapError Stream.errorToString |> Task.map (\_ -> ())
 
 
 {-| Writes to stdout, which never fails.
@@ -306,6 +474,77 @@ readOnly: append a.txt: Err (PermissionDenied "a.txt")
 readOnly: remove a.txt: Err (PermissionDenied "a.txt")
 readOnly: makeDirectory d: Err (PermissionDenied "d")
 readOnly, subdir dir: write b.txt: Err (PermissionDenied "b.txt")
+readOnly: rename a.txt b.txt: Err (PermissionDenied "a.txt")
+readOnly: copy a.txt b.txt: Err (PermissionDenied "a.txt")
+readOnly: symlink a.txt l: Err (PermissionDenied "l")
+readOnly: writer a.txt: Err (PermissionDenied "a.txt")
+readOnly: temporaryDirectory: Err (PermissionDenied "temporary directory")
+remove dir, not recursive: Err (NotEmpty "dir")
+remove dir/sub/b.txt, not recursive: Ok ()
+writeBytes bad.txt: Ok ()
+read bad.txt: Err (NotUtf8 "bad.txt")
+readBytes bad.txt: Ok 2
+remove bad.txt, not recursive: Ok ()
+stat a.txt: Ok (File,12)
+stat dir: Ok (Directory,0)
+stat missing: Err (NotFound "missing")
+rename a.txt moved.txt: Ok ()
+read moved.txt: Ok "hello, world"
+exists a.txt: Ok False
+rename moved.txt a.txt: Ok ()
+rename missing x: Err (NotFound "missing")
+rename a.txt dir: Err (IsADirectory "dir")
+rename dir a.txt: Err (Other "a.txt: not a directory")
+rename dir dir/sub/inner: Err (Other "dir: would go inside itself")
+rename a.txt nope/a.txt: Err (NotFound "nope/a.txt")
+rename a.txt .: Err (PermissionDenied ".")
+write over.txt: Ok ()
+rename over.txt dir/sub/b.txt: Ok ()
+read dir/sub/b.txt: Ok "over"
+copy dir copied: Ok ()
+list copied/sub: Ok ["b.txt","c.bin"]
+read copied/sub/b.txt: Ok "over"
+copy dir copied: Err (AlreadyExists "copied")
+copy a.txt dir/sub: Err (AlreadyExists "dir/sub")
+copy dir dir/sub/inside: Err (Other "dir: would go inside itself")
+copy missing x: Err (NotFound "missing")
+copy a.txt nope/x: Err (NotFound "nope/x")
+remove copied: Ok ()
+symlink a.txt link.txt: Ok ()
+read link.txt: Ok "hello, world"
+readLink link.txt: Ok "a.txt"
+realPath link.txt: Ok "a.txt"
+stat link.txt: Ok File
+symlink a.txt link.txt: Err (AlreadyExists "link.txt")
+symlink ../../x out: Err (OutsideRoot "out")
+symlink /etc/passwd abs: Err (OutsideRoot "abs")
+subdir dir: symlink ../a.txt up: Err (OutsideRoot "up")
+symlink ../a.txt dir/up: Ok ()
+read dir/up: Ok "hello, world"
+subdir dir: read up: Err (OutsideRoot "up")
+symlink nowhere dangling: Ok ()
+read dangling: Err (OutsideRoot "dangling")
+exists dangling: Ok False
+readLink dangling: Ok "nowhere"
+symlink sub dir/sublink: Ok ()
+list dir/sublink: Ok ["b.txt","c.bin"]
+realPath dir/sublink/../sublink/b.txt: Ok "dir/sub/b.txt"
+realPath .: Ok "."
+realPath missing: Err (NotFound "missing")
+readLink a.txt: Err (Other "a.txt: not a symbolic link")
+rename link.txt link2.txt: Ok ()
+readLink link2.txt: Ok "a.txt"
+remove link2.txt: Ok ()
+exists a.txt: Ok True
+remove dangling: Ok ()
+remove dir/up: Ok ()
+remove dir/sublink: Ok ()
+stream w.txt: Ok "abcd"
+reader missing: Err (NotFound "missing")
+reader dir: Err (IsADirectory "dir")
+writer dir: Err (IsADirectory "dir")
+remove w.txt: Ok ()
+temporaryDirectory: Ok (["t.txt"],False)
 read a.txt: Ok "hello, world"
 remove .: Err (PermissionDenied ".")
 remove dir: Ok ()
@@ -337,7 +576,7 @@ fn built() -> (tempfile::TempDir, PathBuf) {
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
         root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/fake": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/fake": "1.0.0"}, "indirect": {"elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
@@ -394,14 +633,18 @@ fn the_file_systems_on_disk_and_in_memory_give_the_tables_results() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
     fs::create_dir(root.join("run/scratch")).unwrap();
-    let real = run(&root, &["table", "real"], b"");
-    assert_eq!(printed(&real), TABLE);
+    let real = printed(&run(&root, &["table", "real"], b""));
+    let memory = printed(&run(&root, &["table", "memory"], b""));
+    let differ: Vec<_> = (real.lines().zip(memory.lines()))
+        .filter(|(disk, memory)| disk != memory)
+        .collect();
+    assert!(differ.is_empty(), "disk, then memory: {differ:#?}");
+    assert_eq!(real, TABLE);
+    assert_eq!(memory, TABLE);
     assert_eq!(
         fs::read_to_string(root.join("run/scratch/table/a.txt")).unwrap(),
         "hello, world"
     );
-    let memory = run(&root, &["table", "memory"], b"");
-    assert_eq!(printed(&memory), TABLE);
 }
 
 #[test]
@@ -434,6 +677,16 @@ makeDirectory escape/made: Err (OutsideRoot "escape/made")
 exists escape/secret.txt: Ok False
 subdir escape: read secret.txt: Err (OutsideRoot "secret.txt")
 subdir up: list .: Err (OutsideRoot ".")
+stat secret.txt: Err (OutsideRoot "secret.txt")
+realPath escape: Err (OutsideRoot "escape")
+readLink secret.txt: Ok "../../outside/secret.txt"
+copy escape/secret.txt x: Err (OutsideRoot "escape/secret.txt")
+copy plain.txt escape/x: Err (OutsideRoot "escape/x")
+rename plain.txt escape/x: Err (OutsideRoot "escape/x")
+symlink plain.txt escape/l: Err (OutsideRoot "escape/l")
+reader secret.txt: Err (OutsideRoot "secret.txt")
+writer escape/new.txt: Err (OutsideRoot "escape/new.txt")
+watch escape: Err (OutsideRoot "escape")
 remove secret.txt: Ok ()
 exists secret.txt: Ok False
 "#
@@ -557,4 +810,42 @@ fn process_exit_with_a_code_out_of_range_exits_255() {
         let ran = run(&root, &["exit", code], b"");
         assert_eq!(ran.status.code(), Some(exited), "{code}: {ran:?}");
     }
+}
+
+/// The open files of process `pid`: what each descriptor leads to.
+fn descriptors(pid: u32) -> Vec<String> {
+    fs::read_dir(format!("/proc/{pid}/fd"))
+        .unwrap()
+        .filter_map(|entry| fs::read_link(entry.unwrap().path()).ok())
+        .map(|target| target.to_string_lossy().into_owned())
+        .collect()
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_file_and_a_watch_close_once_the_fiber_that_opened_them_is_interrupted() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    fs::write(root.join("run/big.bin"), vec![0; 1 << 20]).unwrap();
+    let mut owned = start(&root, &["owned"]);
+    let pid = owned.id();
+    let mut input = owned.stdin.take().unwrap();
+    let mut said = BufReader::new(owned.stdout.take().unwrap()).lines();
+    assert_eq!(said.next().unwrap().unwrap(), "opened");
+    let open = |all: &[String]| {
+        all.iter()
+            .filter(|target| target.ends_with("/big.bin"))
+            .count()
+    };
+    let before = descriptors(pid);
+    assert_eq!(open(&before), 1, "{before:?}");
+    input.write_all(b"go\n").unwrap();
+    // Bun keeps one inotify descriptor for every watch, so the watch
+    // stopping shows as the fiber waiting on it told so.
+    assert_eq!(said.next().unwrap().unwrap(), "change: Nothing");
+    assert_eq!(said.next().unwrap().unwrap(), "closed");
+    let after = descriptors(pid);
+    assert_eq!(open(&after), 0, "{after:?}");
+    input.write_all(b"end\n").unwrap();
+    assert!(owned.wait().unwrap().success());
 }
