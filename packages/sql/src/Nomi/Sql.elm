@@ -26,11 +26,13 @@ and SQLite, on a file or in memory.
 
 A statement's parameters are its placeholders, given in order, so a value
 is never spliced into its text: `?` on SQLite and MySQL, and `$1`, `$2`
-and on on Postgres, which can name one twice. A SQLite statement runs on
-the event loop: while it runs, every fiber waits, a server's requests
-included, and a fiber interrupted meanwhile ends once it returns. Keep
-statements short, and page a large result with `limit` and `offset`, as
-each comes back whole.
+and on on Postgres, which can name one twice. A Postgres or MySQL
+statement whose fiber is interrupted is cancelled on its server, from a
+connection outside the pool, which a pool every fiber holds can't keep
+waiting. A SQLite statement runs on the event loop: while it runs, every
+fiber waits, a server's requests included, and a fiber interrupted
+meanwhile ends once it returns. Keep statements short, and page a large
+result with `limit` and `offset`, as each comes back whole.
 
 This package is experimental until a release has run it in production.
 

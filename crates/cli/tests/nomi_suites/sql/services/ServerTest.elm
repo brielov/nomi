@@ -74,6 +74,27 @@ suite =
                         )
                     |> Task.mapError Sql.errorToString
                     |> Task.map (Expect.equal ( "unreachable", True ))
+        , effect "a statement whose fiber is interrupted is cancelled on the server, with every pooled connection busy" <|
+            \env ->
+                connect (Sql.withPoolSize 2) env.net
+                    |> Task.andThen
+                        (\db ->
+                            connect identity env.net
+                                |> Task.andThen
+                                    (\observer ->
+                                        Fiber.fork (Sql.execute sleeping [] db)
+                                            |> Task.andThen (\first -> Fiber.fork (Sql.execute sleeping [] db) |> Task.map (Tuple.pair first))
+                                            |> Task.andThen
+                                                (\( first, second ) ->
+                                                    running 2 observer
+                                                        |> Task.andThen (\both -> Fiber.interrupt first |> Task.andThen (\_ -> running 1 observer) |> Task.map (Tuple.pair both))
+                                                        |> Task.andThen (\( both, one ) -> Fiber.interrupt second |> Task.andThen (\_ -> running 0 observer) |> Task.map (\none -> ( both, one, none )))
+                                                )
+                                            |> Task.andThen (\seen -> backend db |> Task.map (\_ -> seen))
+                                    )
+                        )
+                    |> Task.mapError Sql.errorToString
+                    |> Task.map (Expect.equal ( True, True, True ))
         , effect "other fibers' statements run beside a transaction, seeing it once it commits" <|
             \env ->
                 Database.fresh env.net
@@ -90,6 +111,47 @@ suite =
                     |> Task.mapError Sql.errorToString
                     |> Task.map (Expect.equal ( 0, 1 ))
         ]
+
+
+{-| A statement that runs for 30 seconds unless it is cancelled.
+-}
+sleeping : String
+sleeping =
+    if Database.kind == Postgres then
+        "select pg_sleep(30)"
+
+    else
+        "select sleep(30)"
+
+
+{-| Whether `sleeping` comes to run on the server as many times as `n`,
+which the observer asks every 50 ms, on the server, for 5 seconds.
+-}
+running : Int -> Db -> Task Sql.Error Bool
+running n observer =
+    let
+        ( asking, pausing ) =
+            if Database.kind == Postgres then
+                ( "select count(*) as n from pg_stat_activity where query = '" ++ sleeping ++ "' and state = 'active'", "select pg_sleep(0.05)" )
+
+            else
+                ( "select count(*) as n from information_schema.processlist where info = '" ++ sleeping ++ "'", "select sleep(0.05)" )
+
+        ask tries =
+            Sql.query asking [] (Sql.field "n" Sql.int) observer
+                |> Task.andThen
+                    (\counts ->
+                        if counts == [ n ] then
+                            Task.succeed True
+
+                        else if tries == 0 then
+                            Task.succeed False
+
+                        else
+                            Sql.execute pausing [] observer |> Task.andThen (\_ -> ask (tries - 1))
+                    )
+    in
+    ask 100
 
 
 {-| The URL's port, `Database.url` being `scheme://user:password@127.0.0.1:port/database`.

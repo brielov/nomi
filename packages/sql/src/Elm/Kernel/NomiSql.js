@@ -13,25 +13,41 @@ import Nomi.Sql as Sql exposing (FileError, NotOnDisk, NotAllowed, Unreachable, 
 // DATABASES
 
 // A database: its kind, `sqlite`, `postgres` or `mysql`; Bun's handle;
-// the host it is on, for errors; whether it is closed; and its pool: the
-// connections idle, how many there are, idle or not, the most there may
-// be, and the fibers waiting for one, each with what to start on it. A
-// connection is a handle statements run on, and whether it broke:
-// SQLite's is the database's own handle, its pool's only one; Postgres's
-// and MySQL's one Bun reserved, kept until it breaks or the database
-// closes. A transaction is a `Db` too, of the database it is on, `root`,
-// on the connection it holds, `depth` transactions deep, and `ended` once
-// it has.
-function _NomiSql_database(kind, sql, host, most, first)
+// the URL it was reached at and the host there, for errors; whether it
+// is closed; its pool: the connections idle, how many there are, idle or
+// not, the most there may be, and the fibers waiting for one, each with
+// what to start on it; and the connection outside the pool that cancels
+// statements, once one has. A connection is a handle statements run on,
+// whether it broke, the id its server knows it by, and a cancel on its
+// way, if one is: SQLite's is the database's own handle, its pool's only
+// one; Postgres's and MySQL's one Bun reserved, kept until it breaks or
+// the database closes. A transaction is a `Db` too, of the database it is
+// on, `root`, on the connection it holds, `depth` transactions deep, and
+// `ended` once it has.
+function _NomiSql_database(kind, sql, url, host, most, first)
 {
-	var db = { kind: kind, sql: sql, host: host, closed: false, idle: [first], count: 1, most: most, waiting: [], connection: null, depth: 0, ended: false };
+	var db = { kind: kind, sql: sql, url: url, host: host, closed: false, idle: [first], count: 1, most: most, waiting: [], canceller: null, connection: null, depth: 0, ended: false };
 	db.root = db;
 	return db;
 }
 
-function _NomiSql_connection(sql)
+function _NomiSql_connection(sql, id)
 {
-	return { sql: sql, broken: false };
+	return { sql: sql, broken: false, id: id, cancelling: null };
+}
+
+// A connection Bun reserved on `sql`, with the id its server knows it by.
+function _NomiSql_reserve(kind, sql)
+{
+	return sql.reserve().then(function(reserved) {
+		var id = kind === 'postgres' ? 'select pg_backend_pid() as id' : 'select connection_id() as id';
+		return reserved.unsafe(id).then(function(rows) {
+			return _NomiSql_connection(reserved, Number(rows[0].id));
+		}, function(error) {
+			reserved.release();
+			throw error;
+		});
+	});
 }
 
 // SQLite on `options.filename`, integers as `bigint`s, foreign keys
@@ -44,7 +60,7 @@ function _NomiSql_sqlite(options)
 		return sql.unsafe('PRAGMA foreign_keys = ON')
 			.then(function() { return sql.unsafe('PRAGMA schema_version'); })
 			.then(function() {
-				return _NomiSql_database('sqlite', sql, options.filename, 1, _NomiSql_connection(sql));
+				return _NomiSql_database('sqlite', sql, null, options.filename, 1, _NomiSql_connection(sql, undefined));
 			}, function(error) {
 				sql.close();
 				throw error;
@@ -84,8 +100,8 @@ var _NomiSql_connect = F4(function(url, mode, most, net)
 	{
 		parsed.searchParams.set('sslmode', sslmode);
 		var sql = new Bun.SQL(parsed.href, { max: most, bigint: true });
-		return sql.reserve().then(function(reserved) {
-			return _NomiSql_database(kind, sql, host, most, _NomiSql_connection(reserved));
+		return _NomiSql_reserve(kind, sql).then(function(connection) {
+			return _NomiSql_database(kind, sql, parsed.href, host, most, connection);
 		}, function(error) {
 			sql.close();
 			throw error;
@@ -115,6 +131,7 @@ function _NomiSql_shut(db)
 		db.idle.splice(0).forEach(function(connection) {
 			_NomiSql_letGo(db, connection);
 		});
+		db.canceller && db.canceller.close();
 		return Promise.resolve(db.sql.close()).then(_NomiSql_unit, _NomiSql_unit);
 	});
 }
@@ -161,8 +178,7 @@ function _NomiSql_grow(db, start)
 	db.count++;
 	return _Runtime.async(function(resume) {
 		var gone = false;
-		db.sql.reserve().then(function(reserved) {
-			var connection = _NomiSql_connection(reserved);
+		_NomiSql_reserve(db.kind, db.sql).then(function(connection) {
 			gone ? _NomiSql_give(db, connection) : resume(_Runtime.succeed(start(connection)));
 		}, function(error) {
 			db.count--;
@@ -228,6 +244,9 @@ function _NomiSql_values(db, parameters)
 // Runs the statement on `db`, giving Bun's result: on a free connection
 // of its pool, which it gives back once the statement has run, whether or
 // not its fiber still waits; or on the transaction's own, while it is open.
+// A Postgres or MySQL statement whose fiber is interrupted is cancelled on
+// its server; the connection goes back once the cancel has gone through,
+// so it never reaches the next statement on it.
 function _NomiSql_run(db, text, parameters)
 {
 	var root = db.root;
@@ -244,17 +263,44 @@ function _NomiSql_run(db, text, parameters)
 	var started = db === root
 		? _NomiSql_claim(root, function(connection) {
 			var running = on(connection);
-			var give = function() { _NomiSql_give(root, connection); };
+			var give = function() {
+				Promise.resolve(connection.cancelling).then(function() { _NomiSql_give(root, connection); });
+			};
 			running.then(give, give);
-			return running;
+			return { running: running, connection: connection };
 		})
 		: _Runtime.andThen(_Runtime.succeed(__Utils_Tuple0), function() {
-			return root.closed || db.ended ? _Runtime.fail(__Sql_Closed) : _Runtime.succeed(on(db.connection));
+			return root.closed || db.ended ? _Runtime.fail(__Sql_Closed) : _Runtime.succeed({ running: on(db.connection), connection: db.connection });
 		});
-	return _Runtime.andThen(started, function(running) {
-		return _Runtime.onError(_Runtime.fromPromise(function() { return running; }), function(error) {
+	return _Runtime.andThen(started, function(started) {
+		var settled = false;
+		var settle = function() { settled = true; };
+		started.running.then(settle, settle);
+		var waited = _Runtime.fromPromise(function(signal) {
+			signal.addEventListener('abort', function() {
+				settled || _NomiSql_cancel(root, started.connection);
+			});
+			return started.running;
+		});
+		return _Runtime.onError(waited, function(error) {
 			return _Runtime.fail(_NomiSql_error(root, error));
 		});
+	});
+}
+
+// Cancels the statement running on the connection, from a connection
+// outside the pool, which a pool every fiber holds can't keep waiting.
+function _NomiSql_cancel(db, connection)
+{
+	if (connection.id === undefined || connection.cancelling !== null || db.closed) return;
+	db.canceller = db.canceller || new Bun.SQL(db.url, { max: 1 });
+	var cancel = db.kind === 'postgres'
+		? db.canceller.unsafe('select pg_cancel_backend($1)', [connection.id])
+		: db.canceller.unsafe('KILL QUERY ' + connection.id);
+	connection.cancelling = cancel.then(function() {
+		connection.cancelling = null;
+	}, function() {
+		connection.cancelling = null;
 	});
 }
 
@@ -315,13 +361,18 @@ var _NomiSql_transaction = F3(function(toError, f, db)
 	var end = function()
 	{
 		var connection = tx.connection;
+		var undo = function()
+		{
+			return nested
+				? connection.sql.unsafe('ROLLBACK TO SAVEPOINT ' + name).then(function() { return connection.sql.unsafe('RELEASE SAVEPOINT ' + name); })
+				: connection.sql.unsafe('ROLLBACK');
+		};
+		// After a statement's cancel, if one is on its way.
 		var rollback = connection === null || !tx.begun || tx.committed || root.closed || connection.broken
 			? Promise.resolve()
-			: (nested
-				? connection.sql.unsafe('ROLLBACK TO SAVEPOINT ' + name).then(function() { return connection.sql.unsafe('RELEASE SAVEPOINT ' + name); })
-				: connection.sql.unsafe('ROLLBACK')).then(null, function(error) {
-					connection.broken = connection.sql !== root.sql && _NomiSql_breaks(error);
-				});
+			: Promise.resolve(connection.cancelling).then(undo).then(null, function(error) {
+				connection.broken = connection.sql !== root.sql && _NomiSql_breaks(error);
+			});
 		return _Runtime.fromPromise(function() {
 			return rollback.then(function() {
 				tx.ended = true;
