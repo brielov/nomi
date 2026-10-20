@@ -26,7 +26,7 @@ const ELM_JSON: &str = r#"{
         "indirect": {}
     },
     "test-dependencies": {
-        "direct": {"elm-explorations/test": "2.2.1", "nomi/core": "1.0.0", "nomi/test": "1.0.0"},
+        "direct": {"elm-explorations/test": "2.2.1", "nomi/core": "2.0.0", "nomi/test": "2.0.0"},
         "indirect": {"elm/bytes": "1.0.8", "elm/html": "1.0.1", "elm/json": "1.1.4", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
     }
 }
@@ -39,6 +39,7 @@ const TESTS: &str = r#"module Effects exposing (dies, expectationFails, fails, p
 import Expect
 import Nomi.Fs as Fs
 import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
 import Nomi.Test exposing (effect)
 import Process
 import Task
@@ -52,7 +53,7 @@ passes =
             Fs.write "a.txt" "hello" env.fs
                 |> Task.andThen (\_ -> Fs.read "a.txt" env.fs)
                 |> Task.mapError Fs.errorToString
-                |> Task.andThen (\text -> Stdio.print text env.stdout |> Task.map (\_ -> text))
+                |> Task.andThen (\text -> Stdio.print text env.stdout |> Task.mapError Stream.errorToString |> Task.map (\_ -> text))
                 |> Task.map (Expect.equal "hello")
 
 
@@ -96,6 +97,7 @@ import Nomi exposing (Env)
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs
 import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
 import Nomi.Task
 import Dict
 import Nomi.Test exposing (advance, effect, effectWith, stderr, stdout, withArgs, withFiles, withStdin, withVars)
@@ -132,7 +134,7 @@ ticks env =
 
 stamp : String -> Env -> Task x ()
 stamp name env =
-    Time.now |> Task.andThen (\time -> Stdio.printLine (name ++ " " ++ String.fromInt (Time.posixToMillis time)) env.stdout)
+    Time.now |> Task.andThen (\time -> Stdio.printLine (name ++ " " ++ String.fromInt (Time.posixToMillis time)) env.stdout |> Task.onError (\_ -> Task.succeed ()))
 
 
 oneClock : Test
@@ -164,7 +166,7 @@ tickForever : Env -> Task x ()
 tickForever env =
     Process.sleep 1000
         |> Task.andThen (\_ -> log "leftover tick")
-        |> Task.andThen (\_ -> Stdio.printLine "tick" env.stdout)
+        |> Task.andThen (\_ -> Stdio.printLine "tick" env.stdout |> Task.onError (\_ -> Task.succeed ()))
         |> Task.andThen (\_ -> tickForever env)
 
 
@@ -193,7 +195,7 @@ greet env =
         [ path ] ->
             Fs.read path env.fs
                 |> Task.mapError Fs.errorToString
-                |> Task.andThen (\text -> Stdio.printLine (text ++ ", world") env.stdout)
+                |> Task.andThen (\text -> Stdio.printLine (text ++ ", world") env.stdout |> Task.mapError Stream.errorToString)
 
         _ ->
             Task.fail "no path"
@@ -204,6 +206,7 @@ logged =
     effect "stderr has what was printed to it and logged" <|
         \env ->
             Stdio.printLine "printed" env.stderr
+                |> Task.mapError Stream.errorToString
                 |> Task.andThen (\_ -> Fiber.fork (Nomi.log "logged in a fiber") |> Task.andThen Fiber.join)
                 |> Task.andThen (\_ -> Task.map2 Tuple.pair (stdout env) (stderr env))
                 |> Task.map (Expect.equal ( "", "printed\nlogged in a fiber\n" ))
@@ -245,6 +248,7 @@ readTyped env =
         (Stdio.line env.stdin)
         (Stdio.line env.stdin)
         (Stdio.line env.stdin)
+        |> Task.mapError Stream.errorToString
         |> Task.map (Expect.equal ( [ Just "one", Just "two", Nothing ], [ ( "A", "1" ), ( "B", "3" ) ] ))
 
 
@@ -265,6 +269,7 @@ const CONCURRENT: &str = r#"module Concurrent exposing (concurrent)
 import Expect
 import Nomi.Fiber as Fiber exposing (Exit(..))
 import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
 import Nomi.Task
 import Nomi.Test exposing (effect, stdout)
 import Process
@@ -276,7 +281,7 @@ concurrent : Test
 concurrent =
     effect "concurrent tasks and fibers end and interrupt as documented" <|
         \env ->
-            Task.sequence (checks (\line -> Stdio.printLine line env.stdout))
+            Task.sequence (checks (\line -> Stdio.printLine line env.stdout |> Task.onError (\_ -> Task.succeed ())))
                 |> Task.andThen (\_ -> stdout env)
                 |> Task.map (\out -> Expect.equal expected (String.lines (String.trimRight out)))
 
@@ -418,7 +423,7 @@ const SERVING_ELM_JSON: &str = r#"{
         "indirect": {}
     },
     "test-dependencies": {
-        "direct": {"elm-explorations/test": "2.2.1", "elm/http": "2.0.0", "nomi/core": "1.0.0", "nomi/server": "1.0.0", "nomi/test": "1.0.0"},
+        "direct": {"elm-explorations/test": "2.2.1", "elm/http": "2.0.0", "nomi/core": "2.0.0", "nomi/server": "1.0.0", "nomi/test": "2.0.0"},
         "indirect": {"elm/bytes": "1.0.8", "elm/file": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
     }
 }
@@ -641,7 +646,7 @@ fn effectful_tests_run_beside_pure_ones() {
     assert_eq!(output.status.code(), Some(2), "{out}\n{err}");
     assert_eq!(err, "", "{out}");
     let failures = "Running 5 tests. To reproduce these results, run: elm-test --fuzz 100 --seed 1\n\n\
-        ↓ Effects\n✗ the task dies\n\n    This test failed because its task died: \"Error: TODO in module `Effects` on line 41\n    \n    dead\"\n\n\n\
+        ↓ Effects\n✗ the task dies\n\n    This test failed because its task died: \"Error: TODO in module `Effects` on line 42\n    \n    dead\"\n\n\n\
         ↓ Effects\n✗ each test has a file system of its own\n\n    ▼▼▼▼ \n    False\n    ╷\n    │ Expect.equal\n    ╵\n    True\n    ▲▲▲ \n\n\n\
         ↓ Effects\n✗ the task fails\n\n    boom\n\n\n\nTEST RUN FAILED\n";
     assert!(out.contains(failures), "{out}");
@@ -689,7 +694,7 @@ fn the_json_report_has_effectful_tests_results() {
                 "the task dies",
                 "fail",
                 vec![
-                    "This test failed because its task died: \"Error: TODO in module `Effects` on line 41\n\ndead\""
+                    "This test failed because its task died: \"Error: TODO in module `Effects` on line 42\n\ndead\""
                 ]
             ),
             (

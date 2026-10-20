@@ -216,6 +216,7 @@ main =
 listening : Env -> Int -> Task x ()
 listening env port_ =
     Stdio.printLine ("listening on " ++ String.fromInt port_) env.stdout
+        |> Task.onError (\_ -> Task.succeed ())
 
 
 handle : Request -> Task Never Response
@@ -273,6 +274,7 @@ main =
 listening : Env -> Int -> Task x ()
 listening env port_ =
     Stdio.printLine ("listening on " ++ String.fromInt port_) env.stdout
+        |> Task.onError (\_ -> Task.succeed ())
 
 
 handle : Request -> Task Never Response
@@ -309,7 +311,7 @@ fn project(program: &str) -> (tempfile::TempDir, PathBuf) {
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
         root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();

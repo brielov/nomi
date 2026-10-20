@@ -18,6 +18,7 @@ import {
   succeed,
   sync,
   wait,
+  waitHost,
   yieldNow,
 } from "../src/fiber.js";
 
@@ -127,6 +128,27 @@ test("a fiber waiting on another lets the clock run, and interruption cancels it
   resume(succeed("late"));
   flush();
   assert.deepEqual(waiter.exit, Exit.interrupt());
+});
+
+test("a fiber waiting on the host holds the clock, and what the host hands over runs before an interruption", () => {
+  const { runtime, flush, lines, log } = timed();
+  const got = [];
+  let resume;
+  const waiter = runtime.fork(
+    andThen(
+      waitHost((r) => (resume = r)),
+      (chunk) => andThen(sync(() => got.push(chunk)), () => andThen(yieldNow, () => sync(() => got.push("unreachable")))),
+    ),
+  );
+  runtime.fork(andThen(sleep(1000), () => log("slept")));
+  flush();
+  assert.deepEqual(lines, []);
+  resume(succeed("chunk"));
+  runtime.interrupt(waiter);
+  flush();
+  assert.deepEqual(got, ["chunk"]);
+  assert.deepEqual(waiter.exit, Exit.interrupt());
+  assert.deepEqual(lines, ["1000 slept"]);
 });
 
 test("what a waker hands over runs before an interruption that follows it", () => {

@@ -3,7 +3,7 @@
 |Here is my plan:
 |  
 |  Remove:
-|    nomi/core    1.0.0
+|    nomi/core    2.0.0
 |
 |Would you like me to update your elm.json accordingly? [Y/n]: Success!
 === stderr

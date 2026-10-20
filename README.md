@@ -78,11 +78,15 @@ nomi also builds Elm programs that run on [Bun](https://bun.sh) 1.4 or later: co
 ```elm
 import Nomi
 import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
+import Task
 
 main : Nomi.Program
 main =
     Nomi.program <|
-        \env -> Stdio.printLine ("hello, " ++ String.join " " env.args) env.stdout
+        \env ->
+            Stdio.printLine ("hello, " ++ String.join " " env.args) env.stdout
+                |> Task.mapError Stream.errorToString
 ```
 
 ```sh
@@ -91,7 +95,7 @@ nomi build src/Main.elm --output=main.mjs
 bun main.mjs world
 ```
 
-A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Bytes` for binary data, `Nomi.Fs`, `Nomi.Stdio` and `Nomi.Process` for the system, and `Nomi.Server` for HTTP, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Bun too (`--platform=bun`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
+A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Bytes` and `Nomi.Stream` for bytes and streams of them, with backpressure, `Nomi.Fs`, `Nomi.Stdio` and `Nomi.Process` for the system, and `Nomi.Server` for HTTP, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Bun too (`--platform=bun`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
 
 ## Workspaces
 

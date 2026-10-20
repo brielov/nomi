@@ -7,9 +7,10 @@ reached from another package's kernel as nomi/test reaches them.
 
 -}
 
+import Bytes exposing (Bytes)
 import Elm.Kernel.NomiFake
 import Nomi.Fs exposing (Fs)
-import Nomi.Stdio exposing (Reader, Writer)
+import Nomi.Stream exposing (Reader, Writer)
 import Task exposing (Task)
 
 
@@ -20,21 +21,21 @@ fs =
     Elm.Kernel.NomiFake.fs
 
 
-{-| A reader of the text, which ends after it.
+{-| A reader of the bytes, which ends after them.
 -}
-reader : String -> Task x Reader
+reader : Bytes -> Task x Reader
 reader =
     Elm.Kernel.NomiFake.reader
 
 
-{-| A writer that keeps what is printed.
+{-| A writer that keeps what is written.
 -}
 writer : Task x Writer
 writer =
     Elm.Kernel.NomiFake.writer
 
 
-{-| What was printed to the writer so far.
+{-| What was written to the writer so far, as text.
 -}
 captured : Writer -> Task x String
 captured =

@@ -7,7 +7,8 @@
 //   exit      the task has a result; frames unwind until one handles it
 //   sync      call a JS function; an exception becomes a defect
 //   async     suspend until the host calls `resume` with the next task
-//   wait      suspend until another fiber calls `resume` with the next task
+//   wait      suspend until another fiber, or with `waitHost` the host, calls
+//             `resume` with the next task, which runs before an interruption
 //   andThen   continue with `f(value)` on success
 //   onError   continue with `f(error)` on a typed failure
 //   fork      start a child fiber, succeed with its handle
@@ -149,6 +150,14 @@ export const fromPromise = (f) =>
  * interruption calls while the fiber waits, takes the waiter back.
  */
 export const wait = (register) => ({ $: WAIT, register });
+
+/**
+ * Suspends as `wait` does, so the task given to `resume` runs before any
+ * interruption, for data the host delivers: the clock waits for it, as it
+ * does for `async`. A stream's reader waits so for a chunk its source
+ * gives, which an interrupted read leaves for the next.
+ */
+export const waitHost = (register) => ({ $: WAIT, register, host: true });
 
 /** The reason an interrupted host call's signal is aborted with. */
 export class Interrupted extends Error {
@@ -784,10 +793,10 @@ export class Runtime {
   }
 
   /** Suspends `fiber` on the host for an `async`, or on another fiber for a `wait`, handing `register` its `resume`. */
-  #async(fiber, { $, register }) {
+  #async(fiber, { $, register, host }) {
     if (this.#takeInterrupt(fiber)) return done(Exit.interrupt());
     const epoch = this.#suspend(fiber);
-    const io = $ === ASYNC;
+    const io = $ === ASYNC || host === true;
     if (io) {
       fiber.io = true;
       this.#io++;
@@ -795,7 +804,7 @@ export class Runtime {
     try {
       const cancel = register((next) => {
         if (fiber.epoch !== epoch) return;
-        fiber.handedOff = !io;
+        fiber.handedOff = $ === WAIT;
         this.#resume(fiber, epoch, asTask(next));
       });
       if (fiber.epoch === epoch && typeof cancel === "function") fiber.cancel = cancel;

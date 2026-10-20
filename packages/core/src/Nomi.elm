@@ -10,7 +10,7 @@ import Dict exposing (Dict)
 import Elm.Kernel.Nomi
 import Elm.Kernel.NomiStdio
 import Nomi.Fs exposing (Fs)
-import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
 import Task exposing (Task)
 
 
@@ -54,9 +54,9 @@ type alias Env =
     , vars : Dict String String
     , fs : Fs
     , net : Net
-    , stdin : Stdio.Reader
-    , stdout : Stdio.Writer
-    , stderr : Stdio.Writer
+    , stdin : Stream.Reader
+    , stdout : Stream.Writer
+    , stderr : Stream.Writer
     }
 
 

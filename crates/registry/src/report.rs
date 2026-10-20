@@ -12,7 +12,7 @@ use nomi_base::diagnostic::doc::{
 };
 use nomi_base::{Compat, Report};
 use nomi_project::report::{self, ElmCommand, elm_json_path};
-use nomi_project::{Name, Version};
+use nomi_project::{Constraint, Name, Version};
 
 use crate::details::DetailsProblem;
 use crate::env::SolverProblem;
@@ -87,6 +87,11 @@ pub fn details_problem(
             ],
         ),
         DetailsProblem::Solver(problem) => solver_problem(problem),
+        DetailsProblem::Unbundled {
+            name,
+            wanted,
+            bundled,
+        } => unbundled(name, wanted, *bundled, compat),
         DetailsProblem::PkgElm(constraint) => report::pkg_elm(constraint, compat),
         DetailsProblem::AppElm(version) => report::app_elm(*version, compat),
         DetailsProblem::HandEdited => Report::new(
@@ -100,6 +105,41 @@ pub fn details_problem(
             ],
         ),
     }
+}
+
+/// The `Unbundled` problem: the project asks for `wanted` of `name`, one
+/// of nomi's own, and nomi bundles `bundled`.
+fn unbundled(name: &Name, wanted: &Constraint, bundled: Version, compat: Compat) -> Report {
+    let exact = wanted.lower == wanted.upper;
+    let asked = if exact {
+        format!("{name} {}", wanted.lower)
+    } else {
+        format!("{name} {wanted}")
+    };
+    let instead = if exact {
+        bundled.to_string()
+    } else {
+        Constraint::until_next_major(bundled, compat).to_string()
+    };
+    Report::new(
+        "PACKAGE NOT BUNDLED",
+        elm_json_path(),
+        &format!(
+            "Your elm.json asks for {asked}, but {name} comes with nomi, never from the \
+             package registry, and this nomi bundles {name} {bundled}."
+        ),
+        [
+            reflow("Ask for that one instead:"),
+            green(format!("\"{name}\": \"{instead}\"")).indent(4),
+            reflow(if bundled < wanted.lower {
+                "This nomi is older than the release asked for, which a newer nomi may \
+                 bundle."
+            } else {
+                "A new major version changes the package's API, so code written for \
+                 the old one may need changes too."
+            }),
+        ],
+    )
 }
 
 /// `toPackageProblemReport`: `name` `version` couldn't be had.

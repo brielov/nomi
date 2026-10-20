@@ -1,6 +1,6 @@
 module Nomi.Test exposing
     ( effect, effectWith
-    , env, withFiles, withArgs, withVars, withStdin, stdout, stderr
+    , env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, stdout, stderr
     , advance
     )
 
@@ -21,7 +21,7 @@ times out is tested with `Nomi.Server.respond` instead.
 
 # Environments
 
-@docs env, withFiles, withArgs, withVars, withStdin, stdout, stderr
+@docs env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, stdout, stderr
 
 
 # Time
@@ -30,6 +30,7 @@ times out is tested with `Nomi.Server.respond` instead.
 
 -}
 
+import Bytes exposing (Bytes)
 import Dict
 import Elm.Kernel.NomiTest
 import Expect exposing (Expectation)
@@ -86,6 +87,8 @@ fresh template =
         (\fs stdin out err -> { template | fs = fs, stdin = stdin, stdout = out, stderr = err })
         template.fs
         template.stdin
+        template.stdout
+        template.stderr
 
 
 {-| The `Env` an `effect` gets: no arguments or variables, an empty file
@@ -141,15 +144,36 @@ withStdin text environment =
     { environment | stdin = Elm.Kernel.NomiTest.stdin text }
 
 
-{-| What was printed to `env.stdout` so far.
+{-| `env` with these bytes as its input, in place of the input it has, as
+a test of input that isn't UTF-8 needs; the input ends after them.
+-}
+withStdinBytes : Bytes -> Env -> Env
+withStdinBytes bytes environment =
+    { environment | stdin = Elm.Kernel.NomiTest.stdinBytes bytes }
+
+
+{-| `env` run at a terminal of this size: its input is interactive, and
+its outputs are terminals, which `Nomi.Stdio.isTerminal` and
+`Nomi.Stdio.size` say.
+-}
+withTerminal : { columns : Int, rows : Int } -> Env -> Env
+withTerminal size environment =
+    Elm.Kernel.NomiTest.terminal
+        (\stdin out err -> { environment | stdin = stdin, stdout = out, stderr = err })
+        size
+        environment.stdin
+
+
+{-| What was written to `env.stdout` so far, as UTF-8 text, each byte
+that isn't UTF-8 read as U+FFFD.
 -}
 stdout : Env -> Task x String
 stdout environment =
     Elm.Kernel.NomiTest.captured environment.stdout
 
 
-{-| What was printed to `env.stderr` so far, with what `Nomi.log` wrote
-during the test.
+{-| What was written to `env.stderr` so far, with what `Nomi.log` wrote
+during the test, as `stdout` reads it.
 -}
 stderr : Env -> Task x String
 stderr environment =

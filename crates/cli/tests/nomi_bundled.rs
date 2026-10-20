@@ -255,3 +255,54 @@ fn a_package_by_nomis_author_outside_the_bundle_imports_no_kernel_code() {
     assert!(!checked.status.success(), "{checked:?}");
     assert!(said.contains("-- MODULE NOT FOUND"), "{said}");
 }
+
+#[test]
+fn a_project_asking_for_a_release_nomi_doesnt_bundle_is_told_which_it_does() {
+    let cache = cache();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let main = "module Main exposing (main)\n\nmain : Program () () ()\nmain =\n    Platform.worker { init = \\_ -> ( (), Cmd.none ), update = \\_ m -> ( m, Cmd.none ), subscriptions = \\_ -> Sub.none }\n";
+    // nomi's own bundle, whose nomi/core is 2.0.0.
+    let (_old, root) = project(r#", "nomi/core": "1.0.0""#, main);
+    let made = offline(program, cache.path())
+        .current_dir(&root)
+        .args(["make", "src/Main.elm", "--output=/dev/null"])
+        .output()
+        .unwrap();
+    assert_eq!(made.status.code(), Some(1), "{made:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&made.stderr),
+        "-- PACKAGE NOT BUNDLED ------------------------------------------------ elm.json
+
+Your elm.json asks for nomi/core 1.0.0, but nomi/core comes with nomi, never
+from the package registry, and this nomi bundles nomi/core 2.0.0.
+
+Ask for that one instead:
+
+    \"nomi/core\": \"2.0.0\"
+
+A new major version changes the package's API, so code written for the old one
+may need changes too.
+
+"
+    );
+    // The fixture bundle, whose nomi/fixture is 1.0.0, though the registry
+    // lists 2.0.0.
+    let (_new, root) = project(r#", "nomi/fixture": "2.0.0""#, main);
+    let made = run(
+        program,
+        cache.path(),
+        &root,
+        &["make", "src/Main.elm", "--output=/dev/null"],
+        "",
+    );
+    assert_eq!(made.status.code(), Some(1), "{made:?}");
+    let said = String::from_utf8_lossy(&made.stderr);
+    assert!(
+        said.contains("this nomi bundles nomi/fixture 1.0.0."),
+        "{said}"
+    );
+    assert!(
+        said.contains("This nomi is older than the release asked for"),
+        "{said}"
+    );
+}

@@ -3,16 +3,17 @@
     "name": "nomi/test",
     "summary": "Tests of tasks, run on Bun by nomi test",
     "license": "BSD-3-Clause",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "exposed-modules": [
         "Nomi.Test",
         "Nomi.Test.Runner"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
+        "elm/bytes": "1.0.0 <= v < 2.0.0",
         "elm/core": "1.0.0 <= v < 2.0.0",
         "elm-explorations/test": "2.0.0 <= v < 3.0.0",
-        "nomi/core": "1.0.0 <= v < 2.0.0"
+        "nomi/core": "2.0.0 <= v < 3.0.0"
     },
     "test-dependencies": {}
 }

@@ -3,6 +3,7 @@
 import Elm.Kernel.List exposing (Nil)
 import Elm.Kernel.NomiFs exposing (memory, copy)
 import Elm.Kernel.NomiStdio exposing (script, capture, captured, logs)
+import Elm.Kernel.NomiStream exposing (bytes)
 import Elm.Kernel.Utils exposing (Tuple0)
 import Maybe exposing (Just, Nothing)
 import Nomi exposing (Net)
@@ -79,32 +80,52 @@ function _NomiTest_advance(ms)
 
 // ENVIRONMENTS
 
+var _NomiTest_nothing = new DataView(new ArrayBuffer(0));
+
 // `make` applied to a file system in memory, an input that has ended, two
 // captured outputs and the network.
 function _NomiTest_env(make)
 {
-	return A5(make, __NomiFs_memory(__List_Nil), __NomiStdio_script(''), __NomiStdio_capture(), __NomiStdio_capture(), __Nomi_Net);
+	return A5(make, __NomiFs_memory(__List_Nil), __NomiStdio_script(_NomiTest_nothing), __NomiStdio_capture(null), __NomiStdio_capture(null), __Nomi_Net);
 }
 
-// `make` applied to a copy of `fs`, the text `stdin` was scripted with
-// from its start, and two new captured outputs, made when the task runs,
-// so each run of a test has its own. An input not scripted, as the
-// process's, is one that has ended. The test's runtime is its own, and
-// `Nomi.log` on it writes to the captured stderr.
-var _NomiTest_fresh = F3(function(make, fs, stdin)
+// `make` applied to a copy of `fs`, the bytes `stdin` was scripted with
+// from its start, and two new captured outputs, terminals as the
+// template's are, made when the task runs, so each run of a test has its
+// own. An input not scripted, as the process's, is one that has ended.
+// The test's runtime is its own, and `Nomi.log` on it writes to the
+// captured stderr.
+var _NomiTest_fresh = F5(function(make, fs, stdin, stdout, stderr)
 {
 	return _Runtime.withRuntime(function(runtime) {
-		var stderr = __NomiStdio_capture();
-		__NomiStdio_logs.set(runtime, stderr);
-		var input = __NomiStdio_script(stdin.script === undefined ? '' : stdin.script);
-		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), input, __NomiStdio_capture(), stderr));
+		var err = __NomiStdio_capture(stderr.sink.size());
+		__NomiStdio_logs.set(runtime, err);
+		var input = __NomiStdio_script(stdin.script === undefined ? _NomiTest_nothing : stdin.script);
+		input.interactive = stdin.interactive;
+		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), input, __NomiStdio_capture(stdout.sink.size()), err));
 	});
 });
 
+var _NomiTest_encoder = new TextEncoder();
+
 function _NomiTest_stdin(text)
 {
-	return __NomiStdio_script(text);
+	return __NomiStdio_script(__NomiStream_bytes(_NomiTest_encoder.encode(text)));
 }
+
+function _NomiTest_stdinBytes(bytes)
+{
+	return __NomiStdio_script(bytes);
+}
+
+// The input, an interactive copy, and the outputs, terminals of `size`.
+var _NomiTest_terminal = F3(function(make, size, stdin)
+{
+	var input = __NomiStdio_script(stdin.script === undefined ? _NomiTest_nothing : stdin.script);
+	input.interactive = true;
+	var columnsRows = { columns: size.__$columns, rows: size.__$rows };
+	return A3(make, input, __NomiStdio_capture(columnsRows), __NomiStdio_capture(columnsRows));
+});
 
 var _NomiTest_withFiles = F2(function(files, fs)
 {

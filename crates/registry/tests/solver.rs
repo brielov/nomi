@@ -280,6 +280,7 @@ fn answer(universe: &Universe, scenario: &Scenario, compat: Compat) -> String {
             Err(DetailsProblem::NoOfflineSolution) => vec!["no-offline-solution".into()],
             Err(DetailsProblem::NoSolution) => vec!["no-solution".into()],
             Err(DetailsProblem::Solver(Unreadable)) => vec!["error".into()],
+            Err(DetailsProblem::Unbundled { name, .. }) => vec![format!("unbundled {name}")],
         },
         Some(pkg) => match install::plan(&mut packages, compat, &name(pkg), &outline) {
             Ok(Plan::AlreadyInstalled) => vec!["already-installed".into()],

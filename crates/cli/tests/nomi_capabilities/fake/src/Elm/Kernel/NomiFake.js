@@ -16,7 +16,7 @@ function _NomiFake_reader(text)
 	return _Runtime.sync(function() { return __NomiStdio_script(text); });
 }
 
-var _NomiFake_writer = _Runtime.sync(function() { return __NomiStdio_capture(); });
+var _NomiFake_writer = _Runtime.sync(function() { return __NomiStdio_capture(null); });
 
 function _NomiFake_captured(writer)
 {

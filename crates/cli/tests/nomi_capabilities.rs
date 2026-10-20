@@ -1,7 +1,10 @@
 //! nomi/core's capabilities, bundled with nomi: `Nomi.Fs` on disk and in
 //! memory gives the same results for one table of cases, and neither `..`
 //! nor a symbolic link leads out of a `subdir`; `Nomi.Stdio` reads lines
-//! to the end of input; `Nomi.Process.exit` runs finalizers, then exits.
+//! to the end of input as its fake does, refusing a line that isn't
+//! UTF-8, and a line read interrupted while input is on its way loses
+//! none; a pipe nobody reads holds back writes to stdout;
+//! `Nomi.Process.exit` runs finalizers, then exits.
 //! The fakes are reached as nomi/test reaches them, from another bundled
 //! package's kernel: the fixture nomi/fake, bundled beside nomi/core.
 #![cfg(unix)]
@@ -10,20 +13,26 @@
 pub mod website;
 
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use website::offline;
 
 /// A program picked by its arguments: `table real` or `table memory` runs
 /// the file system's table on `scratch/` or on a memory file system;
 /// `links` the cases only the disk has, in `scratch/links/`; `lines`
-/// reads standard input to its end; `fake-stdio` reads a scripted input
-/// into a captured output; `bad-files` uses memory file systems given
-/// files the disk can't hold; `exit` exits 3 with finalizers to run, and
-/// `exit <code>` with the code.
+/// reads standard input to its end by lines, and `fake-lines` does the
+/// same to a fake input holding the bytes standard input held, writing to
+/// a fake output; `late` waits 200 ms for a line, then reads by lines;
+/// `flood` writes 200 chunks of 64 KiB, saying on stderr as each is
+/// taken; `bad-files` uses memory file systems given files the disk can't
+/// hold; `exit` exits 3 with finalizers to run, and `exit <code>` with the
+/// code.
 const PROGRAM: &str = r#"module Main exposing (main)
 
 import Bytes
@@ -34,6 +43,7 @@ import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Process
 import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -56,30 +66,41 @@ main =
                 [ "lines" ] ->
                     lines env
 
-                [ "fake-stdio" ] ->
-                    Task.map2 Tuple.pair (Fake.reader "a\nb\r\n\nc") Fake.writer
+                [ "fake-lines" ] ->
+                    Stream.readAll { limit = 1000000 } env.stdin
+                        |> Task.mapError Stream.errorToString
+                        |> Task.andThen (\input -> Task.map2 Tuple.pair (Fake.reader input) Fake.writer)
                         |> Task.andThen
                             (\( reader, writer ) ->
                                 lines { env | stdin = reader, stdout = writer }
                                     |> Task.andThen (\_ -> Fake.captured writer)
                             )
-                        |> Task.andThen (\text -> Stdio.print text env.stdout)
+                        |> Task.andThen (\text -> say text env)
+
+                [ "late" ] ->
+                    Nomi.Task.timeout 200 (Stdio.line env.stdin)
+                        |> Task.mapError Stream.errorToString
+                        |> Task.andThen (\first -> say (Debug.toString first ++ "\n") env)
+                        |> Task.andThen (\_ -> lines env)
+
+                [ "flood" ] ->
+                    flood env 1
 
                 [ "bad-files" ] ->
                     [ [ ( "../x", "x" ) ], [ ( "", "x" ) ], [ ( "a", "x" ), ( "a/b", "y" ) ], [ ( "a/b", "y" ), ( "a", "x" ) ] ]
                         |> List.map (\files -> Fake.fs files |> Task.andThen (\fs -> Fiber.fork (Fs.exists "a" fs) |> Task.andThen Fiber.await) |> Task.map Debug.toString)
                         |> Task.sequence
-                        |> Task.andThen (\outcomes -> Stdio.print (String.concat (List.map (\line -> line ++ "\n") outcomes)) env.stdout)
+                        |> Task.andThen (\outcomes -> say (String.concat (List.map (\line -> line ++ "\n") outcomes)) env)
 
                 [ "exit", code ] ->
                     Nomi.Process.exit (String.toInt code |> Maybe.withDefault 0)
 
                 [ "exit" ] ->
-                    Fiber.fork (Process.sleep 3600000 |> Nomi.Task.ensure (Stdio.printLine "child finalized" env.stdout))
-                        |> Task.andThen (\_ -> Stdio.printLine "exiting" env.stdout)
+                    Fiber.fork (Process.sleep 3600000 |> Nomi.Task.ensure (say "child finalized\n" env))
+                        |> Task.andThen (\_ -> say "exiting\n" env)
                         |> Task.andThen (\_ -> Nomi.Process.exit 3)
-                        |> Task.andThen (\_ -> Stdio.printLine "unreachable" env.stdout)
-                        |> Nomi.Task.ensure (Stdio.printLine "finalized" env.stdout)
+                        |> Task.andThen (\_ -> say "unreachable\n" env)
+                        |> Nomi.Task.ensure (say "finalized\n" env)
 
                 _ ->
                     Task.fail "no such case"
@@ -190,25 +211,46 @@ outcome name task =
 report : Env -> List (Task x String) -> Task x ()
 report env tasks =
     Task.sequence tasks
-        |> Task.andThen (\outcomes -> Stdio.print (String.concat (List.map (\line -> line ++ "\n") outcomes)) env.stdout)
+        |> Task.andThen (\outcomes -> say (String.concat (List.map (\line -> line ++ "\n") outcomes)) env)
+
+
+{-| Writes to stdout, which never fails.
+-}
+say : String -> Env -> Task x ()
+say text env =
+    Stdio.print text env.stdout |> Task.onError (\_ -> Task.succeed ())
 
 
 lines : Env -> Task x ()
 lines env =
     Stdio.line env.stdin
+        |> Task.map Ok
+        |> Task.onError (Err >> Task.succeed)
         |> Task.andThen
             (\line ->
-                Stdio.printLine (Debug.toString line) env.stdout
+                say (Debug.toString line ++ "\n") env
                     |> Task.andThen
                         (\_ ->
                             case line of
-                                Just _ ->
+                                Ok (Just _) ->
                                     lines env
 
-                                Nothing ->
-                                    Stdio.print "end" env.stderr
+                                _ ->
+                                    Stdio.print "end" env.stderr |> Task.onError (\_ -> Task.succeed ())
                         )
             )
+
+
+flood : Env -> Int -> Task x ()
+flood env n =
+    if n > 200 then
+        Task.succeed ()
+
+    else
+        Stream.write (Bytes.Encode.encode (Bytes.Encode.sequence (List.repeat 16384 (Bytes.Encode.unsignedInt32 Bytes.BE 0)))) env.stdout
+            |> Task.andThen (\_ -> Stdio.printLine ("wrote " ++ String.fromInt n) env.stderr)
+            |> Task.onError (\_ -> Task.succeed ())
+            |> Task.andThen (\_ -> flood env (n + 1))
 "#;
 
 /// What the table prints, on disk and in memory alike.
@@ -295,7 +337,7 @@ fn built() -> (tempfile::TempDir, PathBuf) {
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
         root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0", "nomi/fake": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/fake": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
@@ -312,9 +354,10 @@ fn built() -> (tempfile::TempDir, PathBuf) {
     (work, root)
 }
 
-/// The program in `root` run with `args` in `root/run`, `stdin` its input.
-fn run(root: &Path, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(nomi_testkit::bun())
+/// The program in `root` started with `args` in `root/run`, its standard
+/// streams piped.
+fn start(root: &Path, args: &[&str]) -> Child {
+    Command::new(nomi_testkit::bun())
         .arg(root.join("dist/main.mjs"))
         .args(args)
         .current_dir(root.join("run"))
@@ -322,10 +365,13 @@ fn run(root: &Path, args: &[&str], stdin: &str) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap();
-    (child.stdin.take().unwrap())
-        .write_all(stdin.as_bytes())
-        .unwrap();
+        .unwrap()
+}
+
+/// The program in `root` run with `args` in `root/run`, `stdin` its input.
+fn run(root: &Path, args: &[&str], stdin: &[u8]) -> Output {
+    let mut child = start(root, args);
+    child.stdin.take().unwrap().write_all(stdin).unwrap();
     child.wait_with_output().unwrap()
 }
 
@@ -348,13 +394,13 @@ fn the_file_systems_on_disk_and_in_memory_give_the_tables_results() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
     fs::create_dir(root.join("run/scratch")).unwrap();
-    let real = run(&root, &["table", "real"], "");
+    let real = run(&root, &["table", "real"], b"");
     assert_eq!(printed(&real), TABLE);
     assert_eq!(
         fs::read_to_string(root.join("run/scratch/table/a.txt")).unwrap(),
         "hello, world"
     );
-    let memory = run(&root, &["table", "memory"], "");
+    let memory = run(&root, &["table", "memory"], b"");
     assert_eq!(printed(&memory), TABLE);
 }
 
@@ -373,7 +419,7 @@ fn no_symbolic_link_leads_out_of_a_subdir() {
     symlink("../../outside/secret.txt", links.join("secret.txt")).unwrap();
     symlink("../../outside/new.txt", links.join("dangling")).unwrap();
     symlink("..", links.join("up")).unwrap();
-    let ran = run(&root, &["links"], "");
+    let ran = run(&root, &["links"], b"");
     assert_eq!(
         printed(&ran),
         r#"read alias.txt: Ok "plain"
@@ -404,34 +450,82 @@ exists secret.txt: Ok False
 }
 
 #[test]
-fn stdio_reads_lines_to_the_end_of_input() {
+fn stdio_reads_lines_to_the_end_of_input_as_its_fake_does() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
     for (input, expected) in [
         (
-            "one\ntwo\r\n\nthree\n",
-            "Just \"one\"\nJust \"two\"\nJust \"\"\nJust \"three\"\nNothing\n",
+            &b"one\ntwo\r\n\nthree\n"[..],
+            "Ok (Just \"one\")\nOk (Just \"two\")\nOk (Just \"\")\nOk (Just \"three\")\nOk Nothing\n",
         ),
-        ("one\ntwo", "Just \"one\"\nJust \"two\"\nNothing\n"),
-        ("", "Nothing\n"),
+        (
+            b"one\ntwo",
+            "Ok (Just \"one\")\nOk (Just \"two\")\nOk Nothing\n",
+        ),
+        (b"", "Ok Nothing\n"),
+        (
+            b"ok\n\xff\xfe\nafter\n",
+            "Ok (Just \"ok\")\nErr (Invalid \"a line is not UTF-8\")\n",
+        ),
     ] {
-        let ran = run(&root, &["lines"], input);
-        assert_eq!(printed(&ran), expected, "{input:?}");
-        assert_eq!(errors(&ran), "end", "{input:?}");
+        for mode in ["lines", "fake-lines"] {
+            let ran = run(&root, &[mode], input);
+            assert_eq!(printed(&ran), expected, "{mode} {input:?}");
+            assert_eq!(errors(&ran), "end", "{mode} {input:?}");
+        }
     }
-    let fake = run(&root, &["fake-stdio"], "");
+}
+
+#[test]
+fn a_line_read_interrupted_while_input_is_on_its_way_loses_none() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let mut late = start(&root, &["late"]);
+    let mut input = late.stdin.take().unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    input.write_all(b"first\nsecond\n").unwrap();
+    drop(input);
+    let ran = late.wait_with_output().unwrap();
     assert_eq!(
-        printed(&fake),
-        "Just \"a\"\nJust \"b\"\nJust \"\"\nJust \"c\"\nNothing\n"
+        printed(&ran),
+        "Nothing\nOk (Just \"first\")\nOk (Just \"second\")\nOk Nothing\n"
     );
-    assert_eq!(errors(&fake), "end");
+}
+
+#[test]
+fn a_pipe_nobody_reads_holds_back_writes_to_stdout() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let mut flood = start(&root, &["flood"]);
+    let said = BufReader::new(flood.stderr.take().unwrap());
+    let last = Arc::new(AtomicUsize::new(0));
+    let counting = {
+        let last = Arc::clone(&last);
+        std::thread::spawn(move || {
+            for line in said.lines() {
+                if let Some(n) = line.unwrap().strip_prefix("wrote ") {
+                    last.store(n.parse().unwrap(), Ordering::SeqCst);
+                }
+            }
+        })
+    };
+    // 200 chunks of 64 KiB are 12.5 MiB; a pipe holds 64 KiB.
+    std::thread::sleep(Duration::from_millis(500));
+    let held = last.load(Ordering::SeqCst);
+    assert!(held < 20, "{held} chunks written to a pipe nobody reads");
+    let mut out = Vec::new();
+    flood.stdout.take().unwrap().read_to_end(&mut out).unwrap();
+    assert_eq!(out.len(), 200 * 64 * 1024);
+    assert!(flood.wait().unwrap().success());
+    counting.join().unwrap();
+    assert_eq!(last.load(Ordering::SeqCst), 200);
 }
 
 #[test]
 fn process_exit_runs_the_finalizers_then_exits_with_its_code() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
-    let ran = run(&root, &["exit"], "");
+    let ran = run(&root, &["exit"], b"");
     assert_eq!(ran.status.code(), Some(3), "{ran:?}");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
@@ -444,7 +538,7 @@ fn process_exit_runs_the_finalizers_then_exits_with_its_code() {
 fn a_memory_file_system_given_files_the_disk_cant_hold_is_a_defect_to_use() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
-    let ran = run(&root, &["bad-files"], "");
+    let ran = run(&root, &["bad-files"], b"");
     assert_eq!(
         printed(&ran),
         r#"Defect "Error: withFiles: \"../x\" is outside the root"
@@ -460,7 +554,7 @@ fn process_exit_with_a_code_out_of_range_exits_255() {
     nomi_testkit::require_bun();
     let (_work, root) = built();
     for (code, exited) in [("0", 0), ("255", 255), ("256", 255), ("-1", 255)] {
-        let ran = run(&root, &["exit", code], "");
+        let ran = run(&root, &["exit", code], b"");
         assert_eq!(ran.status.code(), Some(exited), "{code}: {ran:?}");
     }
 }

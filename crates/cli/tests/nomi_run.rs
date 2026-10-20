@@ -72,7 +72,7 @@ fn app(dir: &Path, program: &str, nomi_toml: Option<&str>) {
     fs::create_dir_all(dir.join("src")).unwrap();
     fs::write(
         dir.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::write(dir.join("src/Main.elm"), program).unwrap();
@@ -512,7 +512,7 @@ fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
         app(&root.join(dir), GATED, Some(&entry));
         fs::write(
             root.join(dir).join("elm.json"),
-            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
         )
         .unwrap();
     }
@@ -819,7 +819,7 @@ fn full_stack(port: u16) -> (tempfile::TempDir, PathBuf) {
         ),
         (
             "apps/api/elm.json",
-            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#.to_owned(),
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"acme/shared": "1.0.0", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0"}, "indirect": {"elm/bytes": "1.0.8"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#.to_owned(),
         ),
         ("apps/api/nomi.toml", ENTRY.to_owned()),
         ("apps/api/src/Main.elm", VERSIONED.to_owned()),

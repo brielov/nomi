@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use nomi_base::Compat;
 use nomi_project::{Constraint, Name, Outline, Version};
 
+use crate::bundle;
 use crate::solver::{self, Details, Packages};
 
 /// Why a project's dependencies don't check out.
@@ -25,6 +26,14 @@ pub enum DetailsProblem<E> {
     NoOfflineSolution,
     /// Reading a release failed.
     Solver(E),
+    /// The project asks for releases of one of nomi's own packages, which
+    /// come with nomi alone, and the release nomi bundles isn't one: for
+    /// an application, `wanted` is exactly the version it names.
+    Unbundled {
+        name: Name,
+        wanted: Constraint,
+        bundled: Version,
+    },
 }
 
 /// The releases a project builds with, each with what it depends on.
@@ -40,6 +49,7 @@ pub fn verify<P: Packages>(
             }
             let constraints = union_agreeing(&pkg.deps, &pkg.test_deps, |_, _| false)
                 .ok_or(DetailsProblem::HandEdited)?;
+            bundled(packages, &constraints)?;
             solve(packages, compat, &constraints)
         }
         Outline::App(app) => {
@@ -57,6 +67,7 @@ pub fn verify<P: Packages>(
                 .iter()
                 .map(|(name, &version)| (name.clone(), Constraint::exactly(version)))
                 .collect();
+            bundled(packages, &constraints)?;
             let solution = solve(packages, compat, &constraints)?;
             if solution.len() != stated.len() {
                 return Err(DetailsProblem::HandEdited);
@@ -64,6 +75,28 @@ pub fn verify<P: Packages>(
             Ok(solution)
         }
     }
+}
+
+/// That each of nomi's own packages among `constraints` is asked for at
+/// a release nomi bundles, which are the only releases `packages` has.
+fn bundled<P: Packages>(
+    packages: &P,
+    constraints: &BTreeMap<Name, Constraint>,
+) -> Result<(), DetailsProblem<P::Error>> {
+    for (name, wanted) in constraints {
+        let Some(known) = packages.versions(name).filter(|_| bundle::is_bundled(name)) else {
+            continue;
+        };
+        let mut releases = std::iter::once(&known.newest).chain(&known.previous);
+        if !releases.any(|&version| wanted.satisfies(version)) {
+            return Err(DetailsProblem::Unbundled {
+                name: name.clone(),
+                wanted: *wanted,
+                bundled: known.newest,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The releases that satisfy `constraints`, or, where there are none,
