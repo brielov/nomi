@@ -33,7 +33,12 @@ use website::offline;
 /// taken; `owned` opens `big.bin` and watches `.` in a fiber, waits for
 /// a change of that watch in another, says so, and once a line comes
 /// interrupts the first, says what the change was and that it's done,
-/// then waits for another line; `bad-files` uses memory file systems given files the disk can't
+/// then waits for another line; `commands real` and `commands fake`
+/// run commands on the system and on a fake answering as it does,
+/// the fake saying what it ran; `fake-child` waits for a fake child,
+/// which exits once its input is closed; `grace` interrupts the fiber of
+/// a child that ignores SIGTERM, once a line comes; `hangup` listens for
+/// SIGHUP and SIGTERM and says what came; `bad-files` uses memory file systems given files the disk can't
 /// hold; `exit` exits 3 with finalizers to run, and `exit <code>` with the
 /// code.
 const PROGRAM: &str = r#"module Main exposing (main)
@@ -46,6 +51,7 @@ import Nomi.Fake as Fake
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Process
+import Nomi.Process as Proc
 import Nomi.Queue as Queue
 import Nomi.Stdio as Stdio
 import Nomi.Stream as Stream
@@ -90,6 +96,54 @@ main =
 
                 [ "flood" ] ->
                     flood env 1
+
+                [ "commands", "real" ] ->
+                    commands env env.processes
+
+                [ "commands", "fake" ] ->
+                    Proc.fake emulated
+                        |> Task.andThen (\processes -> commands env processes |> Task.andThen (\_ -> Proc.ran processes))
+                        |> Task.andThen (\ran -> say (String.concat (List.map ranLine ran)) env)
+
+                [ "fake-child" ] ->
+                    Proc.fake (\_ -> Just { status = 7, stdout = bytes [], stderr = bytes [] })
+                        |> Task.andThen
+                            (\processes ->
+                                Proc.spawn (Proc.command "cat" []) processes
+                                    |> Task.mapError Proc.errorToString
+                                    |> Task.andThen
+                                        (\child ->
+                                            Nomi.Task.timeout 100 (Proc.wait child)
+                                                |> Task.mapError Proc.errorToString
+                                                |> Task.andThen (\early -> say ("before closing: " ++ Debug.toString early ++ "\n") env)
+                                                |> Task.andThen (\_ -> Stream.write (utf8 "abc") (Proc.stdin child) |> Task.andThen (\_ -> Stream.close (Proc.stdin child)) |> Task.mapError Stream.errorToString)
+                                                |> Task.andThen (\_ -> Proc.wait child |> Task.mapError Proc.errorToString)
+                                                |> Task.andThen (\status -> say ("after closing: " ++ String.fromInt status ++ "\n") env)
+                                        )
+                                    |> Task.andThen (\_ -> Proc.ran processes)
+                                    |> Task.andThen (\ran -> say (String.concat (List.map ranLine ran)) env)
+                            )
+
+                [ "grace" ] ->
+                    Fiber.fork
+                        (Proc.spawn (Proc.command "sh" [ "-c", "trap 'echo term >> term.log' TERM; echo ready; while :; do sleep 0.05; done" ] |> Proc.withGrace 500) env.processes
+                            |> Task.mapError Proc.errorToString
+                            |> Task.andThen (\child -> Stdio.line (Proc.stdout child) |> Task.mapError Stream.errorToString)
+                            |> Task.andThen (\_ -> say "ready\n" env)
+                            |> Task.andThen (\_ -> Process.sleep 3600000)
+                        )
+                        |> Task.andThen (\owner -> next env |> Task.andThen (\_ -> Fiber.interrupt owner))
+                        |> Task.andThen (\_ -> say "interrupted\n" env)
+
+                [ "hangup" ] ->
+                    Proc.signals [ Proc.Hangup, Proc.Terminate ]
+                        |> Task.andThen
+                            (\listening ->
+                                say "listening\n" env
+                                    |> Task.andThen (\_ -> Proc.signal listening)
+                                    |> Task.andThen (\got -> say (Debug.toString got ++ "\n") env)
+                                    |> Task.andThen (\_ -> Process.sleep 3600000)
+                            )
 
                 [ "owned" ] ->
                     Queue.unbounded
@@ -373,6 +427,79 @@ report : Env -> List (Task x String) -> Task x ()
 report env tasks =
     Task.sequence tasks
         |> Task.andThen (\outcomes -> say (String.concat (List.map (\line -> line ++ "\n") outcomes)) env)
+
+
+{-| Commands run on `processes`, real or fake, and what each gave.
+-}
+commands : Env -> Proc.Processes -> Task String ()
+commands env processes =
+    let
+        shown result =
+            case result of
+                Ok out ->
+                    "Ok " ++ String.fromInt out.status ++ " " ++ Debug.toString (decoded out.stdout) ++ " " ++ Debug.toString (decoded out.stderr)
+
+                Err error ->
+                    "Err " ++ Debug.toString error
+
+        run name cmd =
+            Proc.output cmd processes
+                |> Task.map Ok
+                |> Task.onError (Err >> Task.succeed)
+                |> Task.map (\result -> name ++ ": " ++ shown result ++ "\n")
+
+        spawned =
+            Proc.spawn (Proc.command "printf" [ "%s\n", "spawned" ]) processes
+                |> Task.mapError Proc.errorToString
+                |> Task.andThen
+                    (\child ->
+                        Stream.close (Proc.stdin child)
+                            |> Task.andThen (\_ -> Stream.readAll { limit = 1000 } (Proc.stdout child))
+                            |> Task.mapError Stream.errorToString
+                            |> Task.andThen (\out -> Proc.wait child |> Task.mapError Proc.errorToString |> Task.map (\status -> "spawn printf: " ++ String.fromInt status ++ " " ++ Debug.toString (decoded out) ++ "\n"))
+                    )
+    in
+    Task.sequence
+        [ run "printf" (Proc.command "printf" [ "%s\n", "a b", "", "c'd", "$HOME", "*" ])
+        , run "cat" (Proc.command "cat" [] |> Proc.withStdin (utf8 "fed"))
+        , run "sh" (Proc.command "sh" [ "-c", "echo err >&2; exit 3" ])
+        , run "missing" (Proc.command "no-such-program" [])
+        , spawned
+        ]
+        |> Task.andThen (\outcomes -> say (String.concat outcomes) env)
+
+
+{-| What the commands `commands` runs give, as a fake answers them.
+-}
+emulated : Proc.Command -> Maybe Proc.Output
+emulated cmd =
+    case ( Proc.program cmd, Proc.arguments cmd ) of
+        ( "printf", "%s\n" :: args ) ->
+            Just { status = 0, stdout = utf8 (String.concat (List.map (\arg -> arg ++ "\n") args)), stderr = bytes [] }
+
+        ( "cat", [] ) ->
+            Just { status = 0, stdout = Proc.input cmd, stderr = bytes [] }
+
+        ( "sh", [ "-c", "echo err >&2; exit 3" ] ) ->
+            Just { status = 3, stdout = bytes [], stderr = utf8 "err\n" }
+
+        _ ->
+            Nothing
+
+
+ranLine : { command : Proc.Command, stdin : Bytes.Bytes } -> String
+ranLine { command, stdin } =
+    "ran " ++ Debug.toString ( Proc.program command, Proc.arguments command, decoded stdin ) ++ "\n"
+
+
+utf8 : String -> Bytes.Bytes
+utf8 =
+    Bytes.Encode.string >> Bytes.Encode.encode
+
+
+decoded : Bytes.Bytes -> String
+decoded all =
+    Bytes.Decode.decode (Bytes.Decode.string (Bytes.width all)) all |> Maybe.withDefault "?"
 
 
 {-| Waits for a line of input.
@@ -848,4 +975,103 @@ fn a_file_and_a_watch_close_once_the_fiber_that_opened_them_is_interrupted() {
     assert_eq!(open(&after), 0, "{after:?}");
     input.write_all(b"end\n").unwrap();
     assert!(owned.wait().unwrap().success());
+}
+
+#[test]
+fn commands_give_the_same_results_on_a_fake_which_says_what_it_ran() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let real = printed(&run(&root, &["commands", "real"], b""));
+    assert_eq!(
+        real,
+        r#"printf: Ok 0 "a b\n\nc'd\n$HOME\n*\n" ""
+cat: Ok 0 "fed" ""
+sh: Ok 3 "" "err\n"
+missing: Err NotFound "no-such-program"
+spawn printf: 0 "spawned\n"
+"#
+    );
+    let fake = printed(&run(&root, &["commands", "fake"], b""));
+    assert_eq!(
+        fake,
+        real + r#"ran ("printf",["%s\n","a b","","c'd","$HOME","*"],"")
+ran ("cat",[],"fed")
+ran ("sh",["-c","echo err >&2; exit 3"],"")
+ran ("printf",["%s\n","spawned"],"")
+"#
+    );
+}
+
+#[test]
+fn a_fake_child_exits_once_its_input_is_closed() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let ran = run(&root, &["fake-child"], b"");
+    assert_eq!(
+        printed(&ran),
+        "before closing: Nothing\nafter closing: 7\nran (\"cat\",[],\"abc\")\n"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn an_interrupted_fibers_child_gets_sigterm_then_sigkill_after_its_grace() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let mut grace = start(&root, &["grace"]);
+    let mut input = grace.stdin.take().unwrap();
+    let mut said = BufReader::new(grace.stdout.take().unwrap()).lines();
+    assert_eq!(said.next().unwrap().unwrap(), "ready");
+    let children = Command::new("pgrep")
+        .args(["-P", &grace.id().to_string()])
+        .output()
+        .unwrap();
+    let child = String::from_utf8_lossy(&children.stdout).trim().to_owned();
+    assert!(!child.is_empty(), "no child");
+    let interrupted = std::time::Instant::now();
+    input.write_all(b"go\n").unwrap();
+    assert_eq!(said.next().unwrap().unwrap(), "interrupted");
+    let took = interrupted.elapsed();
+    // It ignored SIGTERM, so it lived out the 500 ms grace.
+    assert!(took >= Duration::from_millis(450), "{took:?}");
+    assert!(took < Duration::from_secs(4), "{took:?}");
+    assert_eq!(
+        fs::read_to_string(root.join("run/term.log")).unwrap(),
+        "term\n"
+    );
+    let gone = Command::new("kill")
+        .args(["-0", &child])
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(!gone.success(), "child {child} still runs");
+    drop(input);
+    assert!(grace.wait().unwrap().success());
+}
+
+#[test]
+#[cfg(unix)]
+fn sighup_arrives_through_signals_and_sigterm_still_ends_the_program() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built();
+    let mut hangup = start(&root, &["hangup"]);
+    let mut said = BufReader::new(hangup.stdout.take().unwrap()).lines();
+    assert_eq!(said.next().unwrap().unwrap(), "listening");
+    let pid = hangup.id().to_string();
+    assert!(
+        Command::new("kill")
+            .args(["-HUP", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(said.next().unwrap().unwrap(), "Just Hangup");
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(hangup.wait().unwrap().code(), Some(143));
 }

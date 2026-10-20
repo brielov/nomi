@@ -16,6 +16,7 @@ import {
   sleep,
   succeed,
   sync,
+  wait,
   yieldNow,
 } from "../src/fiber.js";
 
@@ -56,6 +57,9 @@ const scenarios = {
   broken: () => scoped(andThen(resource("a", die(new Error("release broke"))), () => ready(forever))),
   // Asks to exit 3 and waits; its resource is released first.
   exit: () => scoped(andThen(resource("a"), () => andThen(sync(() => requestExit(runtime, 3)), () => forever))),
+  // Waits for another fiber that never wakes it, and nothing else is
+  // left to happen: it is stuck, and its resource is released.
+  stuck: () => scoped(andThen(resource("a"), () => wait(() => {}))),
   ok: () => say("hello"),
   fail: () => fail("bad input"),
   defect: () => die(new Error("broken")),

@@ -10,6 +10,7 @@ import Dict exposing (Dict)
 import Elm.Kernel.Nomi
 import Elm.Kernel.NomiStdio
 import Nomi.Fs exposing (Fs)
+import Nomi.Process
 import Nomi.Stream as Stream
 import Task exposing (Task)
 
@@ -32,12 +33,13 @@ running its finalizers, and the process exits 130 or 143.
 program : (Env -> Task String ()) -> Program
 program run =
     Elm.Kernel.Nomi.program
-        (\args vars fs stdin stdout stderr ->
+        (\args vars fs processes stdin stdout stderr ->
             run
                 { args = args
                 , vars = Dict.fromList vars
                 , fs = fs
                 , net = Net
+                , processes = processes
                 , stdin = stdin
                 , stdout = stdout
                 , stderr = stderr
@@ -47,13 +49,14 @@ program run =
 
 {-| What a program is given: the arguments after its file's name, the
 environment's variables, the directory it started in, the network to
-serve on, and the standard streams.
+serve on, the programs it may run, and the standard streams.
 -}
 type alias Env =
     { args : List String
     , vars : Dict String String
     , fs : Fs
     , net : Net
+    , processes : Nomi.Process.Processes
     , stdin : Stream.Reader
     , stdout : Stream.Writer
     , stderr : Stream.Writer

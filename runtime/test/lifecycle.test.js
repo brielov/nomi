@@ -54,6 +54,13 @@ test("SIGINT interrupts the program, runs finalizers last to first and exits 130
   assert.deepEqual(stdout, ["a acquired", "b acquired", "ready", "b released", "a released"]);
 });
 
+test("a program whose fibers all wait for each other is stopped, says so and exits 1", async () => {
+  const { code, stdout, stderr } = await run("stuck");
+  assert.equal(code, 1);
+  assert.deepEqual(stdout, ["a acquired", "a released"]);
+  assert.match(stderr, /^nomi: the program is stuck: each of its fibers waits for another/);
+});
+
 test("SIGTERM exits 143 after the finalizers", posixSignals, async () => {
   const { code, stdout } = await run("wait", { signals: ["SIGTERM"] });
   assert.equal(code, 143);

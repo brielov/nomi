@@ -82,11 +82,23 @@ function _NomiTest_advance(ms)
 
 var _NomiTest_nothing = new DataView(new ArrayBuffer(0));
 
-// `make` applied to a file system in memory, an input that has ended, two
-// captured outputs and the network.
+// `make` applied to a file system in memory, processes that run nothing,
+// an input that has ended, two captured outputs and the network.
 function _NomiTest_env(make)
 {
-	return A5(make, __NomiFs_memory(__List_Nil), __NomiStdio_script(_NomiTest_nothing), __NomiStdio_capture(null), __NomiStdio_capture(null), __Nomi_Net);
+	return A6(make, __NomiFs_memory(__List_Nil), _NomiTest_commands(function() { return __Maybe_Nothing; }), __NomiStdio_script(_NomiTest_nothing), __NomiStdio_capture(null), __NomiStdio_capture(null), __Nomi_Net);
+}
+
+// Fake processes answering with `answer`, which each run of a test makes
+// anew, with nothing run yet. The system's are the system's.
+function _NomiTest_commands(answer)
+{
+	return { fake: answer, ran: [] };
+}
+
+function _NomiTest_freshProcesses(processes)
+{
+	return processes.fake === null ? processes : _NomiTest_commands(processes.fake);
 }
 
 // `make` applied to a copy of `fs`, the bytes `stdin` was scripted with
@@ -95,14 +107,14 @@ function _NomiTest_env(make)
 // own. An input not scripted, as the process's, is one that has ended.
 // The test's runtime is its own, and `Nomi.log` on it writes to the
 // captured stderr.
-var _NomiTest_fresh = F5(function(make, fs, stdin, stdout, stderr)
+var _NomiTest_fresh = F6(function(make, fs, processes, stdin, stdout, stderr)
 {
 	return _Runtime.withRuntime(function(runtime) {
 		var err = __NomiStdio_capture(stderr.sink.size());
 		__NomiStdio_logs.set(runtime, err);
 		var input = __NomiStdio_script(stdin.script === undefined ? _NomiTest_nothing : stdin.script);
 		input.interactive = stdin.interactive;
-		return _Runtime.succeed(A4(make, A2(__NomiFs_copy, __List_Nil, fs), input, __NomiStdio_capture(stdout.sink.size()), err));
+		return _Runtime.succeed(A5(make, A2(__NomiFs_copy, __List_Nil, fs), _NomiTest_freshProcesses(processes), input, __NomiStdio_capture(stdout.sink.size()), err));
 	});
 });
 

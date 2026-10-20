@@ -1,6 +1,6 @@
 module Nomi.Test exposing
     ( effect, effectWith
-    , env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, stdout, stderr
+    , env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, withCommands, stdout, stderr
     , advance
     )
 
@@ -21,7 +21,7 @@ times out is tested with `Nomi.Server.respond` instead.
 
 # Environments
 
-@docs env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, stdout, stderr
+@docs env, withFiles, withArgs, withVars, withStdin, withStdinBytes, withTerminal, withCommands, stdout, stderr
 
 
 # Time
@@ -35,6 +35,7 @@ import Dict
 import Elm.Kernel.NomiTest
 import Expect exposing (Expectation)
 import Nomi exposing (Env)
+import Nomi.Process
 import Task exposing (Task)
 import Test exposing (Test)
 
@@ -84,24 +85,27 @@ effectWith template description run =
 fresh : Env -> Task x Env
 fresh template =
     Elm.Kernel.NomiTest.fresh
-        (\fs stdin out err -> { template | fs = fs, stdin = stdin, stdout = out, stderr = err })
+        (\fs processes stdin out err -> { template | fs = fs, processes = processes, stdin = stdin, stdout = out, stderr = err })
         template.fs
+        template.processes
         template.stdin
         template.stdout
         template.stderr
 
 
 {-| The `Env` an `effect` gets: no arguments or variables, an empty file
-system in memory, an input that has ended, and output kept in memory.
+system in memory, processes that run no command, an input that has
+ended, and output kept in memory.
 -}
 env : Env
 env =
     Elm.Kernel.NomiTest.env
-        (\fs stdin out err net ->
+        (\fs processes stdin out err net ->
             { args = []
             , vars = Dict.empty
             , fs = fs
             , net = net
+            , processes = processes
             , stdin = stdin
             , stdout = out
             , stderr = err
@@ -162,6 +166,19 @@ withTerminal size environment =
         (\stdin out err -> { environment | stdin = stdin, stdout = out, stderr = err })
         size
         environment.stdin
+
+
+{-| `env` whose processes are `Nomi.Process.fake`'s with this function, in
+place of those it has; each run of a test starts with none run, which
+`Nomi.Process.ran` lists.
+
+    effectWith (Nomi.Test.env |> withCommands git) "the version is the commit" <|
+        \env -> Main.version env |> Task.map (Expect.equal "abc123")
+
+-}
+withCommands : (Nomi.Process.Command -> Maybe Nomi.Process.Output) -> Env -> Env
+withCommands answer environment =
+    { environment | processes = Elm.Kernel.NomiTest.commands answer }
 
 
 {-| What was written to `env.stdout` so far, as UTF-8 text, each byte

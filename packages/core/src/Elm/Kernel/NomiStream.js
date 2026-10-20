@@ -283,6 +283,28 @@ function _NomiStream_fromTask(source)
 }
 
 
+// A reader of a web `ReadableStream`, as Bun gives a child's output or a
+// body: one read of it at a time, and only while a read waits, so what
+// nobody asked for stays in the stream, which holds its source back. A
+// chunk a read was waiting for when it was interrupted is the next read's.
+function _NomiStream_fromWeb(stream)
+{
+	var source = stream.getReader();
+	var reading = false;
+	return _NomiStream_reader(true, function(reader) {
+		if (reading || !_NomiStream_wanting(reader)) return;
+		reading = true;
+		source.read().then(function(read) {
+			reading = false;
+			_NomiStream_give(reader, read.done ? null : _NomiStream_bytes(read.value));
+		}, function(error) {
+			reading = false;
+			_NomiStream_fail(reader, { error: _NomiStream_error(error) });
+		});
+	});
+}
+
+
 // LINES
 
 function _NomiStream_lines(reader)
@@ -352,6 +374,28 @@ function _NomiStream_close(writer)
 		}
 		writer.closed = true;
 		return writer.sink.close;
+	});
+}
+
+// A writer to Bun's `FileSink`, as a child's input: a write waits until
+// the sink has flushed it, which a reader that doesn't read holds back.
+function _NomiStream_toSink(sink)
+{
+	var done = function(f) {
+		return _Runtime.onError(_Runtime.map(_Runtime.fromPromise(f), function() { return __Utils_Tuple0; }), function(error) {
+			return _Runtime.fail(_NomiStream_error(error));
+		});
+	};
+	return _NomiStream_writer({
+		write: function(bytes) {
+			return done(function() {
+				sink.write(_NomiStream_view(bytes));
+				return sink.flush();
+			});
+		},
+		close: done(function() { return sink.end(); }),
+		terminal: false,
+		size: function() { return null; }
 	});
 }
 

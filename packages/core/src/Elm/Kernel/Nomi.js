@@ -2,6 +2,7 @@
 
 import Elm.Kernel.List exposing (fromArray, toArray)
 import Elm.Kernel.NomiFs exposing (cwd)
+import Elm.Kernel.NomiProcess exposing (real)
 import Elm.Kernel.NomiStdio exposing (stdin, stdout, stderr)
 import Elm.Kernel.Platform exposing (export)
 import Elm.Kernel.Scheduler exposing (runtime)
@@ -30,7 +31,7 @@ function _Nomi_program(run)
 			var vars = __List_fromArray(Object.entries(process.env).map(function(entry) {
 				return __Utils_Tuple2(entry[0], entry[1]);
 			}));
-			var task = A6(run, args, vars, __NomiFs_cwd(), __NomiStdio_stdin, __NomiStdio_stdout, __NomiStdio_stderr);
+			var task = A7(run, args, vars, __NomiFs_cwd(), __NomiProcess_real, __NomiStdio_stdin, __NomiStdio_stdout, __NomiStdio_stderr);
 			_Runtime.main(task, { runtime: __Scheduler_runtime });
 		}
 		init.program = true;

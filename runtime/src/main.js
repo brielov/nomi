@@ -9,7 +9,10 @@
 // a server's drain included (a `draining` scope's, on the runtime's
 // clock), so a server lengthens it with `allowShutdown` to cover its
 // drain. A program may also ask to exit with a code of its own
-// (`requestExit`), which stops it as a signal does. A `Platform.worker` has
+// (`requestExit`), which stops it as a signal does. A program whose fibers
+// all wait for each other, with nothing left that could wake one, is
+// stuck: once the event loop has nothing left to do, it is stopped as an
+// exit with 1 would stop it, and says so. A `Platform.worker` has
 // no root fiber: a signal shuts its runtime down directly, and until one
 // comes it lives as long as Node's event loop does.
 
@@ -57,7 +60,16 @@ export function main(task, { runtime = new Runtime(), proc = process, deadline =
   });
   const ended = new Promise((resolve) => (root = runtime.fork(task, resolve)));
   if (stopped) runtime.interrupt(root);
+  // The event loop emptied while the program still runs: every fiber
+  // waits for another, and nothing else can wake one.
+  const stuck = () => {
+    if (life.stopping() !== null) return;
+    console.error("nomi: the program is stuck: each of its fibers waits for another, and nothing else can wake one");
+    life.request(1);
+  };
+  proc.on("beforeExit", stuck);
   return ended.then((exit) => {
+    proc.off("beforeExit", stuck);
     const { code, message } = outcome(exit, life.stopping());
     if (message !== null) console.error(message);
     return life.exit(code);
