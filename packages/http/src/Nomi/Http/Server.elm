@@ -330,14 +330,15 @@ body =
 
 {-| Why a request's body could not be read: it is larger than the
 server's `maxBodyBytes`, the client went away before sending all of it, it
-is not UTF-8 text, or it is not the JSON expected, with the decoder's
-message.
+is not UTF-8 text, it is not the JSON expected, with the decoder's
+message, or not the form expected (`Nomi.Http.Form`), with why.
 -}
 type BodyError
     = TooLarge
     | Disconnected
     | NotUtf8
     | BadJson String
+    | BadForm String
 
 
 {-| The request's body, whole.

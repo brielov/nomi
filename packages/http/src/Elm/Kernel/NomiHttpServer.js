@@ -384,7 +384,11 @@ var _NomiHttpServer_request = F4(function(method, target, headers, text)
 	{
 		read.append(list.a.a, list.a.b);
 	}
-	return { method: method, target: target, headers: read, text: text };
+	// A request a test reads as it is, as one received: `respond` answers
+	// a copy of it, with a body of its own.
+	var request = _NomiHttpServer_incoming(method, target, read, _NomiHttpServer_maxBody);
+	request.text = text;
+	return request;
 });
 
 // Answers a request `_NomiHttpServer_request` made as a server does, giving

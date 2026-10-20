@@ -19,6 +19,8 @@
 //! - `crypto`: hashes and HMACs against published vectors, randomness
 //!   seeded per test, argon2id and bcrypt, and compression whole and
 //!   streamed, corrupt input refused.
+//! - `web`: nomi/http's routes, cookies (RFC 6265's examples, signed and
+//!   tampered) and forms (URL-encoded, and multipart with a part streamed).
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -78,4 +80,9 @@ fn the_http_suite_passes() {
 #[test]
 fn the_crypto_suite_passes() {
     passes("crypto");
+}
+
+#[test]
+fn the_web_suite_passes() {
+    passes("web");
 }
