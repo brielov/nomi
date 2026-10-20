@@ -1,6 +1,8 @@
 //! Finding a workspace on disk: its members from the root's patterns,
 //! each read, and the problems that keep members from making one.
 
+use std::path::Path;
+
 use nomi_base::Compat;
 use nomi_base::diagnostic::render::{Styles, render};
 use nomi_engine::Vfs;
@@ -296,13 +298,16 @@ fn workspaces_on_disk() {
             (None, Found::Standalone) => {}
             (Some(Ok(workspace)), Found::Members(root, expected)) => {
                 assert_eq!(workspace.root(), top.join(root), "{name}");
-                let dirs: Vec<String> = (workspace.members().iter())
-                    .map(|m| m.dir.to_string_lossy().into_owned())
+                let dirs: Vec<&Path> = (workspace.members().iter())
+                    .map(|m| m.dir.as_path())
                     .collect();
+                let expected: Vec<&Path> = expected.iter().map(Path::new).collect();
                 assert_eq!(dirs, expected, "{name}");
             }
             (Some(Err(report)), Found::Problem(expected)) => {
                 let text = render(&report.to_doc(), Compat::LATEST, 80, Styles::Plain);
+                // A report names a member as the system writes its path.
+                let text = text.replace(std::path::MAIN_SEPARATOR, "/");
                 assert!(text.contains(expected), "{name}:\n{text}");
             }
             (found, expected) => panic!("{name}: found {found:?}, expected {expected:?}"),

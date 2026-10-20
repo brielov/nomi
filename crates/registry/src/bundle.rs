@@ -226,7 +226,9 @@ mod tests {
                     walk(&path, base, files);
                 } else {
                     let relative = path.strip_prefix(base).unwrap();
-                    files.push(relative.to_string_lossy().into_owned());
+                    let names: Vec<_> =
+                        relative.iter().map(|name| name.to_string_lossy()).collect();
+                    files.push(names.join("/"));
                 }
             }
         }

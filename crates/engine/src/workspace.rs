@@ -1208,24 +1208,27 @@ mod tests {
         let main = entry("src/Main.elm");
         let worker = entry("src/Worker.elm");
         let entries = [main.clone(), worker.clone()];
-        assert_eq!(default_output(dir, &entries, &main, build), "dist/Main.mjs");
         assert_eq!(
-            default_output(dir, &entries, &worker, build),
-            "dist/Worker.mjs"
+            Path::new(&default_output(dir, &entries, &main, build)),
+            Path::new("dist/Main.mjs")
+        );
+        assert_eq!(
+            Path::new(&default_output(dir, &entries, &worker, build)),
+            Path::new("dist/Worker.mjs")
         );
         let admin = entry("src/Admin/Main.elm");
         let entries = [main.clone(), admin.clone()];
         assert_eq!(
-            default_output(dir, &entries, &main, build),
-            "dist/src/Main.mjs"
+            Path::new(&default_output(dir, &entries, &main, build)),
+            Path::new("dist/src/Main.mjs")
         );
         assert_eq!(
-            default_output(dir, &entries, &admin, build),
-            "dist/src/Admin/Main.mjs"
+            Path::new(&default_output(dir, &entries, &admin, build)),
+            Path::new("dist/src/Admin/Main.mjs")
         );
         assert_eq!(
-            default_output(dir, &entries, &main, Making::Run),
-            "elm-stuff/nomi/run/src/Main.mjs"
+            Path::new(&default_output(dir, &entries, &main, Making::Run)),
+            Path::new("elm-stuff/nomi/run/src/Main.mjs")
         );
     }
 }

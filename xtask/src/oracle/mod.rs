@@ -298,6 +298,10 @@ fn make_executable(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the Unix `make_executable`'s signature, which can fail"
+)]
 fn make_executable(_: &Path) -> Result<()> {
     Ok(())
 }

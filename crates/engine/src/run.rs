@@ -712,6 +712,10 @@ impl Stop {
 
 /// Who sent nomi a signal.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    not(unix),
+    expect(dead_code, reason = "Windows sends no signal to tell the origin of")
+)]
 enum Origin {
     /// The terminal, which sends its signals to the programs too.
     Terminal,
@@ -744,7 +748,11 @@ const GRACE: Duration = Duration::from_secs(15);
 
 /// Sends `child` `signal`.
 #[cfg(unix)]
-fn send(child: &Child, signal: Stop) -> io::Result<()> {
+#[expect(
+    clippy::needless_pass_by_ref_mut,
+    reason = "Windows' kills the child, which takes it mutably"
+)]
+fn send(child: &mut Child, signal: Stop) -> io::Result<()> {
     self::signal(rustix::process::Pid::from_child(child), signal)
 }
 
@@ -794,19 +802,20 @@ impl Caught {
 }
 
 /// The signal `origin` tells of, SIGINT or SIGTERM: sent by a process
-/// where it names one, and otherwise by the terminal.
+/// where it names one, and otherwise by the terminal. The process is the
+/// sign rather than the cause, which macOS leaves unknown.
 #[cfg(unix)]
 fn signalled(origin: &signal_hook::low_level::siginfo::Origin) -> Signalled {
-    use signal_hook::low_level::siginfo::Cause;
     Signalled {
         stop: if origin.signal == signal_hook::consts::SIGINT {
             Stop::Interrupt
         } else {
             Stop::Terminate
         },
-        origin: match origin.cause {
-            Cause::Sent(_) => Origin::Process,
-            _ => Origin::Terminal,
+        origin: if origin.process.is_some() {
+            Origin::Process
+        } else {
+            Origin::Terminal
         },
     }
 }
@@ -817,6 +826,12 @@ fn signalled(origin: &signal_hook::low_level::siginfo::Origin) -> Signalled {
 struct Caught;
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    clippy::unused_self,
+    clippy::needless_pass_by_ref_mut,
+    reason = "the API of the Unix `Caught`, which its callers use on every platform"
+)]
 impl Caught {
     fn new() -> io::Result<Caught> {
         Ok(Caught)

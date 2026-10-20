@@ -445,8 +445,8 @@ impl Running {
     ) -> Option<Signalled> {
         if let Some(signal) = signal {
             for id in chosen {
-                if let Some(program) = self.programs.get(id).filter(|p| p.ended.is_none()) {
-                    let _ = send(&program.child, signal);
+                if let Some(program) = self.programs.get_mut(id).filter(|p| p.ended.is_none()) {
+                    let _ = send(&mut program.child, signal);
                 }
             }
         }

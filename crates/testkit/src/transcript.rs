@@ -257,6 +257,17 @@ pub fn cases(dir: &Path) -> Vec<(String, Case)> {
 pub fn check_transcripts(
     cases: &Path,
     expected: &Path,
+    run: impl FnMut(&str, &Case) -> Option<String>,
+) -> usize {
+    check_transcripts_shown(cases, expected, str::to_owned, run)
+}
+
+/// [`check_transcripts`], each expected transcript read as `shown` says
+/// this platform shows it.
+pub fn check_transcripts_shown(
+    cases: &Path,
+    expected: &Path,
+    shown: impl Fn(&str) -> String,
     mut run: impl FnMut(&str, &Case) -> Option<String>,
 ) -> usize {
     let mut ran = 0;
@@ -269,7 +280,7 @@ pub fn check_transcripts(
         let path = expected.join(format!("{name}.txt"));
         let expected =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        if let Err(both) = matching(&expected, &actual) {
+        if let Err(both) = matching(&shown(&expected), &actual) {
             failures.push(format!("{name}:\n{both}"));
         }
     }
@@ -548,12 +559,13 @@ fn list(dir: &Path, prefix: &str, files: &mut Vec<(String, Vec<u8>)>) -> io::Res
 
 /// elm-test's output with what changes from run to run, or machine to
 /// machine, put plainly: the case's directory and `ELM_HOME` as `{dir}` and
-/// `{home}`, durations as 0, the help's core count as 8, and a stack
-/// trace's Node version and lines and columns in the JavaScript as 0.
+/// `{home}`, with `/` between the names below them, durations as 0, the
+/// help's core count as 8, and a stack trace's Node version and lines and
+/// columns in the JavaScript as 0.
 pub fn normalize_elm_test(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
-    let text = String::from_utf8_lossy(output)
-        .replace(dir, "{dir}")
-        .replace(home, "{home}");
+    let text = String::from_utf8_lossy(output);
+    let text = named_path(&text, dir, "{dir}");
+    let text = named_path(&text, home, "{home}");
     let text = digits_after(&text, "\"duration\":\"", "0");
     let text = digits_after(&text, " time=\"", "0");
     let text = digits_after(&text, "Duration: ", "0");
@@ -565,6 +577,42 @@ pub fn normalize_elm_test(output: &[u8], dir: &str, home: &str) -> Vec<u8> {
     let text = digits_after(&text, ".js:", "0");
     let text = digits_after(&text, ".js:0:", "0");
     text.into_bytes()
+}
+
+/// `text` with `path` as `name`, and on Windows, where JSON writes it with
+/// each `\` doubled, that too, and the `\`s between the names after it as
+/// `/`.
+fn named_path(text: &str, path: &str, name: &str) -> String {
+    let text = text.replace(path, name);
+    if !cfg!(windows) {
+        return text;
+    }
+    let text = text.replace(&path.replace('\\', "\\\\"), name);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find(name) {
+        out.push_str(&rest[..at + name.len()]);
+        rest = &rest[at + name.len()..];
+        let end = (rest.find(|c: char| c.is_whitespace() || "\"',)]<>".contains(c)))
+            .unwrap_or(rest.len());
+        out.push_str(&rest[..end].replace("\\\\", "/").replace('\\', "/"));
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// elm-test's output as this platform shows it: on Windows, with the
+/// characters its consoles may lack replaced, as elm-test's
+/// `makeWindowsSafe` replaces them.
+pub fn shown_by_elm_test(text: &str) -> String {
+    if !cfg!(windows) {
+        return text.to_owned();
+    }
+    text.replace(['↓', '✗', '►'], ">")
+        .replace('═', "=")
+        .replace('▔', "-")
+        .replace('✔', "√")
 }
 
 /// `text` with the number after each `marker`, digits and points, as `with`.
@@ -588,16 +636,18 @@ fn digits_after(text: &str, marker: &str, with: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
 
     #[cfg(unix)]
     #[test]
     fn a_command_that_never_reads_its_input_still_times_out() {
+        use std::time::Instant;
+
         let dir = tempfile::tempdir().unwrap();
         let case = Case {
-            args: vec!["-c".to_owned(), "sleep 30".to_owned()],
+            // `exec`, or dash forks `sleep`, which outlives the shell
+            // killed and holds the output open until it ends.
+            args: vec!["-c".to_owned(), "exec sleep 30".to_owned()],
             stdin: "x".repeat(1 << 20),
             ..Case::default()
         };

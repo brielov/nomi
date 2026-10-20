@@ -755,10 +755,20 @@ impl Serving {
     }
 
     /// `request` sent on a new connection, and the answer.
+    ///
+    /// A server may answer before it has read the whole request, as it
+    /// does a body too large, and close, which resets the connection: the
+    /// answer is read while the request is written, from another thread,
+    /// as a reset discards what is left unread, and a write it cuts short
+    /// fails, at once on macOS, whose socket buffers are small.
     fn send(&self, request: &[u8]) -> Response {
-        let mut stream = self.connect();
-        stream.write_all(request).unwrap();
-        http::read(stream).unwrap()
+        let stream = self.connect();
+        let mut writer = stream.try_clone().unwrap();
+        let request = request.to_vec();
+        let writing = std::thread::spawn(move || writer.write_all(&request));
+        let response = http::read(UntilReset(stream)).unwrap();
+        let _ = writing.join();
+        response
     }
 
     /// Sends the server SIGTERM.
@@ -840,6 +850,18 @@ fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
     assert_eq!(body, "(Get,[],(Nothing,Nothing))");
     serving.terminate();
     assert_eq!(serving.exit(), (Some(143), vec![]));
+}
+
+/// A connection that ends where the peer reset it, once it has answered.
+struct UntilReset(TcpStream);
+
+impl Read for UntilReset {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => Ok(0),
+            read => read,
+        }
+    }
 }
 
 #[test]

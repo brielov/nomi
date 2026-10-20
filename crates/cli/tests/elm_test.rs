@@ -13,7 +13,9 @@ pub mod website;
 use std::fs;
 use std::path::Path;
 
-use nomi_testkit::transcript::{Case, check_transcripts, normalize_elm_test};
+use nomi_testkit::transcript::{
+    Case, check_transcripts_shown, normalize_elm_test, shown_by_elm_test,
+};
 use website::offline;
 
 #[test]
@@ -22,7 +24,9 @@ fn elm_test_transcripts() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
     let (_bin, elm_test) = website::personality("elm-test");
     let cache = website::fixture_cache();
-    let ran = check_transcripts(&dir.join("cases"), &dir.join("expected"), |_, case| {
+    let cases = dir.join("cases");
+    let expected = dir.join("expected");
+    let ran = check_transcripts_shown(&cases, &expected, shown_by_elm_test, |_, case| {
         let work = tempfile::tempdir().unwrap();
         let work = nomi_engine::canonical(work.path()).unwrap();
         let root = work.join("project");
@@ -115,7 +119,10 @@ fn watch_runs_again_on_changes() {
     let text = fs::read_to_string(&one).unwrap();
     fs::write(&one, format!("{text}\n-- changed\n")).unwrap();
     wait_for(
-        &format!("{} changed", Path::new("tests/Passing/One.elm").display()),
+        &format!(
+            "{} changed",
+            Path::new("tests").join("Passing").join("One.elm").display()
+        ),
         1,
     );
     wait_for("TEST RUN PASSED", 2);

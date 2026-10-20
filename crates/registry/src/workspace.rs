@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nomi_base::Compat;
 use nomi_project::outline::AppOutline;
@@ -34,7 +34,7 @@ pub enum WorkspaceProblem<E> {
     MemberRange {
         name: Name,
         member: Pin,
-        by: PathBuf,
+        by: Box<Path>,
         range: Constraint,
     },
     /// The members' dependencies don't check out together, or the
@@ -43,10 +43,11 @@ pub enum WorkspaceProblem<E> {
 }
 
 /// A member, by its directory relative to the root, and the release it
-/// names.
+/// names. Paths are boxed, which halves a Windows `PathBuf`, so the
+/// problems these make stay a small `Err`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pin {
-    pub dir: PathBuf,
+    pub dir: Box<Path>,
     pub version: Version,
 }
 
@@ -81,7 +82,7 @@ pub fn verify<P: Packages>(
 /// applications pin one release of each package.
 pub fn agree<E>(workspace: &Workspace) -> Result<(), WorkspaceProblem<E>> {
     let pin = |member: &Member, version| Pin {
-        dir: member.dir.clone(),
+        dir: member.dir.clone().into_boxed_path(),
         version,
     };
     let apps: Vec<(&Member, &AppOutline)> = (workspace.members().iter())
@@ -127,7 +128,7 @@ pub fn agree<E>(workspace: &Workspace) -> Result<(), WorkspaceProblem<E>> {
                         return Err(WorkspaceProblem::MemberRange {
                             name: name.clone(),
                             member: release.clone(),
-                            by: member.dir.clone(),
+                            by: member.dir.clone().into_boxed_path(),
                             range: *range,
                         });
                     }
@@ -402,7 +403,7 @@ mod tests {
 
     fn pin(dir: &str, version: &str) -> Pin {
         Pin {
-            dir: PathBuf::from(dir),
+            dir: Path::new(dir).into(),
             version: v(version),
         }
     }
@@ -540,7 +541,7 @@ mod tests {
                 expected: Err(WorkspaceProblem::MemberRange {
                     name: name("acme/shared"),
                     member: pin("packages/shared", "1.0.0"),
-                    by: PathBuf::from("packages/ui"),
+                    by: Path::new("packages/ui").into(),
                     range: Constraint::until_next_major(v("2.0.0"), COMPAT),
                 }),
             },

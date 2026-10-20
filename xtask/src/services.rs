@@ -300,6 +300,13 @@ pub(crate) fn run(
 /// A flag set by the signals that would end xtask, which instead lets it
 /// stop its containers. A terminal's ^C reaches the whole process group,
 /// so a child that runs then ends on its own.
+#[cfg_attr(
+    not(unix),
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "only Unix's signals are caught, which can fail"
+    )
+)]
 fn stop_on_signals() -> Result<Arc<AtomicBool>> {
     let stop = Arc::new(AtomicBool::new(false));
     #[cfg(unix)]

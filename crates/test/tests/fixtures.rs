@@ -17,7 +17,7 @@ use nomi_test::{
     parse, resolve,
 };
 use nomi_testkit::packages;
-use nomi_testkit::transcript::{Case, Transcript, normalize_elm_test};
+use nomi_testkit::transcript::{Case, Transcript, normalize_elm_test, shown_by_elm_test};
 
 /// node-test-runner's suites, each a case for every report.
 const SUITES: [&str; 6] = [
@@ -188,15 +188,13 @@ fn discovery_finds_what_elm_test_ran() {
             continue;
         };
         loaded.unwrap_or_else(|e| panic!("{name}: {e}"));
-        let ran: Vec<String> = (start["paths"].as_array().unwrap().iter())
+        let ran: Vec<PathBuf> = (start["paths"].as_array().unwrap().iter())
             .map(|p| {
-                p.as_str()
-                    .unwrap()
-                    .replace("{dir}", &case.dir.display().to_string())
+                let below = p.as_str().unwrap().strip_prefix("{dir}/").unwrap();
+                case.dir.join(below)
             })
             .collect();
-        let found: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
-        assert_eq!(found, ran, "{name}'s files");
+        assert_eq!(files, ran, "{name}'s files");
         // Each module with a test, as the reports name them.
         let reported: BTreeSet<String> = (stdout.lines())
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -268,12 +266,12 @@ fn compile_errors_are_elms() {
     let (runner, console) = case.build(&cache, &files, &case.options(&files));
     assert!(matches!(runner, Err(Failure::Shown)), "{runner:?}");
     let stderr = transcript("compile_error").stderr;
-    let expected = text(&stderr).replace("{dir}", &case.dir.display().to_string());
     // elm-test says how `elm make` ended after its reports.
-    let expected = (expected.trim_end())
+    let expected = (text(&stderr).trim_end())
         .strip_suffix("`elm make` failed with exit code 1.")
         .unwrap();
-    assert_eq!(console.err, expected);
+    let home = temp.path().join("cache");
+    assert_eq!(normalize(&console.err, &case.dir, &home), expected);
 }
 
 #[test]
@@ -329,7 +327,10 @@ fn runs_print_what_elm_test_printed() {
             Ended::Thrown => 1,
         };
         let expected = transcript(&name);
-        let (stdout, stderr) = (text(&expected.stdout), text(&expected.stderr));
+        let (stdout, stderr) = (
+            shown_by_elm_test(text(&expected.stdout)),
+            shown_by_elm_test(text(&expected.stderr)),
+        );
         assert_eq!(
             Some(code),
             expected.exit,
@@ -339,7 +340,7 @@ fn runs_print_what_elm_test_printed() {
         let stderr_lines = |s: &str| s.lines().map(str::to_owned).collect::<Vec<_>>();
         assert_eq!(
             stderr_lines(&normalize(&console.err, &case.dir, &home)),
-            stderr_lines(stderr),
+            stderr_lines(&stderr),
             "{name}'s standard error"
         );
         if code == 1 {
@@ -350,7 +351,7 @@ fn runs_print_what_elm_test_printed() {
         // The console's progress line is the command's too.
         let expected = match options.report {
             Report::Console { .. } => stdout.split_once('\n').unwrap().1,
-            _ => stdout,
+            _ => &stdout,
         };
         assert_eq!(
             normalize(&console.out, &case.dir, &home).trim_end_matches('\n'),

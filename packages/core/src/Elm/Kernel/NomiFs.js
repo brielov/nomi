@@ -429,13 +429,14 @@ function _NomiFs_openWriter(path, fs, mode)
 	});
 }
 
-// What `opened` gives, closed once the fiber that opened it ends.
+// What `opened` gives, closed once the fiber that opened it ends: that
+// fiber ends once the file has closed, so whoever waits for it finds the
+// file closed.
 function _NomiFs_owned(opened)
 {
 	return _Runtime.acquireRelease(opened, function(file) {
-		return _Runtime.sync(function() {
-			file.close();
-			return __Utils_Tuple0;
+		return _Runtime.fromPromise(function() {
+			return Promise.resolve(file.close()).then(_NomiFs_unit, _NomiFs_unit);
 		});
 	});
 }

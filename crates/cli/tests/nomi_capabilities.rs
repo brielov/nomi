@@ -940,6 +940,7 @@ fn process_exit_with_a_code_out_of_range_exits_255() {
 }
 
 /// The open files of process `pid`: what each descriptor leads to.
+#[cfg(target_os = "linux")]
 fn descriptors(pid: u32) -> Vec<String> {
     fs::read_dir(format!("/proc/{pid}/fd"))
         .unwrap()
