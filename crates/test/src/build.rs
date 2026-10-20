@@ -1,6 +1,6 @@
 //! The runner a run builds: elm-test's generated project, in
 //! nomi's cache rather than `elm-stuff`, its `main` over the tests the
-//! types find, built through the engine and wrapped for Node.
+//! types find, built through the engine and wrapped for Bun.
 
 use std::fs;
 use std::io;
@@ -29,7 +29,7 @@ use crate::runner;
 pub struct Runner {
     /// The generated project.
     pub dir: PathBuf,
-    /// The program, ready for Node.
+    /// The program, ready for Bun.
     pub js: PathBuf,
     /// Each module with tests, and its tests, in order.
     pub tests: Vec<(String, Vec<String>)>,
@@ -107,7 +107,7 @@ fn prepare<H: Http + Sync>(
         &mut || progress(console, Step::Solving),
     )
     .map_err(Failure::Project)?;
-    // nomi/test's tests run on Node only through a runner that has it.
+    // nomi/test's tests run on Bun only through a runner that has it.
     let nomi_test = Name::nomi_test();
     let effect = if direct.contains_key(&nomi_test) || indirect.contains_key(&nomi_test) {
         runner::EFFECTFUL
@@ -227,9 +227,9 @@ pub fn build<H: Http + Sync>(
         Output::Js(js.clone()),
         env.solve.resolve,
     );
-    // Node's kernels, in the file elm-test's templates wrap, whose
+    // Bun's kernels, in the file elm-test's templates wrap, whose
     // stand-ins for the browser's globals let tests reach the DOM's.
-    make.platform = Some(Platform::Node);
+    make.platform = Some(Platform::Bun);
     make.target = Target {
         dom: Dom::Polyfilled,
         ..Target::default()
@@ -239,7 +239,7 @@ pub fn build<H: Http + Sync>(
     }
     let compiled = fs::read_to_string(&js).map_err(|e| io(&dir, &e))?;
     fs::write(&js, runner::wrap(&compiled)).map_err(|e| io(&dir, &e))?;
-    // Node reads the program as CommonJS, whatever a `package.json` above
+    // Bun reads the program as CommonJS, whatever a `package.json` above
     // it says.
     write_if_changed(
         env.cx.vfs,

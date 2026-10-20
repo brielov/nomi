@@ -144,7 +144,7 @@ impl Fixture {
             ("apps/api/elm.json", APP.to_owned()),
             (
                 "apps/api/nomi.toml",
-                "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"node\"\n".to_owned(),
+                "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"bun\"\n".to_owned(),
             ),
             (
                 "apps/api/src/Main.elm",

@@ -1,7 +1,7 @@
 {
     "type": "package",
     "name": "nomi/core",
-    "summary": "Programs that run on Node, with nomi",
+    "summary": "Programs that run on Bun, with nomi",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [

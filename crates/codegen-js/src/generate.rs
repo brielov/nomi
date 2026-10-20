@@ -25,9 +25,9 @@ const FUNCTIONS: &str = include_str!("functions.js");
 
 /// `generate`: the program of `mains`, each a module and its `main`,
 /// from `graph`, which holds every definition they may reach, for
-/// `target`. A Node program carries the runtime its kernels run on, and
-/// a Node entry in an ES module of one `main` probes Node for what the
-/// program needs before its kernels load, and starts it.
+/// `target`. A Bun program carries the runtime its kernels run on, and
+/// a Bun entry in an ES module of one `main` checks that its host is Bun
+/// before its kernels load, and starts it.
 pub fn generate(
     compat: Compat,
     mode: &Mode,
@@ -46,7 +46,7 @@ pub fn generate(
     if target.advice == Advice::Given {
         kernels.extend_from_slice(perf_note(compat, mode).as_bytes());
     }
-    if target.platform == Platform::Node {
+    if target.platform == Platform::Bun {
         kernels.extend_from_slice(runtime::prologue().as_bytes());
     }
     let entry = matches!(
@@ -56,7 +56,7 @@ pub fn generate(
             &target.format,
             mains.as_slice()
         ),
-        (Start::Entry, Platform::Node, Format::EsModule, [_])
+        (Start::Entry, Platform::Bun, Format::EsModule, [_])
     );
     let runtime_end = kernels.len();
     let mut state = State {
@@ -76,11 +76,7 @@ pub fn generate(
     main_exports(&mut state.builders, &state.generator, &mains);
     let mut out = state.kernels;
     if entry {
-        let kernels = (state.seen.iter())
-            .filter(|global| global.is_kernel())
-            .map(|global| global.home.module.as_str());
-        let probe = probe(kernels);
-        out.splice(runtime_end..runtime_end, probe.bytes());
+        out.splice(runtime_end..runtime_end, probe().bytes());
     }
     out.extend_from_slice(state.builders.as_bytes());
     if let (true, [(home, _)]) = (entry, mains.as_slice()) {
@@ -514,7 +510,7 @@ mod tests {
             ..Target::default()
         };
         let node = Target {
-            platform: Platform::Node,
+            platform: Platform::Bun,
             ..browser.clone()
         };
         let entry = Target {
@@ -526,14 +522,14 @@ mod tests {
             let js = generate(Compat::V0_19_1, &DEV, target, &graph, &mains);
             String::from_utf8(js).unwrap()
         };
-        // Node's is the browser's with the runtime after the warning, and
+        // Bun's is the browser's with the runtime after the warning, and
         // an entry's probe after the runtime.
         let note = perf_note(Compat::V0_19_1, &DEV);
         let with = |module: String, after: &str| {
             module.replacen(&note, &format!("{note}{}{after}", runtime::prologue()), 1)
         };
         let with_runtime = |module: String| with(module, "");
-        let module = with(built(&browser, &["Page.Home"]), &probe([]));
+        let module = with(built(&browser, &["Page.Home"]), probe());
         let (body, end) = module.split_at(module.rfind("}(scope));").unwrap());
         assert_eq!(
             built(&entry, &["Page.Home"]),

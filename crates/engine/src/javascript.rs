@@ -208,7 +208,7 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
     if let Some(Unknown { release, .. }) = (unknown.iter()).find(|u| *u.module == *last.home.module)
     {
         return Report::doc(
-            "NOT AVAILABLE ON NODE",
+            "NOT AVAILABLE ON BUN",
             None,
             reflow(&format!(
                 "The `main` in {} uses {kernel} of {release}, a file nomi has no Node version of:",
@@ -225,16 +225,16 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
         );
     }
     let (title, host, advice) = match platform {
-        Platform::Node => (
-            "NOT AVAILABLE ON NODE",
-            "Node",
-            "Node has no DOM, so pages, browser programs and files a user picks only work in a \
+        Platform::Bun => (
+            "NOT AVAILABLE ON BUN",
+            "Bun",
+            "Bun has no DOM, so pages, browser programs and files a user picks only work in a \
              browser. A module may still define them, as long as `main` never uses them.",
         ),
         Platform::Browser => (
             "NOT AVAILABLE IN THE BROWSER",
             "the browser",
-            "nomi's own packages need Node. Build with --platform=node to run this program there.",
+            "nomi's own packages need Bun. Build with --platform=bun to run this program there.",
         ),
     };
     Report::doc(
@@ -249,8 +249,8 @@ fn not_available(platform: Platform, path: &[Global], unknown: &[Unknown]) -> Re
 }
 
 /// Whether every root's `main` is annotated nomi/core's `Program`, read
-/// from the root's interface, so it runs on Node.
-pub fn runs_on_node(optimized: &Optimized) -> bool {
+/// from the root's interface, so it runs on Bun.
+pub fn runs_on_bun(optimized: &Optimized) -> bool {
     let is_program = |name: &ModuleName| {
         (optimized.interfaces.iter())
             .find(|module| module.name == *name)

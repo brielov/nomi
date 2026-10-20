@@ -1,7 +1,7 @@
 [[entry]]
 main = "src/Main.elm"
 output = "dist/api.mjs"
-platform = "node"
+platform = "bun"
 args = ["--port", "3000"]
 
 [[entry]]

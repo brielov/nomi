@@ -1,6 +1,6 @@
-//! The fiber runtime in a Node program, and the kernels Node replaces:
+//! The fiber runtime in a Bun program, and the kernels Bun replaces:
 //! `runtime/src`'s modules, one namespace ahead of the kernels, and
-//! `runtime/node/kernel`'s files, each in place of the upstream file it
+//! `runtime/bun/kernel`'s files, each in place of the upstream file it
 //! names by hash.
 
 use std::sync::LazyLock;
@@ -13,7 +13,7 @@ const MODULES: [(&str, &str); 4] = [
     ("probe.js", include_str!("../../../runtime/src/probe.js")),
 ];
 
-/// What a Node program declares before its kernels: `_Runtime`, the
+/// What a Bun program declares before its kernels: `_Runtime`, the
 /// runtime's exports.
 pub fn prologue() -> &'static str {
     static PROLOGUE: LazyLock<String> = LazyLock::new(|| {
@@ -80,35 +80,35 @@ pub struct Override {
     pub code: &'static str,
 }
 
-/// The kernels a Node program replaces.
-pub(crate) const NODE: [Override; 4] = [
+/// The kernels a Bun program replaces.
+pub(crate) const BUN: [Override; 4] = [
     Override {
         package: "elm/core",
         module: "Scheduler",
         // elm/core 1.0.0 to 1.0.5, byte for byte.
         upstream: &["bdc18efab541e63edd65173fd995e35edc0fefe182fdb46c914b56734e2dbe6a"],
-        code: include_str!("../../../runtime/node/kernel/elm/core/Scheduler.js"),
+        code: include_str!("../../../runtime/bun/kernel/elm/core/Scheduler.js"),
     },
     Override {
         package: "elm/core",
         module: "Process",
         // elm/core 1.0.0 to 1.0.5, byte for byte.
         upstream: &["50554f94246d84921109584196c7c43f90775ff4256ce4df363b44f7794065da"],
-        code: include_str!("../../../runtime/node/kernel/elm/core/Process.js"),
+        code: include_str!("../../../runtime/bun/kernel/elm/core/Process.js"),
     },
     Override {
         package: "elm/time",
         module: "Time",
         // elm/time 1.0.0, its only release.
         upstream: &["cc59eff642bd2dc98ffde4a99ed0c682821e09a4601c083338d442b15ccd5cb1"],
-        code: include_str!("../../../runtime/node/kernel/elm/time/Time.js"),
+        code: include_str!("../../../runtime/bun/kernel/elm/time/Time.js"),
     },
     Override {
         package: "elm/http",
         module: "Http",
         // elm/http 2.0.0; 1.0.0's differs and isn't replaced.
         upstream: &["0cc54240d870127251fe6f2d76bf7ec0db1701d9dacbd893d79109af3580fce6"],
-        code: include_str!("../../../runtime/node/kernel/elm/http/Http.js"),
+        code: include_str!("../../../runtime/bun/kernel/elm/http/Http.js"),
     },
 ];
 

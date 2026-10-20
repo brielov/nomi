@@ -1,0 +1,12 @@
+=== exit 1
+=== stdout
+=== stderr
+|-- NOT AVAILABLE ON BUN --------------------------------------------------------
+|
+|The `main` in Main uses Elm.Kernel.VirtualDom, which Bun does not have:
+|
+|    main → Page.view → Html.div → Elm.Kernel.VirtualDom
+|
+|Bun has no DOM, so pages, browser programs and files a user picks only work in a
+|browser. A module may still define them, as long as `main` never uses them.
+|

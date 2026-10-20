@@ -1,5 +1,5 @@
 //! nomi/test's effectful tests, bundled with nomi: `nomi test` runs each
-//! one's task on Node beside the pure tests, and every reporter reports
+//! one's task on Bun beside the pure tests, and every reporter reports
 //! how it ended as it reports a pure test. Each test has a virtual clock
 //! of its own and the fakes it was given, and what it leaves running is
 //! interrupted when it ends. `elm-test` knows nothing of nomi/test, as
@@ -425,8 +425,8 @@ const SERVING_ELM_JSON: &str = r#"{
 "#;
 
 /// Handlers in effectful tests: a request made in the test reads as a
-/// received one, its repeated headers as Node reads them; a handler that
-/// dies, or gives a response Node won't write, answers 500 and logs to the
+/// received one, its repeated headers by Fetch's rules; a handler that
+/// dies, or gives a response Fetch won't write, answers 500 and logs to the
 /// test's stderr; headers added twice are both written; a server listening
 /// in a test, whose client disconnects, interrupts the request on the
 /// test's runtime, so its finalizer logs there too; and one listening
@@ -456,7 +456,7 @@ aRequest =
                 (Server.respond echo (Server.request { method = Get, target = "/", headers = [], body = String.repeat 1048577 "a" }))
                 |> Task.map
                     (Expect.equal
-                        ( { status = 200, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ), ( "X-Echo", "yes" ) ], body = "True a/b c 1 1, 2 hi" }
+                        ( { status = 200, headers = [ ( "content-type", "text/plain; charset=utf-8" ), ( "x-echo", "yes" ) ], body = "True a/b c 1 1, 2 hi" }
                         , { status = 413, headers = [], body = "" }
                         )
                     )
@@ -479,7 +479,7 @@ aDefect =
         \env ->
             Server.respond (\_ -> Task.succeed () |> Task.andThen (\_ -> Debug.todo "dead")) (Server.request { method = OtherMethod "BREW", target = "/pot?x=1", headers = [], body = "" })
                 |> Task.andThen (\response -> stderr env |> Task.map (\err -> ( response, String.startsWith "nomi: request BREW /pot?x=1 died: Error: TODO in module `Serving`" err )))
-                |> Task.map (Expect.equal ( { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }, True ))
+                |> Task.map (Expect.equal ( { status = 500, headers = [ ( "content-type", "text/plain; charset=utf-8" ) ], body = "internal server error" }, True ))
 
 
 aDisconnect : Test
@@ -513,7 +513,7 @@ aDisconnect =
 
 repeatedHeaders : Test
 repeatedHeaders =
-    effect "a request made in a test reads repeated headers as Node does" <|
+    effect "a request made in a test reads repeated headers by Fetch's rules" <|
         \_ ->
             let
                 headers =
@@ -523,12 +523,12 @@ repeatedHeaders =
                     Task.succeed (Server.text 200 (Debug.toString ( Server.header "cookie" req, Server.header "Content-Type" req )))
             in
             Server.respond read (Server.request { method = Get, target = "/", headers = headers, body = "" })
-                |> Task.map (.body >> Expect.equal "(Just \"a=1; b=2\",Just \"a\")")
+                |> Task.map (.body >> Expect.equal "(Just \"a=1; b=2\",Just \"a, b\")")
 
 
 unwritable : Test
 unwritable =
-    effect "a response Node won't write answers 500, as listen does" <|
+    effect "a response Fetch won't write answers 500, as listen does" <|
         \env ->
             Task.map2 Tuple.pair
                 (Server.respond (\_ -> Task.succeed (Server.empty 999999)) (Server.request { method = Get, target = "/status", headers = [], body = "" }))
@@ -536,17 +536,17 @@ unwritable =
                 |> Task.andThen (\responses -> stderr env |> Task.map (Tuple.pair responses))
                 |> Task.map
                     (Expect.equal
-                        ( ( { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
-                          , { status = 500, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
+                        ( ( { status = 500, headers = [ ( "content-type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
+                          , { status = 500, headers = [ ( "content-type", "text/plain; charset=utf-8" ) ], body = "internal server error" }
                           )
-                        , "nomi: request GET /status died: RangeError [ERR_HTTP_INVALID_STATUS_CODE]: Invalid status code: 999999\nnomi: request GET /header died: TypeError [ERR_INVALID_CHAR]: Invalid character in header content [\"X-Bad\"]\n"
+                        , "nomi: request GET /status died: RangeError: The status provided (999999) must be 101 or in the range of [200, 599]\nnomi: request GET /header died: TypeError: Header 'X-Bad' has invalid value\n"
                         )
                     )
 
 
 addedHeaders : Test
 addedHeaders =
-    effect "headers are written in the order added, and one set replaces those of its name" <|
+    effect "headers added twice are both written, and one set replaces those of its name" <|
         \_ ->
             let
                 cookies =
@@ -555,7 +555,7 @@ addedHeaders =
             Task.map2 Tuple.pair
                 (Server.respond (\_ -> Task.succeed cookies) (Server.request { method = Get, target = "/", headers = [], body = "" }))
                 (Server.respond (\_ -> Task.succeed (cookies |> Server.withHeader "SET-COOKIE" "c=3")) (Server.request { method = Get, target = "/", headers = [], body = "" }))
-                |> Task.map (Tuple.mapBoth .headers .headers >> Expect.equal ( [ ( "Set-Cookie", "a=1" ), ( "set-cookie", "b=2" ), ( "X-Between", "1" ) ], [ ( "X-Between", "1" ), ( "SET-COOKIE", "c=3" ) ] ))
+                |> Task.map (Tuple.mapBoth .headers .headers >> Expect.equal ( [ ( "set-cookie", "a=1" ), ( "set-cookie", "b=2" ), ( "x-between", "1" ) ], [ ( "set-cookie", "c=3" ), ( "x-between", "1" ) ] ))
 
 
 aSleepBesideAServer : Test
@@ -635,7 +635,7 @@ fn text(bytes: &[u8]) -> String {
 
 #[test]
 fn effectful_tests_run_beside_pure_ones() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let output = nomi_test(&[("Effects", TESTS)], &["--workers", "2"]);
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(2), "{out}\n{err}");
@@ -652,7 +652,7 @@ fn effectful_tests_run_beside_pure_ones() {
 
 #[test]
 fn the_json_report_has_effectful_tests_results() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let output = nomi_test(
         &[("Effects", TESTS)],
         &["--report", "json", "--workers", "1"],
@@ -711,7 +711,7 @@ fn the_json_report_has_effectful_tests_results() {
 
 #[test]
 fn elm_test_knows_nothing_of_nomi_test() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_bin, elm_test) = website::personality("elm-test");
     let output = run(&elm_test, ELM_JSON, &[("Effects", TESTS)], &[], &[]);
     assert_eq!(output.status.code(), Some(1), "{output:?}");
@@ -741,7 +741,7 @@ fn completed(out: &str) -> Vec<(String, String, u64)> {
 
 #[test]
 fn each_effectful_test_has_a_virtual_clock_and_fakes_of_its_own() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let output = nomi_test(&[("Clock", CLOCK)], &["--report", "json", "--workers", "1"]);
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
@@ -761,7 +761,7 @@ fn each_effectful_test_has_a_virtual_clock_and_fakes_of_its_own() {
 
 #[test]
 fn concurrent_tasks_and_fibers_end_and_interrupt_as_documented_on_the_virtual_clock() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let output = nomi_test(&[("Concurrent", CONCURRENT)], &["--report", "json"]);
     let out = text(&output.stdout);
     assert_eq!(output.status.code(), Some(0), "{out}");
@@ -774,7 +774,7 @@ fn concurrent_tasks_and_fibers_end_and_interrupt_as_documented_on_the_virtual_cl
 
 #[test]
 fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_it() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let output = run(
         Path::new(env!("CARGO_BIN_EXE_nomi")),
         SERVING_ELM_JSON,
@@ -823,7 +823,7 @@ hangs =
 
 #[test]
 fn a_worker_exits_when_its_supervisor_is_killed() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(root.join("elm.json"), SERVING_ELM_JSON).unwrap();

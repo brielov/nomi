@@ -16,7 +16,7 @@ fn entries_with_every_key() {
 [[entry]]
 main = "src/Api.elm"
 output = "dist/api.mjs"
-platform = "node"
+platform = "bun"
 
 [[entry]]
 main = "src/Web.elm"
@@ -30,7 +30,7 @@ platform = "browser"
                 Entry {
                     main: "src/Api.elm".to_owned(),
                     output: Some("dist/api.mjs".to_owned()),
-                    platform: Some(Platform::Node),
+                    platform: Some(Platform::Bun),
                     args: Vec::new(),
                     static_dir: None,
                     port: None,
@@ -82,7 +82,7 @@ members = ["apps/web", "./apps/api", "packages/*"]
 
 [[entry]]
 main = "src/Api.elm"
-platform = "node"
+platform = "bun"
 args = ["--port", "3000"]
 
 [[entry]]
@@ -112,7 +112,7 @@ port = 8080
             Entry {
                 main: "src/Api.elm".to_owned(),
                 output: None,
-                platform: Some(Platform::Node),
+                platform: Some(Platform::Bun),
                 args: vec!["--port".to_owned(), "3000".to_owned()],
                 static_dir: None,
                 port: None,
@@ -201,7 +201,25 @@ platform:
 
 3| platform = "deno"
               ^^^^^^
-The platforms are "node" and "browser". Without one, an entry runs on Node when
+The platforms are "bun" and "browser". Without one, an entry runs on Bun when
+its `main` is a Nomi.Program, and in the browser otherwise.
+
+"#,
+    ),
+    (
+        "the platform before Bun",
+        r#"[[entry]]
+main = "src/Main.elm"
+platform = "node"
+"#,
+        r#"-- UNKNOWN PLATFORM -------------------------------------------------- nomi.toml
+
+I ran into a problem with your nomi.toml file. I do not know the "node"
+platform:
+
+3| platform = "node"
+              ^^^^^^
+The platforms are "bun" and "browser". Without one, an entry runs on Bun when
 its `main` is a Nomi.Program, and in the browser otherwise.
 
 "#,
@@ -253,7 +271,7 @@ string, but this is a boolean:
 
 3| platform = true
               ^^^^
-For example: platform = "node"
+For example: platform = "bun"
 
 "#,
     ),
@@ -554,40 +572,40 @@ For example: port = 8000
 "#,
     ),
     (
-        "static on a node entry",
+        "static on a bun entry",
         r#"[[entry]]
 main = "src/Api.elm"
 static = "public"
-platform = "node"
+platform = "bun"
 "#,
         r#"-- WRONG PLATFORM ---------------------------------------------------- nomi.toml
 
 I ran into a problem with your nomi.toml file. The `static` key is for browser
-entries, but this entry runs on Node:
+entries, but this entry runs on Bun:
 
 3| static = "public"
             ^^^^^^^^
 The `static` directory and the `port` are for the server `nomi run` starts for a
-browser program. A Node program serves itself.
+browser program. A Bun program serves itself.
 
 "#,
     ),
     (
-        "port on a node entry",
+        "port on a bun entry",
         r#"[[entry]]
 main = "src/Api.elm"
-platform = "node"
+platform = "bun"
 port = 8000
 "#,
         r#"-- WRONG PLATFORM ---------------------------------------------------- nomi.toml
 
 I ran into a problem with your nomi.toml file. The `port` key is for browser
-entries, but this entry runs on Node:
+entries, but this entry runs on Bun:
 
 4| port = 8000
           ^^^^
 The `static` directory and the `port` are for the server `nomi run` starts for a
-browser program. A Node program serves itself.
+browser program. A Bun program serves itself.
 
 "#,
     ),
@@ -600,12 +618,12 @@ args = ["-v"]
 "#,
         r#"-- WRONG PLATFORM ---------------------------------------------------- nomi.toml
 
-I ran into a problem with your nomi.toml file. The `args` key is for Node
+I ran into a problem with your nomi.toml file. The `args` key is for Bun
 entries, but this entry runs in the browser:
 
 4| args = ["-v"]
           ^^^^^^
-The `args` are the command-line arguments `nomi run` gives a Node program. A
+The `args` are the command-line arguments `nomi run` gives a Bun program. A
 browser program has none.
 
 "#,

@@ -1,6 +1,6 @@
 //! The example todo server, `examples/todo-server`, built from a copy and
-//! run on the tests' Node binary, which `NOMI_TEST_NODE` makes the oldest
-//! maintained LTS, on the port it picks and says it took: SIGTERM lets a response in flight complete, then the
+//! run on the tests' Bun binary, which `NOMI_TEST_BUN` may make the
+//! oldest nomi supports, on the port it picks and says it took: SIGTERM lets a response in flight complete, then the
 //! todos are written and the process exits within its deadline; a client
 //! that disconnects interrupts its request; a handler that dies answers
 //! 500 and writes one line; and thousands of requests, some cut off, leave
@@ -23,35 +23,32 @@ use nomi_testkit::http;
 use nomi_testkit::process::{Group, Signal};
 use website::offline;
 
-/// Loaded before the server with `--import`: on SIGUSR2 it writes a line
+/// Loaded before the server with `--preload`: on SIGUSR2 it writes a line
 /// to stderr, `probe <fibers> <heap> <handles>`, where `fibers` counts the
 /// runtime's `Fiber` objects alive in a heap snapshot, `heap` is the heap
-/// in use after a full collection (`--expose-gc`), and `handles` lists
-/// Node's active resources. The server itself carries nothing for it.
-const PROBE: &str = r#"import { getHeapSnapshot } from "node:v8";
+/// in use after a full collection, and `handles` counts the process's
+/// open descriptors. The server itself carries nothing for it.
+const PROBE: &str = r#"import { readdirSync } from "node:fs";
 
-// The snapshot is parsed in a function of its own, so nothing of it is
-// reachable once the count is back: kept in the handler's suspended frame,
-// which the collector may or may not see is dead, it would be megabytes.
-async function countFibers() {
-  const chunks = [];
-  for await (const chunk of getHeapSnapshot()) chunks.push(Buffer.from(chunk));
-  const { snapshot: { meta }, nodes, strings } = JSON.parse(Buffer.concat(chunks).toString());
-  const width = meta.node_fields.length;
-  const type = meta.node_fields.indexOf("type");
-  const name = meta.node_fields.indexOf("name");
-  const object = meta.node_types[type].indexOf("object");
+// The snapshot is counted in a function of its own, so nothing of it is
+// reachable once the count is back. Its nodes are four numbers each, the
+// third the index of the node's class name.
+function countFibers() {
+  const { nodes, nodeClassNames } = Bun.generateHeapSnapshot();
+  const fiber = nodeClassNames.indexOf("Fiber");
   let fibers = 0;
-  for (let i = 0; i < nodes.length; i += width) {
-    if (nodes[i + type] === object && strings[nodes[i + name]] === "Fiber") fibers++;
+  for (let i = 0; i < nodes.length; i += 4) {
+    if (nodes[i + 2] === fiber) fibers++;
   }
   return fibers;
 }
 
-process.on("SIGUSR2", async () => {
-  const handles = process.getActiveResourcesInfo().sort().join(",");
-  const fibers = await countFibers();
-  globalThis.gc();
+// Bun keeps no list of its handles, so the process's open descriptors
+// stand in for them: the listening socket, the connections and files.
+process.on("SIGUSR2", () => {
+  const fibers = countFibers();
+  Bun.gc(true);
+  const handles = readdirSync("/dev/fd").length;
   console.error(`probe ${fibers} ${process.memoryUsage().heapUsed} ${handles}`);
 });
 "#;
@@ -75,7 +72,7 @@ fn example() -> (tempfile::TempDir, PathBuf) {
 fn nomi(cache: &Path, root: &Path, args: &[&str]) -> Command {
     let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
     nomi.current_dir(root)
-        .env("PATH", nomi_testkit::path_with_node())
+        .env("PATH", nomi_testkit::path_with_bun())
         .args(args);
     nomi
 }
@@ -131,15 +128,15 @@ struct Server {
 }
 
 impl Server {
-    /// The example built in `root`, run on the tests' Node binary with
+    /// The example built in `root`, run on the tests' Bun binary with
     /// the probe loaded.
-    fn node(work: tempfile::TempDir, root: &Path) -> Server {
+    fn bun(work: tempfile::TempDir, root: &Path) -> Server {
         build(root);
         fs::write(root.join("probe.mjs"), PROBE).unwrap();
-        let mut node = Command::new(nomi_testkit::node());
-        node.args(["--expose-gc", "--import", "./probe.mjs", "dist/main.mjs"])
+        let mut bun = Command::new(nomi_testkit::bun());
+        bun.args(["--preload", "./probe.mjs", "dist/main.mjs"])
             .current_dir(root);
-        Server::start(work, node)
+        Server::start(work, bun)
     }
 
     /// `command` serving, given `PORT=0`, on the port it says it took.
@@ -289,7 +286,7 @@ fn sigterm_lets_a_response_in_flight_complete_then_writes_the_todos_and_exits() 
 #[test]
 fn a_client_that_disconnects_interrupts_its_request() {
     let (work, root) = example();
-    let mut server = Server::node(work, &root);
+    let mut server = Server::bun(work, &root);
     let mut stream = server.connect();
     stream.write_all(&request("GET", "/quote", "")).unwrap();
     server.until_in_flight(1);
@@ -316,7 +313,7 @@ fn a_handler_that_dies_answers_500_and_writes_one_line() {
     assert_eq!(source.matches(route).count(), 1);
     fs::write(&main, source.replace(route, r#"Debug.todo "no route""#)).unwrap();
     let line = source.lines().position(|l| l.contains(route)).unwrap() + 1;
-    let mut server = Server::node(work, &root);
+    let mut server = Server::bun(work, &root);
     assert_eq!(
         server.send(&request("GET", "/nowhere?x=1", "")),
         (500, "internal server error".to_owned())
@@ -394,11 +391,11 @@ fn load(port: u16, count: usize) {
 #[test]
 fn nothing_leaks_under_load() {
     let (work, root) = example();
-    let mut server = Server::node(work, &root);
+    let mut server = Server::bun(work, &root);
     load(server.port, 500);
     server.until_in_flight(0);
     let (fibers, heap, handles) = server.probe();
-    assert!(handles.contains("TCPServerWrap"), "{handles}");
+    assert!(handles.parse::<usize>().is_ok_and(|n| n > 0), "{handles}");
     load(server.port, 2000);
     server.until_in_flight(0);
     // Back to what it was once closing connections have closed.

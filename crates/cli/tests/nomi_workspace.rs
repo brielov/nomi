@@ -25,7 +25,7 @@ use website::offline;
 
 #[test]
 fn nomi_workspace_transcripts() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nomi_workspace");
     let fixture = Case::parse(&fs::read_to_string(dir.join("fixture.case")).unwrap()).unwrap();
     let cache = website::fixture_cache();

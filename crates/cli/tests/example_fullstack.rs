@@ -1,5 +1,5 @@
 //! The full-stack example, `examples/fullstack`, copied with free ports in
-//! place of its own and run on the tests' Node binary: from its root it
+//! place of its own and run on the tests' Bun binary: from its root it
 //! builds every member and its tests pass; under `nomi run --watch` the
 //! api answers the web page's origin and both pages are served, and
 //! renaming a field in the shared package's codec restarts the api, which
@@ -91,12 +91,12 @@ fn replace(root: &Path, path: &str, from: &str, to: &str, count: usize) {
     fs::write(&path, text.replace(from, to)).unwrap();
 }
 
-/// nomi in `root`, offline with `cache`, with `args` and the tests' Node
+/// nomi in `root`, offline with `cache`, with `args` and the tests' Bun
 /// binary's directory first on the PATH.
 fn nomi(cache: &Path, root: &Path, args: &[&str]) -> Command {
     let mut nomi = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
     nomi.current_dir(root)
-        .env("PATH", nomi_testkit::path_with_node())
+        .env("PATH", nomi_testkit::path_with_bun())
         .args(args);
     nomi
 }
@@ -153,7 +153,7 @@ fn listening(said: &str, stderr: &Receiver<String>, port: u16) -> String {
 
 #[test]
 fn under_watch_an_edit_to_the_shared_codec_restarts_the_api_and_reloads_the_page() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let ports = Ports {
         api: free_port(),

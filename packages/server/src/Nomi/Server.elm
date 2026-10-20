@@ -236,9 +236,8 @@ query =
 
 
 {-| The value of the header with the name, in any case. A header sent
-more than once is read as Node reads it: its values joined with `, `, or
-with `; ` for `Cookie`, and only the first kept of those that can't
-repeat, as `Content-Type`, `Authorization` and `Host`.
+more than once is read by Fetch's rules: its values joined with `, `, or
+with `; ` for `Cookie`.
 -}
 header : String -> Request -> Maybe String
 header =
@@ -403,13 +402,15 @@ methodName m =
 {-| Answers the request with the handler as `listen` does, on a fiber of
 its own, and gives the response written: a handler that dies answers 500
 and logs a line, which a test reads with `Nomi.Test.stderr`, and so does a
-response `listen` couldn't write, as a status past 999 or a line break in a
-header. The request's body may hold `defaults`'s `maxBodyBytes`. The
-response's headers are in the order `listen` writes them: the order they
-were added, those of one name together where the first of them was.
+response `listen` couldn't write, as status 999 or a line break in a
+header. The request's body may hold `defaults`'s
+`maxBodyBytes`. The response's headers are as Fetch lists them: names in
+lower case and in order, the values of one name joined with `, `, and each
+`Set-Cookie` apart. A response with no `Content-Type` and a body gets
+`text/plain;charset=utf-8`, as `listen` writes it.
 
     Nomi.Server.respond handle (Nomi.Server.request { method = Get, target = "/hello/you", headers = [], body = "" })
-        |> Task.map (Expect.equal { status = 200, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = "hello, you" })
+        |> Task.map (Expect.equal { status = 200, headers = [ ( "content-type", "text/plain; charset=utf-8" ) ], body = "hello, you" })
 
 Interrupting the task is the client disconnecting: the handler is
 interrupted and its finalizers run.

@@ -17,13 +17,13 @@ const PROGRAM: &str = "exports.run = function (index, receive) {
 
 #[test]
 fn a_message_split_across_writes_arrives_whole() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let dir = tempfile::tempdir().unwrap();
     let program = dir.path().join("program.js");
     std::fs::write(&program, PROGRAM).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let worker = Command::new("node")
+    let worker = Command::new("bun")
         .args(["-e", include_str!("../runner/driver.js")])
         .arg(&program)
         .args(["0", &port.to_string()])

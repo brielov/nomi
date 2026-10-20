@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // A stand-in for elm-review, which isn't pinned: its JSON report for
 // src/Main.elm, whatever it's asked.
 const report = {

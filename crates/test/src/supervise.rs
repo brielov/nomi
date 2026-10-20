@@ -1,5 +1,5 @@
 //! The workers that run the tests, and what they report
-//! (`Supervisor.run`): each a Node process running the
+//! (`Supervisor.run`): each a Bun process running the
 //! runner's program, talking to the supervisor in lines of JSON; their
 //! results printed in order as the report asks.
 //!
@@ -159,7 +159,7 @@ impl Supervise {
         for index in 0..self.processes {
             // `<program> <index> <port>`, as the driver and `after.js`
             // read their arguments.
-            let mut command = Command::new("node");
+            let mut command = Command::new("bun");
             if self.processes == 1 {
                 command.arg("-e").arg(DRIVER);
             }
@@ -744,9 +744,9 @@ mod tests {
     /// summary, however late the supervisor reads it.
     #[test]
     fn what_a_worker_printed_prints_before_the_summary_however_late_it_is_read() {
-        nomi_testkit::require_node();
+        nomi_testkit::require_bun();
         let (send, events) = mpsc::channel();
-        let child = Command::new("node")
+        let child = Command::new("bun")
             .args(["-e", "setInterval(() => {}, 1000)"])
             .spawn()
             .unwrap();

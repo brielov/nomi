@@ -1,7 +1,7 @@
 {
     "type": "package",
     "name": "nomi/server",
-    "summary": "HTTP servers on Node, with nomi",
+    "summary": "HTTP servers on Bun, with nomi",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [

@@ -1,6 +1,6 @@
 //! `nomi run`: an entry of the project's `nomi.toml`, or a module named
-//! on the command line, built for Node as a self-starting ES module and
-//! run under `node`, which the run stands in for: the arguments are the
+//! on the command line, built for Bun as a self-starting ES module and
+//! run under `bun`, which the run stands in for: the arguments are the
 //! program's, the signals nomi is sent reach it, and nomi exits as it
 //! does. With `--watch` it is built and run again as the project changes.
 //! A browser entry is built and served until nomi is stopped. Without an
@@ -47,7 +47,7 @@ pub enum Program {
 struct Built {
     /// The module's path, from `dir`.
     main: PathBuf,
-    /// The code to write, absolute: an ES module on Node.
+    /// The code to write, absolute: an ES module on Bun.
     output: PathBuf,
     /// What decides `output`'s extension: the platform, where nothing
     /// names it.
@@ -65,22 +65,22 @@ struct Built {
 }
 
 impl Built {
-    /// `node` running the program with `args`, or the entry's own without
+    /// `bun` running the program with `args`, or the entry's own without
     /// them.
-    fn node(&self, args: &[OsString]) -> Command {
+    fn bun(&self, args: &[OsString]) -> Command {
         if args.is_empty() {
             let args: Vec<OsString> = self.args.iter().map(OsString::from).collect();
-            node(&self.output, &args)
+            bun(&self.output, &args)
         } else {
-            node(&self.output, args)
+            bun(&self.output, args)
         }
     }
 }
 
-/// Builds `program` and runs it under `node` with `args`, in the member
+/// Builds `program` and runs it under `bun` with `args`, in the member
 /// `member` names or the project around the directory, as [`one`] does;
 /// or, where no entry is named and there are several, builds them all
-/// and runs every Node program among them together, each with its
+/// and runs every Bun program among them together, each with its
 /// entry's arguments, as `many` does. The code to exit with.
 pub fn run(
     cx: &Context<'_, impl Http + Sync>,
@@ -200,7 +200,7 @@ fn counted<'w>(workspace: &'w Workspace, dirs: &[PathBuf]) -> Vec<(&'w PathBuf, 
 }
 
 /// Builds `program` in the project around the directory and runs it
-/// under `node` with `args`, or serves it if it runs in the browser,
+/// under `bun` with `args`, or serves it if it runs in the browser,
 /// showing on standard error how the build went, naming its output from
 /// `from`, where nomi was run, and why it didn't run.
 /// The code to exit with: the program's, 128 plus the signal that killed
@@ -216,10 +216,10 @@ fn one(
         return 1;
     };
     match code.platform {
-        Platform::Node => match supervise(&mut built.node(args)) {
+        Platform::Bun => match supervise(&mut built.bun(args)) {
             Ok(status) => exit_code(status),
             Err(e) => {
-                console::report(console, &no_node(&e), Compat::LATEST);
+                console::report(console, &no_bun(&e), Compat::LATEST);
                 1
             }
         },
@@ -420,7 +420,7 @@ fn alone(
             main: (relative(&lexical(&cx.dir.join(main)), root.dir()).to_string_lossy())
                 .into_owned(),
             output: None,
-            platform: Some(Platform::Node),
+            platform: Some(Platform::Bun),
             args: Vec::new(),
             static_dir: None,
             port: None,
@@ -435,13 +435,13 @@ fn alone(
     Ok((workspace.with_entries(&dir, vec![entry]), dir))
 }
 
-/// `node` running `output` with `args`, ending with nomi as
+/// `bun` running `output` with `args`, ending with nomi as
 /// [`dies_with_nomi`] has it.
-fn node(output: &Path, args: &[OsString]) -> Command {
-    let mut node = Command::new("node");
-    node.arg(output).args(args);
-    dies_with_nomi(&mut node);
-    node
+fn bun(output: &Path, args: &[OsString]) -> Command {
+    let mut bun = Command::new("bun");
+    bun.arg(output).args(args);
+    dies_with_nomi(&mut bun);
+    bun
 }
 
 /// Has the process `command` starts sent SIGTERM when nomi ends first,
@@ -512,7 +512,7 @@ fn build(
     let code = make::wrote(&cx, console, &make, Some(from))?.code?;
     built.output.clone_from(&code.output);
     let output = built.output.to_string_lossy();
-    if code.platform == Platform::Node && !make::has_ext(".mjs", &output) {
+    if code.platform == Platform::Bun && !make::has_ext(".mjs", &output) {
         let main = built.main.display().to_string();
         let output = relative(&built.output, &built.dir);
         let report = not_a_module(&main, &output.display().to_string());
@@ -533,7 +533,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
             output: output_of(&cx.dir.join(main), "mjs"),
             output_name: OutputName::Given,
             dir: cx.dir.to_owned(),
-            platform: Some(Platform::Node),
+            platform: Some(Platform::Bun),
             args: Vec::new(),
             static_dir: None,
             port: None,
@@ -570,7 +570,7 @@ fn chosen(cx: &Context<'_, impl Http + Sync>, program: &Program) -> Result<Built
 pub(crate) fn extension(entry: &Entry) -> &'static str {
     match entry.platform {
         Some(Platform::Browser) => "js",
-        Some(Platform::Node) | None => "mjs",
+        Some(Platform::Bun) | None => "mjs",
     }
 }
 
@@ -660,7 +660,7 @@ impl Console for Stderr<'_> {
 /// Runs `command` to its end, passing on the SIGINT and SIGTERM nomi is
 /// sent. A terminal's own signals aren't passed on: the terminal sends
 /// them to its whole foreground process group, the child included, and
-/// a second signal stops a Node program without its finalizers.
+/// a second signal stops a Bun program without its finalizers.
 #[cfg(unix)]
 fn supervise(command: &mut Command) -> io::Result<ExitStatus> {
     use rustix::process::Pid;
@@ -842,17 +842,18 @@ fn exit_code(status: ExitStatus) -> u8 {
     (status.code()).map_or(1, |code| u8::try_from(code).unwrap_or(1))
 }
 
-fn no_node(error: &io::Error) -> Report {
+/// Why a program couldn't start on Bun: `error`, from spawning `bun`.
+pub fn no_bun(error: &io::Error) -> Report {
     if error.kind() == io::ErrorKind::NotFound {
         one_line(
-            "NO NODE",
-            "nomi run runs the program under Node, but I cannot find `node` on the PATH. \
-             Install Node 22 or later, or add its directory to the PATH.",
+            "NO BUN",
+            "nomi runs this program on Bun, but I cannot find `bun` on the PATH. \
+             Install Bun 1.4 or later (https://bun.sh), or add its directory to the PATH.",
         )
     } else {
         one_line(
-            "PROBLEM RUNNING NODE",
-            &format!("I could not run node: {error}"),
+            "PROBLEM RUNNING BUN",
+            &format!("I could not run bun: {error}"),
         )
     }
 }

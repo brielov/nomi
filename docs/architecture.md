@@ -16,7 +16,7 @@ Anything not settled here should be settled by a test, not by more prose.
 |---|---|---|
 | One Rust toolchain | Yes | The payoff is a single parser, resolver and type checker shared by the compiler, formatter, LSP and test runner. Today elm-language-server reimplements Elm's scoping and inference in TypeScript, which is where tools disagree. |
 | CST for the parser | Yes, alongside other trees | Three shapes, each with one job: a lossless CST for syntax, a lowered HIR with IDs for semantics, and a formatter tree with comments attached in one pass. Typed views sit over the CST. |
-| `Task` and fibers on the server instead of TEA | Yes | Extend Elm's own scheduler, which is already a cooperative fiber runtime, in the Node kernel. Keep the elm/core API identical; new concurrency APIs go in `nomi/*` packages. No new syntax. |
+| `Task` and fibers on the server instead of TEA | Yes | Extend Elm's own scheduler, which is already a cooperative fiber runtime, in the server's kernel. Keep the elm/core API identical; new concurrency APIs go in `nomi/*` packages. No new syntax. |
 | `nomi.toml` selects server or browser | Yes, but narrower | The platform belongs to each entry point, not to the project. It never changes what Elm code means, only which kernel JS is linked and how the output is packaged. `elm.json` stays canonical. |
 | Drop-in replacement | Yes | Measure it continuously with differential tests against pinned upstream binaries, for each upstream version. |
 | Monorepo | Yes | One resolution per workspace; member packages resolve by name. Builds dedupe shared code through content-addressed artifacts, not ownership rules. |
@@ -25,7 +25,7 @@ Anything not settled here should be settled by a test, not by more prose.
 
 - no language changes;
 - no compiler special cases for servers;
-- everything server-specific lives in `nomi/*` packages and Node kernels.
+- everything server-specific lives in `nomi/*` packages and the server's kernels.
 
 That way nomi can adopt upstream's design as another platform instead of becoming a fork. The durable value is the toolchain; server mode is one platform plugged into it.
 
@@ -92,7 +92,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 **R1. One semantics, many platforms.** An Elm module type-checks and means the same thing everywhere. A platform is a set of kernel JS implementations, an output format and an entry shim, and nothing else.
 
 - elm/* APIs are identical on every platform.
-- Node overrides only the kernels that need a host: `Scheduler` and `Platform` for structured concurrency and process lifecycle, `Process` and `Time` so timers and the current time go through the runtime's clock, and `Http` via `fetch`. DOM kernels (`Browser`, `VirtualDom`, `File`) are unavailable there.
+- The server platform, on Bun, overrides only the kernels that need a host: `Scheduler` and `Platform` for structured concurrency and process lifecycle, `Process` and `Time` so timers and the current time go through the runtime's clock, and `Http` via `fetch`. DOM kernels (`Browser`, `VirtualDom`, `File`) are unavailable there.
 - The linker checks availability on the program that is reachable after dead-code elimination. A server may import a module that defines a `view`, as long as it never calls it. The error names the path, e.g. `main → Page.view → Html.div → Elm.Kernel.VirtualDom (not available on node)`.
 - The compiler has no platform enum, and cache keys contain no platform.
 
@@ -276,7 +276,7 @@ platform = "node"   # optional: `main : Nomi.Program` implies node
 ### Codegen
 
 - **Browser output** is a port of `Generate.JavaScript`: an IIFE with `_Platform_export`, `--debug` metadata and `--optimize` field shortening. Behavior is the contract, and byte-identical output is how it's tested. A deliberate deviation needs a `DECISIONS.md` entry and a behavioral test.
-- **Node output** is an ES module plus a small generated entry, with optional source maps for stack traces.
+- **Server output** is an ES module for Bun plus a small generated entry, with optional source maps for stack traces.
 - **Kernels** keep upstream's chunk format, so one linker serves every platform.
 
 ### A server `main` needs zero compiler changes
@@ -315,12 +315,12 @@ handle _ =
 ```
 
 - The type checker and main validation stay untouched, and the kernel starts the root fiber.
-- `Platform.worker` programs with ports also run on Node unchanged, which gives existing code a migration path.
+- `Platform.worker` programs with ports also run on Bun unchanged, which gives existing code a migration path.
 - An entry's platform defaults from `main`'s annotation and can be overridden in nomi.toml.
 
 ### Runtime
 
-Elm's `Scheduler.js` already runs processes, bindings with kill functions and a work queue. The Node platform ships an extended `Scheduler` kernel with the same Elm-facing API. It adds what Effect's runtime has and Elm's lacks:
+Elm's `Scheduler.js` already runs processes, bindings with kill functions and a work queue. The server platform ships an extended `Scheduler` kernel with the same Elm-facing API. It adds what Effect's runtime has and Elm's lacks:
 
 | Need | Rule (each one gets a test) |
 |---|---|
@@ -347,7 +347,7 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 - **Resources.** A handle belongs to the fiber that opened it and is released when that fiber ends, however it ends: interruption closes sockets, kills children, cancels Postgres and MySQL queries and rolls back transactions. A SQLite statement runs on the event loop to its end, the interruption taking effect after it. Event sources (file watches, signals, LISTEN, subscriptions) are handles read with a task, bounded, and able to end and fail.
 - **HTTP.** A handler is fetch-shaped, `Request -> Task Never Response`. Each request runs on its own child fiber and is cancelled if the client disconnects. Bodies are streams, and a response may upgrade to a WebSocket served by a fiber.
 - **No FFI.** As in Elm, every effect comes from the platform's own packages, with typed APIs, and nothing else calls JavaScript; what a backend needs is nomi's to provide (plan MB).
-- **Bun is the host.** Server programs run on Bun 1.4 or later, and the kernels are written on Bun's built-ins (`Bun.serve`, `Bun.sql`, `Bun.redis`, `Bun.s3`, `Bun.spawn`, `Bun.password`), never npm; where one falls short of a guarantee above, the kernel makes up for it where it can, and the module documents where it can't. Node is no longer a target (DECISIONS 2026-10-17); a feature probe at startup refuses another host or an older Bun.
+- **Bun is the host.** Server programs run on Bun 1.4 or later, and the kernels are written on Bun's built-ins (`Bun.serve`, `Bun.sql`, `Bun.redis`, `Bun.s3`, `Bun.spawn`, `Bun.password`), never npm; where one falls short of a guarantee above, the kernel makes up for it where it can, and the module documents where it can't. Node is no longer a target (DECISIONS 2026-10-17); a probe at startup refuses another host or an older Bun, and nomi.toml names the platform `bun`.
 - **Packages.** `nomi/core` (programs, concurrency, bytes, streams, files, paths, stdio, processes, the network capability, crypto, passwords, logging, compression), `nomi/net` (TCP, TLS, UDP, DNS), `nomi/http` (server, client, WebSockets, and pure routes, cookies and forms), `nomi/sql` (one module over `Bun.sql` for Postgres, MySQL and SQLite), `nomi/redis`, `nomi/s3` and `nomi/test`, versioned together. [drafts/mb-apis.md](drafts/mb-apis.md) holds the APIs as agreed.
 
 **Ergonomics risk.** Chains of `andThen` are verbose. Roc dropped `Task` for effectful functions with `!`, partly for this reason, and nomi can't add syntax without forking Elm. Mitigations:
@@ -359,7 +359,7 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 ### Test runner
 
 - Discovery uses types: every exposed value of type `Test` in the test source directories.
-- The runner builds through the engine and runs in Node workers. Output and flags match elm-test (console, JSON and JUnit; `--seed`, `--fuzz`).
+- The runner builds through the engine and runs in Bun workers, a browser project's tests included. Output and flags match elm-test (console, JSON and JUnit; `--seed`, `--fuzz`).
 - `nomi/test` adds effectful tests that use fake capabilities and the virtual clock.
 
 ### Language server
@@ -401,7 +401,7 @@ Build this runtime in plain JS first, with model-based tests, in parallel with t
 
 - `nomi`'s arguments are parsed with clap. The `elm` and `elm-format` personalities below are parsed by hand, because their help, errors and exit codes must match upstream exactly.
 - Installed as `elm` or `elm-format` (via a symlink), it exposes upstream's commands, flags and output formats, including `elm make --report=json`. That serves elm-review, elm-watch, bundler plugins and editors that shell out. The exceptions are `elm repl`, `elm reactor` and elm-format's `--elm-version 0.18`, which exit with a one-line explanation.
-- `nomi run --watch` takes the reactor's place: in a workspace it runs every entry in parallel, Node entries as processes and browser entries behind a dev server, and rebuilds, restarts or reloads only what an edit affects.
+- `nomi run --watch` takes the reactor's place: in a workspace it runs every entry in parallel, Bun entries as processes and browser entries behind a dev server, and rebuilds, restarts or reloads only what an edit affects.
 - It does not reproduce the order in which upstream's flag parser reports errors.
 
 ## 10. Compatibility testing
@@ -461,7 +461,7 @@ Oracle outputs are stored in the repository as snapshots, or as hashes when they
 
 ## 12. Build order and process
 
-[plan.md](plan.md) holds the build order: milestones, steps and exit criteria, with one commit per step. nomi replaces one upstream tool at a time, elm-format first, then `elm`, then elm-language-server and elm-test, before adding the Node platform and workspaces. Two things start early on purpose:
+[plan.md](plan.md) holds the build order: milestones, steps and exit criteria, with one commit per step. nomi replaces one upstream tool at a time, elm-format first, then `elm`, then elm-language-server and elm-test, before adding the server platform and workspaces. Two things start early on purpose:
 
 - A first language server ships with the engine, before type checking. That forces tolerant phases and a single engine from the start.
 - The fiber runtime is prototyped in plain JS alongside the compiler, because it needs no compiler.

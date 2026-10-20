@@ -1,6 +1,6 @@
 //! Discovery and the runner over node-test-runner's fixture suites:
 //! the files and modules elm-test's JSON transcripts ran, its errors,
-//! and the runner it would build, on Node's kernels.
+//! and the runner it would build, on Bun's kernels.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -150,7 +150,7 @@ impl Prepared {
 
 #[test]
 fn discovery_finds_what_elm_test_ran() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let temp = tempfile::tempdir().unwrap();
     let cache = cache(&temp.path().join("cache"));
     for suite in SUITES {
@@ -168,7 +168,7 @@ fn discovery_finds_what_elm_test_ran() {
             ("", ""),
             "{name}"
         );
-        // On Node's kernels: elm/core's scheduler on the fiber runtime.
+        // On Bun's kernels: elm/core's scheduler on the fiber runtime.
         let js = fs::read_to_string(&runner.js).unwrap();
         assert!(
             js.contains("var _Scheduler_runtime = new _Runtime.Runtime("),
@@ -176,7 +176,7 @@ fn discovery_finds_what_elm_test_ran() {
         );
         let expected = transcript(&name);
         let (stdout, stderr) = (text(&expected.stdout), text(&expected.stderr));
-        let loaded = load_in_node(&runner);
+        let loaded = load_on_bun(&runner);
         // A runtime exception ends the run before it starts reporting.
         let Some(start) = stdout
             .lines()
@@ -241,17 +241,17 @@ fn dependencies_are_elm_tests(runner: &Runner) {
     assert!(app.test_direct.is_empty() && app.test_indirect.is_empty());
 }
 
-/// Whether Node loads the runner and starts its `main`, or what it says
+/// Whether Bun loads the runner and starts its `main`, or what it says
 /// when it doesn't.
-fn load_in_node(runner: &Runner) -> Result<(), String> {
+fn load_on_bun(runner: &Runner) -> Result<(), String> {
     let script = "const run = require(process.argv[1]).run; \
         const send = run(0, () => {}); \
         if (typeof send !== 'function') process.exit(1);";
-    let output = Command::new("node")
+    let output = Command::new("bun")
         .args(["-e", script])
         .arg(&runner.js)
         .output()
-        .unwrap_or_else(|e| panic!("node: {e}"));
+        .unwrap_or_else(|e| panic!("bun: {e}"));
     if output.status.success() {
         Ok(())
     } else {
@@ -304,7 +304,7 @@ fn normalize(text: &str, dir: &Path, home: &Path) -> String {
 
 #[test]
 fn runs_print_what_elm_test_printed() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("cache");
     let cache = cache(&home);

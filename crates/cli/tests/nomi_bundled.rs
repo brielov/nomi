@@ -103,7 +103,7 @@ fn with_input(mut command: Command, stdin: &str) -> Output {
 
 #[test]
 fn an_app_builds_offline_with_a_bundled_package_and_calls_its_kernel() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = cache();
     let (_work, root) = project(
         r#", "nomi/fixture": "1.0.0""#,
@@ -124,14 +124,14 @@ main =
     // An entry, which starts its `main` when run.
     fs::write(
         root.join("nomi.toml"),
-        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"node\"\noutput = \"dist/main.mjs\"\n",
+        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"bun\"\noutput = \"dist/main.mjs\"\n",
     )
     .unwrap();
     let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
     let built = run(program, cache.path(), &root, &["build"], "");
     assert!(built.status.success(), "{built:?}");
     assert!(!cache.path().join("packages/releases/nomi").exists());
-    let ran = Command::new(nomi_testkit::node())
+    let ran = Command::new(nomi_testkit::bun())
         .arg("dist/main.mjs")
         .current_dir(&root)
         .output()

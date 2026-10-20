@@ -31,19 +31,19 @@ impl Port {
 
 /// The port of each of `entries`, in order: its `port` where it has one,
 /// and in turn the next from [`FIRST_PORT`] that no entry gives where it
-/// has none; or `None` where it runs on Node by its manifest. An entry
+/// has none; or `None` where it runs on Bun by its manifest. An entry
 /// whose `main` decides its platform holds a number either way, which a
 /// build can't change.
 pub(super) fn ports<'e>(entries: impl IntoIterator<Item = &'e Entry>) -> Vec<Option<Port>> {
     let entries: Vec<&Entry> = entries.into_iter().collect();
     let given: Vec<u16> = (entries.iter())
-        .filter(|entry| entry.platform != Some(Platform::Node))
+        .filter(|entry| entry.platform != Some(Platform::Bun))
         .filter_map(|entry| entry.port)
         .collect();
     let mut free = (FIRST_PORT..=u16::MAX).filter(|port| !given.contains(port));
     (entries.iter())
         .map(|entry| match (entry.platform, entry.port) {
-            (Some(Platform::Node), _) => None,
+            (Some(Platform::Bun), _) => None,
             (Some(Platform::Browser) | None, Some(port)) => Some(Port::Given(port)),
             (Some(Platform::Browser) | None, None) => {
                 Some(Port::Assigned(free.next().unwrap_or(u16::MAX)))
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn given_ports_are_kept_and_the_others_assigned_around_them() {
-        let (browser, node) = (Some(Platform::Browser), Some(Platform::Node));
+        let (browser, bun) = (Some(Platform::Browser), Some(Platform::Bun));
         let (given, assigned) = (Port::Given, Port::Assigned);
         let cases = [
             (vec![entry(browser, None)], vec![Some(assigned(8000))]),
@@ -104,9 +104,9 @@ mod tests {
                     Some(given(8000)),
                 ],
             ),
-            // A Node program holds none, even with a port.
+            // A Bun program holds none, even with a port.
             (
-                vec![entry(node, Some(8000)), entry(browser, None)],
+                vec![entry(bun, Some(8000)), entry(browser, None)],
                 vec![None, Some(assigned(8000))],
             ),
             (

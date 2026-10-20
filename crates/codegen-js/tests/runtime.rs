@@ -1,4 +1,4 @@
-//! The runtime a Node program carries, and the kernels Node replaces,
+//! The runtime a Bun program carries, and the kernels Bun replaces,
 //! against the files they come from: `_Runtime` holds what the runtime's
 //! modules export, and each kernel replaces the vendored package's file
 //! it names, keeping every name the other kernels and Elm modules use.
@@ -16,11 +16,11 @@ use nomi_codegen_js::runtime::prologue;
 use nomi_testkit::{packages, sha256_hex};
 
 /// Each name `_Runtime` holds and what each of the runtime's modules
-/// exports under it, imported as Node imports them, with its `typeof`,
+/// exports under it, imported as Bun imports them, with its `typeof`,
 /// one per line.
 #[test]
 fn the_runtime_namespace_holds_what_its_modules_export() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/src");
     let script = r#"
 import { readFileSync } from "node:fs";
@@ -33,20 +33,20 @@ const runtime = new Function(`'use strict';\n${readFileSync(0, "utf8")}return _R
 const names = (o) => Object.keys(o).sort().map((k) => `${k} ${typeof o[k]}`).join("\n");
 console.log(names(runtime) === names(exported) ? "same" : `${names(runtime)}\n--\n${names(exported)}`);
 "#;
-    let mut node = Command::new("node")
-        .args(["--input-type=module", "-e", script])
+    let mut bun = Command::new("bun")
+        .args(["-e", script])
         .arg(&src)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    node.stdin
+    bun.stdin
         .take()
         .unwrap()
         .write_all(prologue().as_bytes())
         .unwrap();
-    let ran = node.wait_with_output().unwrap();
+    let ran = bun.wait_with_output().unwrap();
     assert!(ran.status.success(), "{ran:?}");
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "same\n");
 }
@@ -80,8 +80,8 @@ fn names_after<'a>(text: &'a str, prefix: &str) -> impl Iterator<Item = &'a str>
 }
 
 #[test]
-fn each_node_kernel_replaces_the_vendored_file_and_keeps_its_names() {
-    for replacement in overrides(Platform::Node) {
+fn each_bun_kernel_replaces_the_vendored_file_and_keeps_its_names() {
+    for replacement in overrides(Platform::Bun) {
         let package = packages::release(replacement.package).dir();
         let module = replacement.module;
         let upstream = package.join(format!("src/Elm/Kernel/{module}.js"));

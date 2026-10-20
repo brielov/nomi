@@ -31,9 +31,10 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      # The oldest Node nomi supports (references.toml, node-minimum).
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      # Bun runs nomi's programs and tests (references.toml, bun-minimum);
+      # this is the release the suites were last checked on.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          node-version: 22
+          bun-version: 1.4.3
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo xtask ci

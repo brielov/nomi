@@ -314,7 +314,7 @@ fn built() -> (tempfile::TempDir, PathBuf) {
 
 /// The program in `root` run with `args` in `root/run`, `stdin` its input.
 fn run(root: &Path, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(nomi_testkit::node())
+    let mut child = Command::new(nomi_testkit::bun())
         .arg(root.join("dist/main.mjs"))
         .args(args)
         .current_dir(root.join("run"))
@@ -345,7 +345,7 @@ fn errors(output: &Output) -> String {
 
 #[test]
 fn the_file_systems_on_disk_and_in_memory_give_the_tables_results() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     fs::create_dir(root.join("run/scratch")).unwrap();
     let real = run(&root, &["table", "real"], "");
@@ -360,7 +360,7 @@ fn the_file_systems_on_disk_and_in_memory_give_the_tables_results() {
 
 #[test]
 fn no_symbolic_link_leads_out_of_a_subdir() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     let run_dir = root.join("run");
     fs::create_dir(run_dir.join("outside")).unwrap();
@@ -405,7 +405,7 @@ exists secret.txt: Ok False
 
 #[test]
 fn stdio_reads_lines_to_the_end_of_input() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     for (input, expected) in [
         (
@@ -429,7 +429,7 @@ fn stdio_reads_lines_to_the_end_of_input() {
 
 #[test]
 fn process_exit_runs_the_finalizers_then_exits_with_its_code() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     let ran = run(&root, &["exit"], "");
     assert_eq!(ran.status.code(), Some(3), "{ran:?}");
@@ -442,7 +442,7 @@ fn process_exit_runs_the_finalizers_then_exits_with_its_code() {
 
 #[test]
 fn a_memory_file_system_given_files_the_disk_cant_hold_is_a_defect_to_use() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     let ran = run(&root, &["bad-files"], "");
     assert_eq!(
@@ -457,7 +457,7 @@ Defect "Error: withFiles: \"a\" is a directory"
 
 #[test]
 fn process_exit_with_a_code_out_of_range_exits_255() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built();
     for (code, exited) in [("0", 0), ("255", 255), ("256", 255), ("-1", 255)] {
         let ran = run(&root, &["exit", code], "");

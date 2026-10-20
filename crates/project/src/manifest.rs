@@ -117,7 +117,7 @@ pub struct Entry {
     pub output: Option<String>,
     /// Where the program runs, unless `main`'s annotation decides.
     pub platform: Option<Platform>,
-    /// The arguments `nomi run` gives a Node program when it runs every
+    /// The arguments `nomi run` gives a Bun program when it runs every
     /// entry.
     pub args: Vec<String>,
     /// The directory a browser program's server serves at `/`.
@@ -252,14 +252,14 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
     let mut args = Vec::new();
     let mut static_dir = None;
     let mut port = None;
-    // The first key only Node can use and the first only a browser can,
+    // The first key only Bun can use and the first only a browser can,
     // refused once the entry's platform is known to be the other.
-    let mut node_key = None;
+    let mut bun_key = None;
     let mut browser_key = None;
     for (key, value) in fields(table, ENTRY)? {
         match key {
             Key::Args => {
-                node_key.get_or_insert_with(|| (key, value.span()));
+                bun_key.get_or_insert_with(|| (key, value.span()));
                 for item in strings(key, value)? {
                     args.push(string(key, item)?.to_owned());
                 }
@@ -281,8 +281,8 @@ fn entry(table: &DeTable<'_>, header: std::ops::Range<usize>) -> Result<Entry, M
         }
     }
     let other_key = |platform| match platform {
-        Platform::Node => browser_key,
-        Platform::Browser => node_key,
+        Platform::Bun => browser_key,
+        Platform::Browser => bun_key,
     };
     if let Some(platform) = platform
         && let Some((key, span)) = other_key(platform)
@@ -323,7 +323,7 @@ fn port_number(value: &Spanned<DeValue<'_>>) -> Result<u16, ManifestError> {
 /// The platform `text`, the string `value`.
 fn parse_platform(text: &str, value: &Spanned<DeValue<'_>>) -> Result<Platform, ManifestError> {
     match text {
-        "node" => Ok(Platform::Node),
+        "bun" => Ok(Platform::Bun),
         "browser" => Ok(Platform::Browser),
         _ => Err(ManifestError {
             range: range(value.span()),

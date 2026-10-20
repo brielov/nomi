@@ -7,7 +7,12 @@
 # tarball; only their versions are repeated here, and fetch checks they
 # agree. Nothing here is downloaded except by those commands.
 
-# Oldest Node line still maintained on 2026-10-07.
+# The oldest Bun nomi's programs and tests run on (DECISIONS 2026-10-17),
+# as runtime/src/probe.js's MINIMUM.
+bun-minimum = "1.4"
+
+# Oldest Node line still maintained on 2026-10-07, for the oracles, which
+# run upstream's Node tools (tier 3); nothing of nomi's runs on Node.
 node-minimum = 22
 
 [[source]]

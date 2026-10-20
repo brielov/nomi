@@ -1,5 +1,5 @@
 //! `nomi run` of several entries at once: every one built first, then
-//! each browser program served and each Node program started with its
+//! each browser program served and each Bun program started with its
 //! `args`, its lines shown under the name of its member, until they have
 //! all ended, or, while a program is served, until nomi is stopped. One
 //! that fails stops the others and gives nomi its code, and SIGINT or
@@ -26,7 +26,7 @@ pub(super) use watch::watch;
 
 use super::port::{Port, ports};
 use super::{
-    Caught, GRACE, Served, Signalled, Stderr, Stop, exit_code, no_node, node, not_a_module, send,
+    Caught, GRACE, Served, Signalled, Stderr, Stop, bun, exit_code, no_bun, not_a_module, send,
     serve, serving,
 };
 use crate::Context;
@@ -38,7 +38,7 @@ use crate::workspace::{self, EntryBuilt, Making, Outcome};
 
 /// Builds the entries of the members of `workspace` in `dirs`, then
 /// serves each browser program among them on its port of [`ports`], and
-/// runs each Node program until every
+/// runs each Bun program until every
 /// one has ended, or while one is served until nomi is stopped, showing
 /// on standard error how the builds went. The code to exit with: the
 /// first failed program's, 130 or 143 when nomi was stopped by SIGINT or
@@ -63,7 +63,7 @@ pub(super) fn run(
         .map(|built| label_of(built.member, built.entry))
         .collect();
     let printing: Vec<(&str, bool)> = (labels.iter().zip(&builds.entries))
-        .map(|(label, built)| (label.as_str(), built.platform == Platform::Node))
+        .map(|(label, built)| (label.as_str(), built.platform == Platform::Bun))
         .collect();
     let prefixes = prefixes_of(&printing);
     let mut caught = match Caught::new() {
@@ -79,21 +79,21 @@ pub(super) fn run(
     };
     let mut running = Running::new(console, servers, Streams::Prefixed, Vec::new());
     let programs =
-        (builds.entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Node);
+        (builds.entries.iter().zip(prefixes)).filter(|(b, _)| b.platform == Platform::Bun);
     for (built, prefix) in programs {
         if let Err(e) = running.start(built, prefix) {
-            console::report(console, &no_node(&e), Compat::LATEST);
+            console::report(console, &no_bun(&e), Compat::LATEST);
             return running.drain(console, &mut caught, Some(Stop::Terminate), 1);
         }
     }
     running.supervise(console, &mut caught)
 }
 
-/// Why `built`, its output named from `root`, can't run: a Node program
+/// Why `built`, its output named from `root`, can't run: a Bun program
 /// written to something other than an ES module.
 fn unrunnable(built: &EntryBuilt<'_>, root: &Path) -> Option<Report> {
     let output = relative(&built.output, root);
-    (built.platform == Platform::Node && !has_ext(".mjs", &output.to_string_lossy()))
+    (built.platform == Platform::Bun && !has_ext(".mjs", &output.to_string_lossy()))
         .then(|| not_a_module(&built.entry.main, &output.display().to_string()))
 }
 
@@ -111,7 +111,7 @@ fn servers(
         .filter(|((b, _), _)| b.platform == Platform::Browser);
     let mut servers = Vec::new();
     for ((built, label), port) in browser {
-        let port = port.expect("a browser program doesn't run on Node by its manifest");
+        let port = port.expect("a browser program doesn't run on Bun by its manifest");
         match served(root, built, port, ports, Reloads::Never) {
             Ok(server) => {
                 console.err(&format!("[nomi] {}", serving(label, &server, port)));
@@ -326,7 +326,7 @@ impl Running {
         }
     }
 
-    /// Starts `built` under `node` with its entry's `args`, or those
+    /// Starts `built` under `bun` with its entry's `args`, or those
     /// every program takes, its standard output and error read line by
     /// line and shown after `prefix` where they are piped; its id.
     fn start(&mut self, built: &EntryBuilt<'_>, prefix: Prefix) -> std::io::Result<usize> {
@@ -337,13 +337,13 @@ impl Running {
         } else {
             &self.args
         };
-        let mut node = node(&built.output, args);
+        let mut bun = bun(&built.output, args);
         if self.streams == Streams::Prefixed {
-            node.stdin(Stdio::null())
+            bun.stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
         }
-        let mut child = node.spawn()?;
+        let mut child = bun.spawn()?;
         if let Some(out) = child.stdout.take() {
             read(
                 out,

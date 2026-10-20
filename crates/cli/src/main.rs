@@ -222,8 +222,8 @@ struct Build {
     /// --report=json` does.
     #[arg(long, value_name = "FORMAT")]
     report: Option<ReportFormat>,
-    /// Where the code runs: by default Node for a nomi/core
-    /// `Program`, else the browser. Under Node, an `.mjs` output of a
+    /// Where the code runs: by default Bun for a nomi/core
+    /// `Program`, else the browser. On Bun, an `.mjs` output of a
     /// `Program` starts it when run; any other exports `Elm`, as in
     /// the browser.
     #[arg(long, value_enum)]
@@ -240,7 +240,7 @@ enum ReportFormat {
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 enum PlatformName {
     Browser,
-    Node,
+    Bun,
 }
 
 mod elm;
@@ -376,7 +376,7 @@ fn build(args: Build) -> bool {
     } = args;
     let platform = platform.map(|platform| match platform {
         PlatformName::Browser => Platform::Browser,
-        PlatformName::Node => Platform::Node,
+        PlatformName::Bun => Platform::Bun,
     });
     let Some(make) = Make::build(paths, output.as_deref(), platform) else {
         eprintln!("error: --output takes a file ending in .js, .mjs or .html, or /dev/null");

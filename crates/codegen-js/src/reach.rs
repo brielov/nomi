@@ -277,7 +277,7 @@ mod tests {
         let lacking =
             |table: &[&str]| super::unavailable(Compat::V0_19_1, &DEV, table, &graph, &mains);
         assert_eq!(
-            lacking(unavailable(Platform::Node, Dom::Native)),
+            lacking(unavailable(Platform::Bun, Dom::Native)),
             Some(vec![
                 global("Main", "main"),
                 global("Page", "view"),
@@ -289,6 +289,6 @@ mod tests {
         // needs a kernel only Node has.
         assert_eq!(lacking(&["Nomi"]), None);
         assert_eq!(lacking(unavailable(Platform::Browser, Dom::Native)), None);
-        assert_eq!(lacking(unavailable(Platform::Node, Dom::Polyfilled)), None);
+        assert_eq!(lacking(unavailable(Platform::Bun, Dom::Polyfilled)), None);
     }
 }

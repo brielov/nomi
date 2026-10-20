@@ -206,7 +206,7 @@ function _NomiFs_run(path, fs, writes, f)
 	});
 }
 
-// What a store's error means for `path`. Node's errors and the memory
+// What a store's error means for `path`. `node:fs`'s errors and the memory
 // store's carry the same codes; `OUTSIDE` is a symbolic link's way out.
 function _NomiFs_error(path, error)
 {

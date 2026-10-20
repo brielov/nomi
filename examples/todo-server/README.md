@@ -2,7 +2,7 @@
 
 A small todo API on nomi/core and nomi/server. The todos live in a `Ref`, a background fiber writes them to `data/todos.json` every five seconds when they changed, and on Ctrl-C or SIGTERM the server stops accepting connections, lets the requests in flight finish, and writes the file once more.
 
-Run it from this directory, on Node 22 or later:
+Run it from this directory, on Bun 1.4 or later:
 
 ```
 nomi run

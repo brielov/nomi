@@ -1,7 +1,7 @@
 {
     "type": "package",
     "name": "nomi/test",
-    "summary": "Tests of tasks, run on Node by nomi test",
+    "summary": "Tests of tasks, run on Bun by nomi test",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [

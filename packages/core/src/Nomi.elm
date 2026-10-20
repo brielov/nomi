@@ -1,6 +1,6 @@
 module Nomi exposing (Program, program, Env, Net, log)
 
-{-| Programs that run on Node.
+{-| Programs that run on Bun.
 
 @docs Program, program, Env, Net, log
 

@@ -29,7 +29,8 @@ pub fn personality(name: &str) -> (TempDir, PathBuf) {
 }
 
 /// `program` with the cache at `cache`, where every request fails, as
-/// the recordings' did.
+/// the recordings' did, but those to this machine: Bun's `fetch` takes
+/// the proxy too, and the programs nomi runs reach their own servers.
 pub fn offline(program: &Path, cache: &Path) -> Command {
     let mut command = Command::new(program);
     command.env("NOMI_CACHE", cache);
@@ -43,6 +44,7 @@ pub fn offline(program: &Path, cache: &Path) -> Command {
         command.env_remove(var);
     }
     command.env("ALL_PROXY", "http://127.0.0.1:9");
+    command.env("NO_PROXY", "127.0.0.1,localhost");
     command
 }
 

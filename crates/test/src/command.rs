@@ -906,6 +906,15 @@ impl Run {
                 progress.new_line(console);
                 1
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                progress.new_line(console);
+                nomi_engine::console::report(
+                    console,
+                    &nomi_engine::run::no_bun(&e),
+                    Compat::LATEST,
+                );
+                1
+            }
             Err(e) => progress.fail(console, &e.to_string()),
         }
     }

@@ -1,5 +1,5 @@
 //! `nomi run`: an entry of nomi.toml, or a module given with `-e`, built
-//! for Node and run under the `node` on the PATH with the arguments after
+//! for Bun and run under the `bun` on the PATH with the arguments after
 //! `--`; nomi exits as the program does, passes SIGTERM on to it, and
 //! runs nothing when the build or nomi.toml is wrong. With `--watch` it
 //! builds and runs the program again as the project changes.
@@ -82,11 +82,11 @@ fn app(dir: &Path, program: &str, nomi_toml: Option<&str>) {
 }
 
 /// `nomi run` with `args` in `root`, offline with `cache`, with the tests'
-/// Node binary's directory first on the PATH.
+/// Bun binary's directory first on the PATH.
 fn nomi_run(cache: &Path, root: &Path, args: &[&str]) -> Command {
     let mut run = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache);
     run.current_dir(root)
-        .env("PATH", nomi_testkit::path_with_node())
+        .env("PATH", nomi_testkit::path_with_bun())
         .arg("run")
         .args(args);
     run
@@ -111,7 +111,7 @@ fn stderr(output: &Output) -> String {
 
 #[test]
 fn an_entry_runs_with_its_arguments_and_exits_with_its_code() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
     let ran = nomi_run(cache.path(), &root, &["--", "3"])
@@ -125,7 +125,7 @@ fn an_entry_runs_with_its_arguments_and_exits_with_its_code() {
 
 #[test]
 fn a_chosen_entry_writes_its_output() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let nomi_toml = "[[entry]]\nmain = \"src/Other.elm\"\nplatform = \"browser\"\n\n\
                      [[entry]]\nmain = \"src/Main.elm\"\noutput = \"dist/main.mjs\"\n";
@@ -149,7 +149,7 @@ fn a_chosen_entry_writes_its_output() {
 
 #[test]
 fn sigterm_and_sigint_reach_the_program_which_finalizes_and_nomi_exits_as_it_does() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
     for (signal, code) in [(Signal::TERM, 143), (Signal::INT, 130)] {
@@ -166,7 +166,7 @@ fn sigterm_and_sigint_reach_the_program_which_finalizes_and_nomi_exits_as_it_doe
 
 #[test]
 fn a_module_given_with_e_runs_without_nomi_toml() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, None);
     let ran = nomi_run(cache.path(), &root, &["-e", "src/Main.elm", "--", "0"])
@@ -220,7 +220,7 @@ fn a_build_that_fails_runs_nothing() {
 }
 
 #[test]
-fn without_node_on_the_path_nomi_says_so() {
+fn without_bun_on_the_path_nomi_says_so() {
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
     let ran = nomi_run(cache.path(), &root, &["--", "3"])
@@ -228,7 +228,7 @@ fn without_node_on_the_path_nomi_says_so() {
         .output()
         .unwrap();
     assert_eq!(ran.status.code(), Some(1), "{ran:?}");
-    assert!(stderr(&ran).contains("-- NO NODE"), "{ran:?}");
+    assert!(stderr(&ran).contains("-- NO BUN"), "{ran:?}");
 }
 
 /// A program that says which version of `Version` it was built with,
@@ -266,7 +266,7 @@ fn version(root: &Path, version: &str) {
 
 #[test]
 fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(VERSIONED, Some(ENTRY));
     version(&root, "\"1\"");
@@ -307,7 +307,7 @@ fn with_watch_an_edit_restarts_the_program_with_its_new_output() {
 
 #[test]
 fn with_watch_a_program_that_ends_is_started_again_on_a_change() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(PROGRAM, Some(ENTRY));
     let mut run = spawn_in(cache.path(), &root, &["--watch", "--", "3"]);
@@ -521,7 +521,7 @@ fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
 
 #[test]
 fn every_entry_runs_under_its_member_and_sigterm_finalizes_them_all() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
     let mut run = spawn_in(cache.path(), &root, &[]);
@@ -540,7 +540,7 @@ fn every_entry_runs_under_its_member_and_sigterm_finalizes_them_all() {
 
 #[test]
 fn at_the_root_browser_entries_are_served_beside_the_programs() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
     let port = free_port();
@@ -569,7 +569,7 @@ fn at_the_root_browser_entries_are_served_beside_the_programs() {
 
 #[test]
 fn an_entry_that_fails_stops_the_others_and_gives_nomi_its_code() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"exit\", \"3\"]", "[\"wait\"]");
     let mut run = spawn_in(cache.path(), &root, &[]);
@@ -587,25 +587,25 @@ fn an_entry_that_fails_stops_the_others_and_gives_nomi_its_code() {
 #[test]
 fn nomi_exits_once_its_programs_have_though_a_process_they_started_holds_their_output() {
     use std::os::unix::fs::PermissionsExt as _;
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (work, root) = gated("[\"helper\"]", "[\"wait\"]");
-    // A `node` that, for api, first starts a helper on its standard
+    // A `bun` that, for api, first starts a helper on its standard
     // streams, as a program starting a process of its own would.
     let bin = work.path().join("bin");
     fs::create_dir(&bin).unwrap();
     fs::write(
-        bin.join("node"),
+        bin.join("bun"),
         format!(
             "#!/bin/sh\ncase \"$*\" in *helper*) (echo helper; exec sleep 300) & ;; esac\nexec '{}' \"$@\"\n",
-            nomi_testkit::node().display()
+            nomi_testkit::bun().display()
         ),
     )
     .unwrap();
-    fs::set_permissions(bin.join("node"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(bin.join("bun"), fs::Permissions::from_mode(0o755)).unwrap();
     let mut path = bin.into_os_string();
     path.push(":");
-    path.push(nomi_testkit::path_with_node());
+    path.push(nomi_testkit::path_with_bun());
     let mut run = nomi_run(cache.path(), &root, &[]);
     run.env("PATH", path);
     let mut run = Group::spawn(run.stdout(Stdio::piped()).stderr(Stdio::piped()));
@@ -618,7 +618,7 @@ fn nomi_exits_once_its_programs_have_though_a_process_they_started_holds_their_o
 
 #[test]
 fn a_program_that_does_not_stop_within_the_grace_is_killed() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"slow\"]");
     let mut run = spawn_in(cache.path(), &root, &[]);
@@ -662,7 +662,7 @@ fn has_ended(pid: u32) -> bool {
 #[cfg(target_os = "linux")]
 #[test]
 fn programs_end_when_nomi_is_killed() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"wait\"]");
     let mut run = spawn_in(cache.path(), &root, &[]);
@@ -712,7 +712,7 @@ fn on_a_terminal(cache: &Path, root: &Path) -> (Group, std::process::ChildStdin,
 #[test]
 fn a_terminal_interrupt_reaches_the_programs_itself_and_a_second_kills_them() {
     use std::io::Write as _;
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = gated("[\"wait\"]", "[\"slow\"]");
     let (mut run, mut typed, said) = on_a_terminal(cache.path(), &root);
@@ -805,7 +805,7 @@ fn with_watch_a_page_whose_first_build_failed_is_served_once_fixed() {
 }
 
 /// A workspace of `packages/shared`, the package acme/shared exposing
-/// `Version`; `apps/api`, a Node program of [`VERSIONED`]; and `apps/web`,
+/// `Version`; `apps/api`, a Bun program of [`VERSIONED`]; and `apps/web`,
 /// a browser program whose code holds the version, served on `port`
 /// with static files.
 fn full_stack(port: u16) -> (tempfile::TempDir, PathBuf) {
@@ -878,7 +878,7 @@ fn batch(stderr: &Receiver<String>) -> String {
 
 #[test]
 fn with_watch_a_workspace_restarts_and_reloads_only_what_a_change_changes() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let port = free_port();
     let (_work, root) = full_stack(port);
@@ -995,7 +995,7 @@ fn with_watch_a_page_moves_as_its_entry_does() {
 
 #[test]
 fn with_watch_one_member_restarts_as_the_member_packages_it_uses_change() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = full_stack(free_port());
     let api = root.join("apps/api");

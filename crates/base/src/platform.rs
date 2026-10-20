@@ -7,5 +7,5 @@
 pub enum Platform {
     #[default]
     Browser,
-    Node,
+    Bun,
 }

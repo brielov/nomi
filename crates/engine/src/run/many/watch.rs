@@ -1,9 +1,9 @@
 //! `nomi run --watch`: each entry built and run or served as `nomi run`
 //! does, then, on each change, the members it touches built again with
-//! their dependents, through one engine, each Node program started again
+//! their dependents, through one engine, each Bun program started again
 //! and each page reloaded only where its code changed, and a page
 //! reloaded without a build when its static files change. A failed build
-//! leaves a Node program stopped and a page on its old code, and the
+//! leaves a Bun program stopped and a page on its old code, and the
 //! others run on. One entry is the case of a workspace whose one member
 //! runs it alone, its streams nomi's own.
 
@@ -25,7 +25,7 @@ use crate::console::{self, Console};
 use crate::make::Shared;
 use crate::paths::{ELM_JSON, NOMI_TOML, lexical};
 use crate::run::port::{Port, ports};
-use crate::run::{Caught, Signalled, Stderr, Stop, Watched, exit_code, no_node};
+use crate::run::{Caught, Signalled, Stderr, Stop, Watched, exit_code, no_bun};
 use crate::serve::{Reloads, Server};
 use crate::watch::{Change, POLL, Snapshot, message};
 use crate::workspace::{self, EntryBuilt, Making, with_deps};
@@ -139,7 +139,7 @@ struct Slot {
 enum Live {
     /// Nothing: it hasn't built, its build failed, or its program ended.
     Idle,
-    /// Its Node program, by its id among the programs.
+    /// Its Bun program, by its id among the programs.
     Program(usize),
     /// Its page.
     Served(Server),
@@ -188,7 +188,7 @@ enum Next<B> {
     Keep,
     /// Stop its program, as its build failed.
     Stop,
-    /// Stop what runs, and start its Node program.
+    /// Stop what runs, and start its Bun program.
     Run(Fresh<B>),
     /// Stop what runs, and serve its page.
     Serve(Fresh<B>),
@@ -203,7 +203,7 @@ fn next<B>(live: &Live, was: Option<Hash>, now: Option<Fresh<B>>) -> Next<B> {
     match (live, now) {
         (Live::Program(_), None) => Next::Stop,
         (Live::Idle | Live::Served(_), None) => Next::Keep,
-        (Live::Program(_), Some(fresh)) if fresh.platform == Platform::Node && same(&fresh) => {
+        (Live::Program(_), Some(fresh)) if fresh.platform == Platform::Bun && same(&fresh) => {
             Next::Keep
         }
         (Live::Served(_), Some(fresh)) if fresh.platform == Platform::Browser && same(&fresh) => {
@@ -213,7 +213,7 @@ fn next<B>(live: &Live, was: Option<Hash>, now: Option<Fresh<B>>) -> Next<B> {
             Next::Reload(fresh.hash)
         }
         (Live::Idle | Live::Program(_) | Live::Served(_), Some(fresh)) => match fresh.platform {
-            Platform::Node => Next::Run(fresh),
+            Platform::Bun => Next::Run(fresh),
             Platform::Browser => Next::Serve(fresh),
         },
     }
@@ -567,14 +567,14 @@ fn apply(
                     slot.live = Live::Program(id);
                     slot.code = Some(fresh.hash);
                 }
-                Err(e) => console::report(console, &no_node(&e), Compat::LATEST),
+                Err(e) => console::report(console, &no_bun(&e), Compat::LATEST),
             }
         }
         Next::Serve(fresh) => {
             slot.live = Live::Idle;
             let port = slot
                 .port
-                .expect("a browser program doesn't run on Node by its manifest");
+                .expect("a browser program doesn't run on Bun by its manifest");
             match served(root, fresh.built, port, ports, Reloads::Heard) {
                 Ok(server) => {
                     console.err(&format!("{nomi}{}", serving(label, &server, port)));
@@ -614,28 +614,28 @@ mod tests {
             platform,
             hash,
         };
-        let node = |hash| Some(fresh(Platform::Node, hash));
+        let bun = |hash| Some(fresh(Platform::Bun, hash));
         let browser = |hash| Some(fresh(Platform::Browser, hash));
         let cases = [
             (&Live::Idle, None, None, Next::Keep),
             (
                 &Live::Idle,
                 None,
-                node(new),
-                Next::Run(fresh(Platform::Node, new)),
+                bun(new),
+                Next::Run(fresh(Platform::Bun, new)),
             ),
             (
                 &Live::Idle,
                 Some(old),
-                node(old),
-                Next::Run(fresh(Platform::Node, old)),
+                bun(old),
+                Next::Run(fresh(Platform::Bun, old)),
             ),
-            (&Live::Program(0), Some(old), node(old), Next::Keep),
+            (&Live::Program(0), Some(old), bun(old), Next::Keep),
             (
                 &Live::Program(0),
                 Some(old),
-                node(new),
-                Next::Run(fresh(Platform::Node, new)),
+                bun(new),
+                Next::Run(fresh(Platform::Bun, new)),
             ),
             (&Live::Program(0), Some(old), None, Next::Stop),
             (
@@ -656,8 +656,8 @@ mod tests {
             (
                 &served,
                 Some(old),
-                node(old),
-                Next::Run(fresh(Platform::Node, old)),
+                bun(old),
+                Next::Run(fresh(Platform::Bun, old)),
             ),
         ];
         for (i, (live, was, now, wanted)) in cases.into_iter().enumerate() {

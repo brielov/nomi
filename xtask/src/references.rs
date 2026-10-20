@@ -10,6 +10,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) struct References {
+    pub bun_minimum: String,
     pub node_minimum: u32,
     #[serde(default)]
     pub source: Vec<Source>,
@@ -203,12 +204,13 @@ mod tests {
         let text = include_str!("../../references.toml");
         let refs = parse(text).unwrap();
         assert!(refs.node_minimum >= 22);
+        assert_eq!(refs.bun_minimum, "1.4");
         assert!(refs.binary.iter().any(|b| b.name == "elm-format"));
     }
 
     #[test]
     fn short_commit_fails() {
-        let text = "node-minimum = 22\n[[source]]\nname = \"c\"\nrepo = \"a/b\"\ntag = \"t\"\ncommit = \"1c278bf\"\n";
+        let text = "bun-minimum = \"1.4\"\nnode-minimum = 22\n[[source]]\nname = \"c\"\nrepo = \"a/b\"\ntag = \"t\"\ncommit = \"1c278bf\"\n";
         let error = parse(text).unwrap_err().to_string();
         assert!(
             error.contains("source c: commit must be 40 hex digits"),
@@ -220,7 +222,7 @@ mod tests {
     fn bad_asset_fails() {
         let asset = |platform: &str| {
             format!(
-                "node-minimum = 22\n[[binary]]\nname = \"elm\"\nversion = \"1\"\nrepo = \"a/b\"\ncommit = \"{COMMIT}\"\nformat = \"gz\"\nassets.{platform} = {{ file = \"f\", sha256 = \"abc\" }}\n"
+                "bun-minimum = \"1.4\"\nnode-minimum = 22\n[[binary]]\nname = \"elm\"\nversion = \"1\"\nrepo = \"a/b\"\ncommit = \"{COMMIT}\"\nformat = \"gz\"\nassets.{platform} = {{ file = \"f\", sha256 = \"abc\" }}\n"
             )
         };
         let error = format!("{:#}", parse(&asset("plan9-mips")).unwrap_err());
@@ -231,6 +233,6 @@ mod tests {
 
     #[test]
     fn unknown_field_fails() {
-        assert!(parse("node-minimum = 22\nextra = 1\n").is_err());
+        assert!(parse("bun-minimum = \"1.4\"\nnode-minimum = 22\nextra = 1\n").is_err());
     }
 }

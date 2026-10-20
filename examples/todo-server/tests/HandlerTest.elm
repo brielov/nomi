@@ -85,9 +85,9 @@ send a method target body =
 
 json : Int -> String -> { status : Int, headers : List ( String, String ), body : String }
 json status body =
-    { status = status, headers = [ ( "Content-Type", "application/json" ) ], body = body }
+    { status = status, headers = [ ( "content-type", "application/json" ) ], body = body }
 
 
 text : Int -> String -> { status : Int, headers : List ( String, String ), body : String }
 text status body =
-    { status = status, headers = [ ( "Content-Type", "text/plain; charset=utf-8" ) ], body = body }
+    { status = status, headers = [ ( "content-type", "text/plain; charset=utf-8" ) ], body = body }

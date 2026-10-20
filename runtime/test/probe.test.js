@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { probe, SINCE } from "../src/probe.js";
+import { MINIMUM, probe } from "../src/probe.js";
 
-/** A process that records its exits, at version `version`. */
-function fakeProcess(version) {
+/** A process that records its exits. */
+function fakeProcess(release) {
   const exits = [];
-  return { version, exits, exit: (code) => exits.push(code) };
+  return { ...release, exits, exit: (code) => exits.push(code) };
 }
 
 /** The lines `run` writes to standard error. */
@@ -22,30 +22,31 @@ function errors(run) {
   return lines;
 }
 
-test("a scope with every feature passes", () => {
-  const proc = fakeProcess("v22.3.0");
-  assert.deepEqual(
-    errors(() => probe(Object.keys(SINCE), { proc })),
-    [],
-  );
-  assert.deepEqual(proc.exits, []);
+test("Bun at the minimum or later passes", () => {
+  for (const version of [`${MINIMUM}.0`, "1.4.3", "1.10.0", "2.0.0"]) {
+    const proc = fakeProcess({});
+    assert.deepEqual(errors(() => probe({ scope: { Bun: { version } }, proc })), [], version);
+    assert.deepEqual(proc.exits, []);
+  }
 });
 
-test("the first missing feature is named with the Node that has it, and the probe exits 1", () => {
-  const proc = fakeProcess("v22.1.0");
-  const scope = { fetch() {}, process: { getBuiltinModule: undefined } };
-  const lines = errors(() =>
-    probe(["fetch", "process.getBuiltinModule", "AbortController"], { scope, proc }),
-  );
-  assert.deepEqual(lines, [
-    "nomi: this program needs process.getBuiltinModule, which Node 22.3 and later have (this is Node v22.1.0).",
-  ]);
+test("an older Bun is refused, naming its version, and the probe exits 1", () => {
+  const proc = fakeProcess({});
+  const lines = errors(() => probe({ scope: { Bun: { version: "1.3.9" } }, proc }));
+  assert.deepEqual(lines, [`nomi: this program runs on Bun ${MINIMUM} or later (this is Bun 1.3.9).`]);
   assert.deepEqual(proc.exits, [1]);
 });
 
-test("a feature under a missing object is missing", () => {
-  const proc = fakeProcess("v14.0.0");
-  const lines = errors(() => probe(["process.getBuiltinModule"], { scope: {}, proc }));
-  assert.equal(lines.length, 1);
+test("Node is refused, naming its version", () => {
+  const proc = fakeProcess({ version: "v24.21.0", release: { name: "node" } });
+  const lines = errors(() => probe({ scope: {}, proc }));
+  assert.deepEqual(lines, [`nomi: this program runs on Bun ${MINIMUM} or later (this is Node v24.21.0).`]);
+  assert.deepEqual(proc.exits, [1]);
+});
+
+test("another host is refused", () => {
+  const proc = fakeProcess({});
+  const lines = errors(() => probe({ scope: {}, proc }));
+  assert.deepEqual(lines, [`nomi: this program runs on Bun ${MINIMUM} or later (this is not Bun).`]);
   assert.deepEqual(proc.exits, [1]);
 });

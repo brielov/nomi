@@ -108,12 +108,12 @@ fn build(cache: &Path, root: &Path, args: &[&str]) {
     assert!(built.status.success(), "{built:?}");
 }
 
-/// `nomi build` in `root` of its one entry, `src/Main.elm` for Node
+/// `nomi build` in `root` of its one entry, `src/Main.elm` for Bun
 /// written to `dist/main.mjs`, which must succeed.
 fn build_entry(cache: &Path, root: &Path) {
     fs::write(
         root.join("nomi.toml"),
-        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"node\"\noutput = \"dist/main.mjs\"\n",
+        "[[entry]]\nmain = \"src/Main.elm\"\nplatform = \"bun\"\noutput = \"dist/main.mjs\"\n",
     )
     .unwrap();
     let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
@@ -127,8 +127,8 @@ fn build_entry(cache: &Path, root: &Path) {
 
 /// What `node script` in `root` writes to standard output, once it
 /// succeeds.
-fn node(root: &Path, script: &str) -> String {
-    let ran = Command::new(nomi_testkit::node())
+fn bun(root: &Path, script: &str) -> String {
+    let ran = Command::new(nomi_testkit::bun())
         .arg(script)
         .current_dir(root)
         .output()
@@ -138,12 +138,12 @@ fn node(root: &Path, script: &str) -> String {
 }
 
 /// A worker built into an `.mjs` file is an ES module exporting `Elm`:
-/// Node imports it, and a message sent to its incoming port comes back
-/// on its outgoing one before `send` returns, as it does built for Node
+/// Bun imports it, and a message sent to its incoming port comes back
+/// on its outgoing one before `send` returns, as it does built for Bun
 /// on the fiber runtime.
 #[test]
-fn a_module_output_is_imported_by_node_and_answers_on_its_ports() {
-    nomi_testkit::require_node();
+fn a_module_output_is_imported_by_bun_and_answers_on_its_ports() {
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(
         "port module Main exposing (main)
@@ -165,11 +165,11 @@ main =
 ",
     );
     build(cache.path(), &root, &["--output=dist/main.mjs"]);
-    // An IIFE, as a Node module of one `main` would start it.
+    // An IIFE, as a Bun module of one `main` would start it.
     build(
         cache.path(),
         &root,
-        &["--platform=node", "--output=dist/node.js"],
+        &["--platform=bun", "--output=dist/node.js"],
     );
     // The outgoing port's manager sleeps a moment after each message, as
     // upstream's does, so the driver tries until it finds it ready.
@@ -190,19 +190,19 @@ attempt(50);
     for (driver, import) in drivers {
         let script = format!("{import}\nconst app = Elm.Main.init();\n{run}");
         fs::write(root.join(driver), script).unwrap();
-        assert_eq!(node(&root, driver), "PING\n", "{driver}");
+        assert_eq!(bun(&root, driver), "PING\n", "{driver}");
     }
     let node_js = fs::read_to_string(root.join("dist/node.js")).unwrap();
     assert!(node_js.contains("var _Runtime = "));
 }
 
-/// A worker built for Node as an entry starts when run, and with nothing
-/// live exits 0 on its own. Built into an `.mjs` file for Node or the
-/// browser without an entry, the module runs nothing: a Node host that
+/// A worker built for Bun as an entry starts when run, and with nothing
+/// live exits 0 on its own. Built into an `.mjs` file for Bun or the
+/// browser without an entry, the module runs nothing: a Bun host that
 /// imports it starts it, and keeps its signals.
 #[test]
-fn a_node_entry_starts_its_main_and_a_plain_module_runs_nothing() {
-    nomi_testkit::require_node();
+fn a_bun_entry_starts_its_main_and_a_plain_module_runs_nothing() {
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(
         "module Main exposing (main)
@@ -218,15 +218,15 @@ main =
 ",
     );
     build_entry(cache.path(), &root);
-    assert_eq!(node(&root, "dist/main.mjs"), "started: ()\n");
+    assert_eq!(bun(&root, "dist/main.mjs"), "started: ()\n");
     build(cache.path(), &root, &["--output=dist/plain.mjs"]);
-    assert_eq!(node(&root, "dist/plain.mjs"), "");
+    assert_eq!(bun(&root, "dist/plain.mjs"), "");
     build(
         cache.path(),
         &root,
-        &["--platform=node", "--output=dist/node.mjs"],
+        &["--platform=bun", "--output=dist/node.mjs"],
     );
-    assert_eq!(node(&root, "dist/node.mjs"), "");
+    assert_eq!(bun(&root, "dist/node.mjs"), "");
     let host = "const { Elm } = await import('./dist/node.mjs');
 console.log('imported');
 Elm.Main.init();
@@ -234,7 +234,7 @@ console.log('signal handlers:', process.listenerCount('SIGINT') + process.listen
 ";
     fs::write(root.join("host.mjs"), host).unwrap();
     assert_eq!(
-        node(&root, "host.mjs"),
+        bun(&root, "host.mjs"),
         "imported\nstarted: ()\nsignal handlers: 0\n"
     );
 }
@@ -257,7 +257,7 @@ fn files(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-/// A project built for the browser, then for Node, finds everything it
+/// A project built for the browser, then for Bun, finds everything it
 /// built already: nothing in its artifacts or nomi's cache names a
 /// platform.
 #[test]
@@ -298,20 +298,20 @@ main =
     build(
         cache.path(),
         &root,
-        &["--platform=node", "--output=dist/node.mjs"],
+        &["--platform=bun", "--output=dist/node.mjs"],
     );
     assert!(browser.0.keys().any(|path| path.starts_with("artifacts")));
     assert!(
         browser == artifacts(),
-        "a build for Node changed the artifacts"
+        "a build for Bun changed the artifacts"
     );
 }
 
-/// A kernel Node replaces, in a release whose file nomi doesn't know, is
-/// not available on Node: the build fails naming the release, where the
+/// A kernel Bun replaces, in a release whose file nomi doesn't know, is
+/// not available on Bun: the build fails naming the release, where the
 /// browser's still builds. elm/http 1.0.0's `Http.js` is such a file.
 #[test]
-fn an_unknown_release_of_a_replaced_kernel_fails_for_node() {
+fn an_unknown_release_of_a_replaced_kernel_fails_for_bun() {
     let worker = "module Main exposing (main)
 
 
@@ -340,7 +340,7 @@ main =
 }
 
 /// Builds `main`, with `elm_json` if given, for the browser and then for
-/// Node with the kernel `module` changed, which must fail naming
+/// Bun with the kernel `module` changed, which must fail naming
 /// `release` and the `chain` to it.
 fn unknown_release_fails(
     main: &str,
@@ -369,14 +369,14 @@ fn unknown_release_fails(
         .args([
             "build",
             "src/Main.elm",
-            "--platform=node",
+            "--platform=bun",
             "--output=dist/node.js",
         ])
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&built.stdout) + String::from_utf8_lossy(&built.stderr);
     assert!(!built.status.success(), "{said}");
-    assert!(said.contains("NOT AVAILABLE ON NODE"), "{said}");
+    assert!(said.contains("NOT AVAILABLE ON BUN"), "{said}");
     let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
     let uses = format!("uses Elm.Kernel.{module} of {release}, a file");
     assert!(said.contains(&uses), "{said}");
@@ -459,14 +459,14 @@ update msg model =
 /// real clock has passed it. nomi/test's virtual clock runs the same
 /// steps, an hour long, in no real time.
 #[test]
-fn a_node_program_sleeps_and_ticks_on_the_real_clock() {
-    nomi_testkit::require_node();
+fn a_bun_program_sleeps_and_ticks_on_the_real_clock() {
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(&clocked_worker(50, 5));
     fs::write(root.join("elm.json"), TIME_APP).unwrap();
     build_entry(cache.path(), &root);
     let started = std::time::Instant::now();
-    let mut node = Command::new(nomi_testkit::node())
+    let mut node = Command::new(nomi_testkit::bun())
         .arg("dist/main.mjs")
         .current_dir(&root)
         .stdout(std::process::Stdio::piped())
@@ -525,16 +525,16 @@ update time model =
 ";
 
 /// `Time.every 0` ticks at most once a millisecond, as upstream's
-/// `setInterval` does on Node, rather than as fast as the event loop
+/// `setInterval` does on Bun, rather than as fast as the event loop
 /// turns.
 #[test]
-fn a_node_program_ticking_every_0_ms_waits_a_millisecond_a_tick() {
-    nomi_testkit::require_node();
+fn a_bun_program_ticking_every_0_ms_waits_a_millisecond_a_tick() {
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(EVERY_0_WORKER);
     fs::write(root.join("elm.json"), TIME_APP).unwrap();
     build_entry(cache.path(), &root);
-    assert_eq!(node(&root, "dist/main.mjs"), "took 25 ms or more: True\n");
+    assert_eq!(bun(&root, "dist/main.mjs"), "took 25 ms or more: True\n");
 }
 
 /// A worker logging each tick of a `Time.every 20`.
@@ -557,15 +557,15 @@ main =
 /// the lifecycle's deadline of ten seconds. One with nothing live exits
 /// 0 on its own (`a_node_entry_starts_its_main_and_a_plain_module_runs_nothing`).
 #[test]
-fn a_ticking_node_worker_runs_until_a_signal_and_exits_with_its_code() {
+fn a_ticking_bun_worker_runs_until_a_signal_and_exits_with_its_code() {
     use std::time::{Duration, Instant};
 
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(TICKING_WORKER);
     fs::write(root.join("elm.json"), TIME_APP).unwrap();
     build_entry(cache.path(), &root);
-    let node = nomi_testkit::node();
+    let node = nomi_testkit::bun();
     for (signal, code) in [("TERM", 143), ("INT", 130)] {
         let mut node = Command::new(&node)
             .arg("dist/main.mjs")
@@ -764,22 +764,22 @@ server.listen(0, '127.0.0.1', () => {
 });
 "#;
 
-/// elm/http on Node gives the `Result` the browser's kernel gives: for a
+/// elm/http on Bun gives the `Result` the browser's kernel gives: for a
 /// GET and a POST, each `expect`, the response's metadata, a bad status,
 /// a timeout, a dropped connection and a bad URL. A timeout longer than a
 /// host timer waits waits. A cancelled request closes its connection and
 /// answers nothing. A response function that throws is a defect of its
 /// request's fiber, which the program outlives.
 #[test]
-fn a_node_program_makes_http_requests() {
-    nomi_testkit::require_node();
+fn a_bun_program_makes_http_requests() {
+    nomi_testkit::require_bun();
     let cache = website::fixture_cache();
     let (_work, root) = project(HTTP_WORKER);
     fs::write(root.join("elm.json"), HTTP_APP).unwrap();
     build(
         cache.path(),
         &root,
-        &["--platform=node", "--output=dist/main.js"],
+        &["--platform=bun", "--output=dist/main.js"],
     );
     fs::write(root.join("driver.cjs"), HTTP_DRIVER).unwrap();
     let expected = r#"start
@@ -796,7 +796,7 @@ bad url: Err (BadUrl "not a url")
 progress: Receiving { received = 5, size = Just 10 }
 closed: Ok "closed"
 "#;
-    let ran = Command::new(nomi_testkit::node())
+    let ran = Command::new(nomi_testkit::bun())
         .arg("driver.cjs")
         .current_dir(&root)
         .output()

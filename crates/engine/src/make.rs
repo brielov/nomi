@@ -704,20 +704,20 @@ fn generate(
 /// them to it. A nomi/core `Program` is an entry, as it only runs as one.
 fn made_for(make: &Make, optimized: &Optimized, path: &mut PathBuf) -> javascript::Target {
     let mut made_for = make.target.clone();
-    let on_node = javascript::runs_on_node(optimized);
+    let on_node = javascript::runs_on_bun(optimized);
     if on_node {
         made_for.start = javascript::Start::Entry;
     }
     made_for.platform = match make.platform {
         Some(platform) => platform,
-        None if on_node => Platform::Node,
+        None if on_node => Platform::Bun,
         None => Platform::Browser,
     };
     match make.output_name {
         OutputName::Given => {}
         OutputName::ByPlatform => {
             let (extension, format) = match made_for.platform {
-                Platform::Node => ("mjs", javascript::Format::EsModule),
+                Platform::Bun => ("mjs", javascript::Format::EsModule),
                 Platform::Browser => ("js", javascript::Format::Iife),
             };
             path.set_extension(extension);

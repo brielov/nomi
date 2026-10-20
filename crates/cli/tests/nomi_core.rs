@@ -1,7 +1,7 @@
 //! nomi/core's `Nomi.program`, bundled with nomi: built offline from the
-//! bundle, it is a Node entry unless the browser is asked for, and runs
+//! bundle, it is a Bun entry unless the browser is asked for, and runs
 //! its task as the process, which exits with how the task ended, or at
-//! once, naming it, when Node lacks something it needs; joining a fiber that dies is the joiner's defect, and its fibers share refs
+//! once, naming it, when its host isn't Bun 1.4 or later; joining a fiber that dies is the joiner's defect, and its fibers share refs
 //! and queues (`nomi_test.rs` runs its concurrent tasks, which take hours,
 //! on nomi/test's virtual clock); `Nomi.log` writes to stderr. nomi/server,
 //! bundled beside it, serves HTTP to a loopback client on the port it says
@@ -339,8 +339,8 @@ fn built(program: &str) -> (tempfile::TempDir, PathBuf) {
     (work, root)
 }
 
-fn node() -> Command {
-    Command::new(nomi_testkit::node())
+fn bun() -> Command {
+    Command::new(nomi_testkit::bun())
 }
 
 /// The lines of standard error past the development mode's warning.
@@ -352,10 +352,10 @@ fn errors(output: &Output) -> Vec<String> {
 }
 
 #[test]
-fn a_program_is_a_node_entry_by_default_and_its_task_decides_the_exit() {
-    nomi_testkit::require_node();
+fn a_program_is_a_bun_entry_by_default_and_its_task_decides_the_exit() {
+    nomi_testkit::require_bun();
     let (_work, root) = built(PROGRAM);
-    let ran = node()
+    let ran = bun()
         .args(["dist/main.mjs", "a", "b"])
         .env("GREETING", "hi")
         .current_dir(&root)
@@ -367,7 +367,7 @@ fn a_program_is_a_node_entry_by_default_and_its_task_decides_the_exit() {
         "([\"a\",\"b\"],Just \"hi\"): ()\n"
     );
     assert_eq!(errors(&ran), Vec::<String>::new());
-    let failed = node()
+    let failed = bun()
         .args(["dist/main.mjs", "fail"])
         .current_dir(&root)
         .output()
@@ -378,9 +378,9 @@ fn a_program_is_a_node_entry_by_default_and_its_task_decides_the_exit() {
 
 #[test]
 fn nomi_log_writes_a_line_to_stderr() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(PROGRAM);
-    let ran = node()
+    let ran = bun()
         .args(["dist/main.mjs", "log"])
         .current_dir(&root)
         .output()
@@ -392,9 +392,9 @@ fn nomi_log_writes_a_line_to_stderr() {
 
 #[test]
 fn sigterm_interrupts_a_program_runs_its_finalizer_and_exits_143() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(PROGRAM);
-    let mut program = node()
+    let mut program = bun()
         .args(["dist/main.mjs", "wait"])
         .current_dir(&root)
         .stdout(Stdio::piped())
@@ -445,41 +445,57 @@ fn a_program_built_for_the_browser_names_the_path_to_the_nomi_kernel() {
     assert!(!root.join("dist").exists());
 }
 
+/// Runs the entry `dist/main.mjs` in a fresh global scope whose host is
+/// `host`, a JS expression: its `Bun`, if any, and its `process`. The
+/// entry's probe runs before anything else of it, so a refused host
+/// exits there, which the scope's `process.exit` reports as a line.
+const ON_HOST: &str = r#"
+const vm = require("node:vm");
+const fs = require("node:fs");
+const [file, host] = process.argv.slice(1);
+const code = fs.readFileSync(file, "utf8").replace(/\nexport const Elm = scope\.Elm;\n$/, "\n");
+const exited = new Error("exited");
+const scope = { console, ...eval(`(${host})`) };
+scope.process.exit = (code) => { console.log(`exit ${code}`); throw exited; };
+try {
+  vm.runInNewContext(code, scope);
+  console.log("ran");
+} catch (error) {
+  if (error !== exited) throw error;
+}
+"#;
+
 #[test]
-fn an_entry_on_a_node_lacking_a_feature_it_needs_exits_naming_it() {
-    nomi_testkit::require_node();
+fn an_entry_on_a_host_that_isnt_a_recent_bun_exits_saying_so() {
+    nomi_testkit::require_bun();
     let (_work, root) = built(PROGRAM);
-    let version = node().args(["-p", "process.version"]).output().unwrap();
-    let version = String::from_utf8_lossy(&version.stdout).trim().to_owned();
-    let missing = [
-        ("process.getBuiltinModule", "process", "22.3"),
-        ("AbortController", "globalThis", "15.0"),
+    let hosts = [
+        (
+            r#"{ process: { version: "v24.21.0", release: { name: "node" } } }"#,
+            "nomi: this program runs on Bun 1.4 or later (this is Node v24.21.0).",
+        ),
+        (
+            r#"{ Bun: { version: "1.3.9" }, process: {} }"#,
+            "nomi: this program runs on Bun 1.4 or later (this is Bun 1.3.9).",
+        ),
     ];
-    for (feature, owner, since) in missing {
-        let name = feature.rsplit('.').next().unwrap();
-        fs::write(root.join("delete.mjs"), format!("delete {owner}.{name};\n")).unwrap();
-        let ran = node()
-            .args(["--import", "./delete.mjs", "dist/main.mjs", "a"])
+    for (host, said) in hosts {
+        let ran = bun()
+            .args(["-e", ON_HOST, "dist/main.mjs", host])
             .current_dir(&root)
             .output()
             .unwrap();
-        assert_eq!(ran.status.code(), Some(1), "{ran:?}");
-        assert_eq!(String::from_utf8_lossy(&ran.stdout), "");
-        assert_eq!(
-            errors(&ran),
-            [format!(
-                "nomi: this program needs {feature}, which Node {since} and later have \
-                 (this is Node {version})."
-            )]
-        );
+        assert!(ran.status.success(), "{ran:?}");
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), "exit 1\n", "{ran:?}");
+        assert_eq!(errors(&ran), [said]);
     }
 }
 
 #[test]
 fn joining_a_fiber_that_dies_is_the_joiners_defect() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(DEFECT);
-    let ran = node()
+    let ran = bun()
         .arg("dist/main.mjs")
         .current_dir(&root)
         .output()
@@ -511,9 +527,9 @@ fn joining_a_fiber_that_dies_is_the_joiners_defect() {
 
 #[test]
 fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(SHARED);
-    let ran = node()
+    let ran = bun()
         .arg("dist/main.mjs")
         .current_dir(&root)
         .output()
@@ -568,7 +584,7 @@ impl Serving {
     /// it says which port it took.
     fn of(program: &str, args: &[&str]) -> Serving {
         let (work, root) = built(program);
-        let mut server = node()
+        let mut server = bun()
             .args(["dist/main.mjs", "0"])
             .args(args)
             .current_dir(&root)
@@ -670,7 +686,7 @@ impl Drop for Serving {
 
 #[test]
 fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::start();
     let methods = [
         ("GET", "Get"),
@@ -710,7 +726,7 @@ fn a_server_reads_each_method_path_query_and_header_and_stops_on_sigterm() {
 
 #[test]
 fn a_server_decodes_json_bodies_and_refuses_large_and_bad_ones() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let serving = Serving::start();
     let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": 41}"#));
     let (status, body) = (sent.status, sent.text());
@@ -755,11 +771,11 @@ fn a_server_decodes_json_bodies_and_refuses_large_and_bad_ones() {
 
 #[test]
 fn a_server_on_a_taken_port_fails_with_address_in_use() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(SERVER);
     let taken = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = taken.local_addr().unwrap().port();
-    let ran = node()
+    let ran = bun()
         .args(["dist/main.mjs", &port.to_string()])
         .current_dir(&root)
         .output()
@@ -775,9 +791,9 @@ fn a_server_on_a_taken_port_fails_with_address_in_use() {
 
 #[test]
 fn a_server_on_a_port_out_of_range_fails_saying_so() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let (_work, root) = built(SERVER);
-    let ran = node()
+    let ran = bun()
         .args(["dist/main.mjs", "70000"])
         .current_dir(&root)
         .output()
@@ -791,7 +807,7 @@ fn a_server_on_a_port_out_of_range_fails_saying_so() {
 
 #[test]
 fn a_server_takes_bodies_up_to_its_max_body_bytes() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let serving = Serving::of(SERVER, &["16"]);
     let sent = serving.send(&http::closing("POST", "/json", "", br#"{"n": 1}        "#));
     let (status, body) = (sent.status, sent.text());
@@ -802,12 +818,12 @@ fn a_server_takes_bodies_up_to_its_max_body_bytes() {
 }
 
 #[test]
-fn a_server_reads_repeated_headers_as_node_does_and_sends_each_added_one() {
-    nomi_testkit::require_node();
+fn a_server_reads_repeated_headers_by_fetchs_rules_and_sends_each_added_one() {
+    nomi_testkit::require_bun();
     let serving = Serving::start();
     for (name, read) in [
         ("cookie", r#"Just "a=1; b=2""#),
-        ("content-type", r#"Just "a""#),
+        ("content-type", r#"Just "a, b""#),
         ("x-many", r#"Just "1, 2""#),
     ] {
         let sent = http::closing(
@@ -823,8 +839,7 @@ fn a_server_reads_repeated_headers_as_node_does_and_sends_each_added_one() {
     let sent = serving.send(&http::closing("GET", "/cookies", "", b""));
     let status = sent.status;
     assert_eq!(status, 204);
-    // In the order added, those of one name together, as `respond` gives
-    // them.
+    // Each `Set-Cookie` apart, as `respond` gives them.
     let added: Vec<_> = (sent.headers.iter())
         .filter(|(name, _)| name == "set-cookie" || name == "x-between")
         .map(|(name, value)| (name.as_str(), value.as_str()))
@@ -841,7 +856,7 @@ fn a_server_reads_repeated_headers_as_node_does_and_sends_each_added_one() {
 
 #[test]
 fn a_client_that_disconnects_interrupts_its_request_and_runs_its_finalizers() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::of(LIFECYCLE, &["5000"]);
     let mut stream = serving.connect();
     stream
@@ -859,7 +874,7 @@ fn a_client_that_disconnects_interrupts_its_request_and_runs_its_finalizers() {
 
 #[test]
 fn a_handler_that_dies_answers_500_writes_one_line_and_the_server_serves_on() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::of(LIFECYCLE, &["5000"]);
     let sent = serving.send(&http::closing("GET", "/todo?x=1", "X-Gone: yes\r\n", b""));
     let (status, body) = (sent.status, sent.text());
@@ -890,7 +905,7 @@ fn a_handler_that_dies_answers_500_writes_one_line_and_the_server_serves_on() {
 
 #[test]
 fn sigterm_refuses_new_connections_lets_a_response_in_flight_complete_and_exits_143() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::of(LIFECYCLE, &["30000"]);
     // The handler waits for the body, which is sent once the server
     // refuses connections.
@@ -919,7 +934,7 @@ fn sigterm_refuses_new_connections_lets_a_response_in_flight_complete_and_exits_
 
 #[test]
 fn a_response_written_during_the_drain_closes_its_connection() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::of(LIFECYCLE, &["30000"]);
     let mut stream = serving.connect();
     let head = b"POST /slow HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\n\r\n";
@@ -954,7 +969,7 @@ fn a_response_written_during_the_drain_closes_its_connection() {
 
 #[test]
 fn a_request_still_running_when_the_drain_ends_is_interrupted_and_its_connection_closed() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let mut serving = Serving::of(LIFECYCLE, &["1000"]);
     let mut stream = serving.connect();
     stream

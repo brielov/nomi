@@ -1,9 +1,9 @@
 === note
-for Node, a main that uses a view
+for Node, a module that defines a view main never uses
 === args
 build
 src/Main.elm
---platform=node
+--platform=bun
 --output=dist/main.mjs
 === file elm.json
 {"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4"}, "indirect": {"elm/virtual-dom": "1.0.5"}}, "test-dependencies": {"direct": {}, "indirect": {}}}
@@ -24,14 +24,13 @@ view =
 === file src/Main.elm
 module Main exposing (main)
 
-import Html exposing (Html)
 import Page
 
 
-main : Program () (Html ()) ()
+main : Program () String ()
 main =
     Platform.worker
-        { init = \_ -> ( Page.view, Cmd.none )
+        { init = \_ -> ( Page.title, Cmd.none )
         , update = \_ model -> ( model, Cmd.none )
         , subscriptions = \_ -> Sub.none
         }

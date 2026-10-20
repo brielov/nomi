@@ -4,7 +4,7 @@ module Nomi.Test exposing
     , advance
     )
 
-{-| Tests of tasks, which `nomi test` runs on Node beside pure tests.
+{-| Tests of tasks, which `nomi test` runs on Bun beside pure tests.
 
 Every effectful test runs on a virtual clock of its own, from 0: its time
 moves only when every one of its fibers waits on a timer, or on `advance`,

@@ -38,7 +38,7 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
         ManifestProblem::UnknownPlatform(name) => (
             "UNKNOWN PLATFORM",
             format!("I do not know the \"{name}\" platform:"),
-            "The platforms are \"node\" and \"browser\". Without one, an entry runs on Node \
+            "The platforms are \"bun\" and \"browser\". Without one, an entry runs on Bun \
              when its `main` is a Nomi.Program, and in the browser otherwise."
                 .to_owned(),
         ),
@@ -62,23 +62,23 @@ pub fn manifest(error: &ManifestError, src: &[u8], compat: Compat) -> Report {
             "A port is a number from 1 to 65535, as in port = 8000.".to_owned(),
         ),
         ManifestProblem::WrongPlatformKey { key, platform } => match platform {
-            Platform::Node => (
+            Platform::Bun => (
                 "WRONG PLATFORM",
                 format!(
-                    "The `{}` key is for browser entries, but this entry runs on Node:",
+                    "The `{}` key is for browser entries, but this entry runs on Bun:",
                     key.as_str()
                 ),
                 "The `static` directory and the `port` are for the server `nomi run` starts \
-                 for a browser program. A Node program serves itself."
+                 for a browser program. A Bun program serves itself."
                     .to_owned(),
             ),
             Platform::Browser => (
                 "WRONG PLATFORM",
                 format!(
-                    "The `{}` key is for Node entries, but this entry runs in the browser:",
+                    "The `{}` key is for Bun entries, but this entry runs in the browser:",
                     key.as_str()
                 ),
-                "The `args` are the command-line arguments `nomi run` gives a Node program. \
+                "The `args` are the command-line arguments `nomi run` gives a Bun program. \
                  A browser program has none."
                     .to_owned(),
             ),
@@ -131,7 +131,7 @@ fn how_to_write(key: Key) -> &'static str {
     match key {
         Key::Main => "For example: main = \"src/Main.elm\"",
         Key::Output => "For example: output = \"dist/main.mjs\"",
-        Key::Platform => "For example: platform = \"node\"",
+        Key::Platform => "For example: platform = \"bun\"",
         Key::Args => "For example: args = [\"--port\", \"3000\"]",
         Key::Static => "For example: static = \"public\"",
         Key::Port => "For example: port = 8000",

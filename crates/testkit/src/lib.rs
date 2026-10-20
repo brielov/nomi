@@ -75,22 +75,22 @@ pub fn parallel_on<T: Sync, R: Send>(
         .collect()
 }
 
-/// Fails the test unless Node runs: the tests that run generated code
+/// Fails the test unless Bun runs: the tests that run generated code
 /// need it, and never pass by skipping.
-pub fn require_node() {
-    let runs = Command::new("node")
+pub fn require_bun() {
+    let runs = Command::new("bun")
         .arg("--version")
         .output()
         .is_ok_and(|output| output.status.success());
-    assert!(runs, "this test runs Node, which isn't on the PATH");
+    assert!(runs, "this test runs Bun, which isn't on the PATH");
 }
 
-/// The Node binary the tests that run programs use: the one
-/// `NOMI_TEST_NODE` names, to test another release, or else `node` on the
-/// PATH. It is the binary Node reports running, since a version manager's
+/// The Bun binary the tests that run programs use: the one
+/// `NOMI_TEST_BUN` names, to test another release, or else `bun` on the
+/// PATH. It is the binary Bun reports running, since a version manager's
 /// wrapper may exit 128 plus a signal itself rather than pass it on.
-pub fn node() -> PathBuf {
-    let launcher = std::env::var_os("NOMI_TEST_NODE").unwrap_or_else(|| "node".into());
+pub fn bun() -> PathBuf {
+    let launcher = std::env::var_os("NOMI_TEST_BUN").unwrap_or_else(|| "bun".into());
     let output = Command::new(&launcher)
         .args(["-p", "process.execPath"])
         .output();
@@ -98,15 +98,15 @@ pub fn node() -> PathBuf {
         Ok(output) if output.status.success() => {
             PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
         }
-        _ => panic!("this test runs Node, and {launcher:?} doesn't run"),
+        _ => panic!("this test runs Bun, and {launcher:?} doesn't run"),
     }
 }
 
-/// The PATH with the directory of [`node`] first, so a program run under
-/// `node` runs on the tests' Node.
-pub fn path_with_node() -> std::ffi::OsString {
-    let node = node();
-    let mut path = std::ffi::OsString::from(node.parent().expect("node is in a directory"));
+/// The PATH with the directory of [`bun`] first, so a program run under
+/// `bun` runs on the tests' Bun.
+pub fn path_with_bun() -> std::ffi::OsString {
+    let bun = bun();
+    let mut path = std::ffi::OsString::from(bun.parent().expect("bun is in a directory"));
     path.push(if cfg!(windows) { ";" } else { ":" });
     path.push(std::env::var_os("PATH").unwrap_or_default());
     path

@@ -10,7 +10,7 @@ import Elm.Kernel.Scheduler exposing (binding, succeed)
 // elm/time's clock on the fiber runtime's: `now` reads it, and an
 // interval is a loop that sleeps on it and starts `task` on a daemon each
 // time it wakes, at least a millisecond apart, as upstream's
-// `setInterval` is on Node. The time zone functions are upstream's.
+// `setInterval` is on Bun. The time zone functions are upstream's.
 
 function _Time_now(millisToPosix)
 {

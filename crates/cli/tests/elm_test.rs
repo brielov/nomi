@@ -5,7 +5,7 @@
 //! are.
 //!
 //! Like the recordings, cases run offline, with a cache that holds the
-//! fixture packages and nothing else. The tests run in Node.
+//! fixture packages and nothing else. The tests run on Bun.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -18,7 +18,7 @@ use website::offline;
 
 #[test]
 fn elm_test_transcripts() {
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
     let (_bin, elm_test) = website::personality("elm-test");
     let cache = website::fixture_cache();
@@ -51,7 +51,7 @@ fn watch_runs_again_on_changes() {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
-    nomi_testkit::require_node();
+    nomi_testkit::require_bun();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/elm_test");
     let cache = website::fixture_cache();
     let case =

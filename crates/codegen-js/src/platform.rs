@@ -1,8 +1,6 @@
 //! What a program is generated for: where it runs, and the shape of its
 //! file. Upstream's is the browser's, an IIFE.
 
-use std::collections::BTreeSet;
-
 use nomi_base::Platform;
 
 use crate::runtime::{self, Override};
@@ -12,14 +10,14 @@ use crate::runtime::{self, Override};
 const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiFs", "NomiServer", "NomiStdio", "NomiTest"];
 
 /// The kernel modules, by short name, a program for `platform` may not
-/// reach, with `dom`. Node has no DOM of its own. The browser lacks
+/// reach, with `dom`. Bun has no DOM of its own. The browser lacks
 /// nomi/* kernels, which the graph names by short name alone, as it names
 /// every kernel.
 pub fn unavailable(platform: Platform, dom: Dom) -> &'static [&'static str] {
     match (platform, dom) {
         (Platform::Browser, Dom::Native | Dom::Polyfilled) => BUNDLED_KERNELS,
-        (Platform::Node, Dom::Polyfilled) => &[],
-        (Platform::Node, Dom::Native) => &["Browser", "VirtualDom", "File"],
+        (Platform::Bun, Dom::Polyfilled) => &[],
+        (Platform::Bun, Dom::Native) => &["Browser", "VirtualDom", "File"],
     }
 }
 
@@ -27,7 +25,7 @@ pub fn unavailable(platform: Platform, dom: Dom) -> &'static [&'static str] {
 pub fn overrides(platform: Platform) -> &'static [Override] {
     match platform {
         Platform::Browser => &[],
-        Platform::Node => &runtime::NODE,
+        Platform::Bun => &runtime::BUN,
     }
 }
 
@@ -47,7 +45,7 @@ pub enum Start {
     /// Its host imports it and starts what it exports: upstream's.
     #[default]
     Library,
-    /// It is run as a program: on Node, an ES module of one `main` starts
+    /// It is run as a program: on Bun, an ES module of one `main` starts
     /// it, and handles the process's signals.
     Entry,
 }
@@ -65,10 +63,10 @@ pub enum Advice {
 /// Where a program finds the browser's globals its DOM kernels use.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Dom {
-    /// In its platform, which Node lacks.
+    /// In its platform, which Bun lacks.
     #[default]
     Native,
-    /// In stand-ins its host defines, as elm-test's runner does on Node.
+    /// In stand-ins its host defines, as elm-test's runner does on Bun.
     Polyfilled,
 }
 
@@ -82,37 +80,14 @@ pub struct Target {
     pub advice: Advice,
 }
 
-/// What the runtime needs from Node beyond the language, as
-/// `runtime/src/probe.js`'s `SINCE` names it.
-const RUNTIME_NEEDS: &[&str] = &["AbortController", "setImmediate"];
-
-/// What the kernel module `kernel`, by short name, needs from Node beyond
-/// the language and the runtime, as `runtime/src/probe.js`'s `SINCE`
-/// names it.
-fn kernel_needs(kernel: &str) -> &'static [&'static str] {
-    match kernel {
-        "Http" => &["fetch", "TextDecoder"],
-        "NomiFs" => &["process.getBuiltinModule", "TextEncoder", "TextDecoder"],
-        "NomiServer" => &["process.getBuiltinModule", "URLSearchParams"],
-        _ => &[],
-    }
+/// The line that starts a Bun entry, after the runtime and before the
+/// kernels, which may use Bun's built-ins as they load: the runtime's
+/// probe, which exits with a line unless the host is a Bun recent enough.
+pub(crate) fn probe() -> &'static str {
+    "_Runtime.probe();\n"
 }
 
-/// The line that starts a Node entry, after the runtime and before the
-/// kernels, which may use what they need as they load: the runtime's
-/// probe of what it and `kernels`, by short name, need from Node, which
-/// exits naming the first Node lacks.
-pub(crate) fn probe<'a>(kernels: impl IntoIterator<Item = &'a str>) -> String {
-    let mut needs: BTreeSet<&str> = RUNTIME_NEEDS.iter().copied().collect();
-    needs.extend(kernels.into_iter().flat_map(kernel_needs));
-    let list = needs
-        .iter()
-        .map(|need| format!("'{need}'"))
-        .collect::<Vec<_>>();
-    format!("_Runtime.probe([{}]);\n", list.join(", "))
-}
-
-/// The lines that end a Node entry's function, where the program's
+/// The lines that end a Bun entry's function, where the program's
 /// runtime is, and start its `main`, in `module`: one lifecycle on the
 /// runtime, which handles signals, then `init`, which passes a worker no
 /// flags. A nomi/core program's `init` starts the runtime's `main` itself
@@ -130,33 +105,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_probe_checks_what_the_runtime_and_the_reached_kernels_need_once_each() {
-        assert_eq!(
-            probe([]),
-            "_Runtime.probe(['AbortController', 'setImmediate']);\n"
+    fn the_runtimes_minimum_bun_is_references_tomls() {
+        let probe = include_str!("../../../runtime/src/probe.js");
+        let references = include_str!("../../../references.toml");
+        let minimum = (references.lines())
+            .find_map(|line| line.strip_prefix("bun-minimum = "))
+            .expect("references.toml names bun-minimum");
+        assert!(
+            probe.contains(&format!("export const MINIMUM = {minimum};")),
+            "probe.js's MINIMUM isn't references.toml's bun-minimum, {minimum}"
         );
-        assert_eq!(
-            probe(["Basics", "NomiServer", "NomiFs"]),
-            "_Runtime.probe(['AbortController', 'TextDecoder', 'TextEncoder', \
-             'URLSearchParams', 'process.getBuiltinModule', 'setImmediate']);\n"
-        );
-    }
-
-    #[test]
-    fn the_runtimes_probe_knows_every_need() {
-        let since = include_str!("../../../runtime/src/probe.js");
-        let kernels = ["Http", "NomiFs", "NomiServer"];
-        let needs = RUNTIME_NEEDS
-            .iter()
-            .chain(kernels.iter().flat_map(|k| kernel_needs(k)));
-        for need in needs {
-            let key = if need.contains('.') {
-                format!("  \"{need}\": \"")
-            } else {
-                format!("  {need}: \"")
-            };
-            assert!(since.contains(&key), "probe.js's SINCE lacks {need}");
-        }
     }
 
     #[test]

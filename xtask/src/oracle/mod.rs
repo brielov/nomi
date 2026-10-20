@@ -393,6 +393,25 @@ fn fetch_elm_package(package: &ElmPackage) -> Result<()> {
 
 /// Node's version, as `node --version` prints it, failing unless its
 /// major is at least `minimum`.
+/// Bun's version, failing unless it is at least `minimum`, a version's
+/// leading parts.
+pub(crate) fn bun_version(minimum: &str) -> Result<String> {
+    let out = Command::new("bun")
+        .arg("--version")
+        .output()
+        .context("running bun; nomi's programs and tests need Bun on PATH")?;
+    let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let parts = |text: &str| -> Option<Vec<u32>> {
+        text.split('.').map(|part| part.parse().ok()).collect()
+    };
+    let have = parts(&version).with_context(|| format!("unrecognized bun version {version:?}"))?;
+    let need = parts(minimum).with_context(|| format!("unrecognized bun-minimum {minimum:?}"))?;
+    if have[..need.len().min(have.len())] < need[..] {
+        bail!("bun {version} is older than the minimum, {minimum}");
+    }
+    Ok(version)
+}
+
 pub(crate) fn node_version(minimum: u32) -> Result<String> {
     let out = Command::new("node")
         .arg("--version")
@@ -414,6 +433,10 @@ pub(crate) fn node_version(minimum: u32) -> Result<String> {
 /// Prints every pin and whether it is installed.
 pub(crate) fn versions(refs: &References) {
     println!("platform  {}", platform_name());
+    match bun_version(&refs.bun_minimum) {
+        Ok(v) => println!("bun       {v} (minimum {})", refs.bun_minimum),
+        Err(e) => println!("bun       {e:#}"),
+    }
     match node_version(refs.node_minimum) {
         Ok(v) => println!("node      {v} (minimum v{})", refs.node_minimum),
         Err(e) => println!("node      {e:#}"),
@@ -460,7 +483,7 @@ mod tests {
 
     fn refs() -> References {
         parse(concat!(
-            "node-minimum = 22\n[[npm]]\nname = \"elm-test\"\nversion = \"0.19.3-0\"\n",
+            "bun-minimum = \"1.4\"\nnode-minimum = 22\n[[npm]]\nname = \"elm-test\"\nversion = \"0.19.3-0\"\n",
             "repo = \"a/b\"\ncommit = \"1c278bf5ecf4136f122ce1cba436783c7f561dac\"\n"
         ))
         .unwrap()

@@ -41,7 +41,7 @@ suite =
                     |> Task.map
                         (Expect.equal
                             { status = 400
-                            , headers = [ ( "Content-Type", "text/plain; charset=utf-8" ), cors ]
+                            , headers = [ cors, ( "content-type", "text/plain; charset=utf-8" ) ]
                             , body = """expected {"title": string}"""
                             }
                         )
@@ -52,8 +52,8 @@ suite =
                         (Expect.equal
                             { status = 204
                             , headers =
-                                [ ( "Access-Control-Allow-Methods", "GET, POST" )
-                                , ( "Access-Control-Allow-Headers", "Content-Type" )
+                                [ ( "access-control-allow-headers", "Content-Type" )
+                                , ( "access-control-allow-methods", "GET, POST" )
                                 , cors
                                 ]
                             , body = ""
@@ -85,9 +85,9 @@ request method target body =
 
 cors : ( String, String )
 cors =
-    ( "Access-Control-Allow-Origin", "http://localhost:8000" )
+    ( "access-control-allow-origin", "http://localhost:8000" )
 
 
 json : Int -> String -> { status : Int, headers : List ( String, String ), body : String }
 json status body =
-    { status = status, headers = [ ( "Content-Type", "application/json" ), cors ], body = body }
+    { status = status, headers = [ cors, ( "content-type", "application/json" ) ], body = body }
