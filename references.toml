@@ -156,3 +156,34 @@ name = "elm-explorations/test"
 version = "2.2.1"
 commit = "81dc48ee4edcc48661b0dfa969cf44a79318a321"
 endpoint-hash = "eefbb97802f2f63b003bd299510fc86a1f72d0ae"
+
+# The services tier 2 runs nomi's drivers against, in containers (step
+# MB.15): each image pinned by the digest of its index, which names an
+# image for every platform; only the digest is pulled, and the tag says
+# what it is. Each is the newest stable release, or long-term one for
+# MySQL, on 2026-10-20.
+[[image]]
+name = "postgres"
+repository = "docker.io/library/postgres"
+tag = "18.6-alpine"
+digest = "sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
+
+[[image]]
+name = "mysql"
+repository = "docker.io/library/mysql"
+tag = "9.7.2"
+digest = "sha256:e2fa358a74ac81148e7e27d9433e4c0ab62133de8ea4428b4f39a51a4ba7d07f"
+
+[[image]]
+name = "valkey"
+repository = "docker.io/valkey/valkey"
+tag = "9.1.2-alpine"
+digest = "sha256:48332870af354a799964c0012ae1194a0bf2bf894eb508f945810596dc2d8d11"
+
+# Garage stands in for MinIO, which stopped publishing images in October
+# 2025.
+[[image]]
+name = "garage"
+repository = "docker.io/dxflrs/garage"
+tag = "v2.4.1"
+digest = "sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020"

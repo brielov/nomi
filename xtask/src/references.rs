@@ -20,6 +20,8 @@ pub(crate) struct References {
     pub npm: Vec<Npm>,
     #[serde(default)]
     pub elm_package: Vec<ElmPackage>,
+    #[serde(default)]
+    pub image: Vec<Image>,
 }
 
 /// A source tree synced to `reference/<name>`.
@@ -113,6 +115,24 @@ pub(crate) struct ElmPackage {
     pub endpoint_hash: String,
 }
 
+/// A container image a tier-2 service runs from, pinned by the digest of
+/// its index.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Image {
+    pub name: String,
+    pub repository: String,
+    pub tag: String,
+    pub digest: String,
+}
+
+impl Image {
+    /// The image by its digest alone, as it is pulled and run.
+    pub(crate) fn reference(&self) -> String {
+        format!("{}@{}", self.repository, self.digest)
+    }
+}
+
 impl Binary {
     /// Where `asset` downloads from.
     pub(crate) fn url(&self, asset: &Asset) -> String {
@@ -181,11 +201,24 @@ fn validate(refs: &References) -> Result<()> {
             ));
         }
     }
-    let mut names: Vec<&str> = refs.source.iter().map(|s| s.name.as_str()).collect();
-    names.sort_unstable();
-    if names.windows(2).any(|w| w[0] == w[1]) {
-        problems.push("source names must be unique".to_string());
+    for i in &refs.image {
+        if !i.digest.strip_prefix("sha256:").is_some_and(|d| hex(d, 64)) {
+            problems.push(format!(
+                "image {}: digest must be sha256: and 64 hex digits",
+                i.name
+            ));
+        }
     }
+    let unique = |what: &str, names: &mut Vec<&str>, problems: &mut Vec<String>| {
+        names.sort_unstable();
+        if names.windows(2).any(|w| w[0] == w[1]) {
+            problems.push(format!("{what} names must be unique"));
+        }
+    };
+    let mut names: Vec<&str> = refs.source.iter().map(|s| s.name.as_str()).collect();
+    unique("source", &mut names, &mut problems);
+    let mut names: Vec<&str> = refs.image.iter().map(|i| i.name.as_str()).collect();
+    unique("image", &mut names, &mut problems);
     if problems.is_empty() {
         Ok(())
     } else {
@@ -206,6 +239,27 @@ mod tests {
         assert!(refs.node_minimum >= 22);
         assert_eq!(refs.bun_minimum, "1.4");
         assert!(refs.binary.iter().any(|b| b.name == "elm-format"));
+        let images: Vec<&str> = refs.image.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(images, ["postgres", "mysql", "valkey", "garage"]);
+    }
+
+    #[test]
+    fn image_by_tag_fails() {
+        let image = |digest: &str| {
+            format!(
+                "bun-minimum = \"1.4\"\nnode-minimum = 22\n[[image]]\nname = \"pg\"\nrepository = \"docker.io/library/postgres\"\ntag = \"18\"\ndigest = \"{digest}\"\n"
+            )
+        };
+        let error = parse(&image("18-alpine")).unwrap_err().to_string();
+        assert!(
+            error.contains("image pg: digest must be sha256: and 64 hex digits"),
+            "{error}"
+        );
+        let refs = parse(&image(&format!("sha256:{}", "0".repeat(64)))).unwrap();
+        assert_eq!(
+            refs.image[0].reference(),
+            format!("docker.io/library/postgres@sha256:{}", "0".repeat(64))
+        );
     }
 
     #[test]

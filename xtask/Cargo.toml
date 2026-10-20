@@ -32,6 +32,9 @@ ungrammar.workspace = true
 ureq.workspace = true
 zip.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+signal-hook.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 

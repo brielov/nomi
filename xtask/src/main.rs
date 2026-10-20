@@ -9,6 +9,7 @@ mod fuzz;
 mod oracle;
 mod references;
 mod refs;
+mod services;
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -63,6 +64,17 @@ enum Command {
         /// Concurrent fuzzer processes; the available cores by default.
         #[arg(long)]
         jobs: Option<NonZeroUsize>,
+    },
+    /// Tier 2: start the services nomi's drivers are tested against, each
+    /// in a container from the image references.toml pins, run each one's
+    /// suite against it, and stop them.
+    Services {
+        /// Which; every one if none.
+        #[arg(value_enum)]
+        services: Vec<services::Service>,
+        /// What runs the containers: podman, or else docker, if not given.
+        #[arg(long, value_enum)]
+        runtime: Option<services::Runtime>,
     },
     /// Time a crate's benchmarks, which fail when twice the input takes
     /// three times as long or more; or nomi against the pinned upstream
@@ -362,6 +374,9 @@ fn main() -> ExitCode {
             jobs.map_or_else(oracle::cores, NonZeroUsize::get),
         ),
         Command::Bench { target } => bench::bench(root, target),
+        Command::Services { services, runtime } => {
+            references::load(root).and_then(|r| services::run(root, &r, &services, runtime))
+        }
         Command::Corpus { command } => run_corpus(root, command),
     };
     match result {
