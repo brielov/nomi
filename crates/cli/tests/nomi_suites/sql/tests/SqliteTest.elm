@@ -46,6 +46,11 @@ suite =
                             |> Task.andThen (\waiting -> Process.sleep 20 |> Task.andThen (\_ -> Sql.close db) |> Task.andThen (\_ -> Fiber.join waiting))
                     )
                     |> Task.map (Expect.equal (Ok "the database is closed at 20"))
+        , effect "SQLite has no channels to listen on" <|
+            \_ ->
+                Sql.memory
+                    |> Task.andThen (Sql.listen "todos")
+                    |> expectError (Sql.Failed { code = "0A000", message = "LISTEN is Postgres's, and SQLite has no channels" })
         , effect "a file system with no disk holds no database" <|
             \env ->
                 Sql.open "todos.db" env.fs

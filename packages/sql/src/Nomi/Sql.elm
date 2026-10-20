@@ -2,6 +2,7 @@ module Nomi.Sql exposing
     ( Db, connect, open, memory, close
     , Config, config, configFromEnv, Tls(..), withTls, withPoolSize
     , query, execute, transaction
+    , Listener, listen, notification
     , Value(..)
     , Decoder, field, int, int64, float, string, bytes, bool, nullable, value, columns
     , succeed, fail, map, map2, map3, map4, map5, andThen, oneOf
@@ -47,6 +48,11 @@ This package is experimental until a release has run it in production.
 # Statements
 
 @docs query, execute, transaction
+
+
+# Notifications
+
+@docs Listener, listen, notification
 
 
 # Values
@@ -339,6 +345,50 @@ program's.
 transaction : (Error -> e) -> (Db -> Task e a) -> Db -> Task e a
 transaction =
     Elm.Kernel.NomiSql.transaction
+
+
+
+-- NOTIFICATIONS
+
+
+{-| A listener of a Postgres channel, on a connection of its own: the
+fiber that made it owns it, and it stops listening once that fiber ends.
+-}
+type Listener
+    = Listener
+
+
+{-| Listens on the Postgres channel, for what `NOTIFY` or `pg_notify`
+sends there. Bun's listener reconnects when its connection is lost, and
+what was sent meanwhile is lost with it, so a listener whose connection
+was lost fails with `Unreachable` instead, for the program to listen anew
+and catch up from its tables. It holds the 1,000 notifications its fibers
+haven't taken, and fails past them, with code `54000`, rather than grow.
+On MySQL and SQLite, which have no channels, it fails with code `0A000`.
+-}
+listen : String -> Db -> Task Error Listener
+listen =
+    Elm.Kernel.NomiSql.listen
+
+
+{-| The next notification's payload, once one comes, or `Nothing` once the
+listener has stopped.
+
+    Nomi.Sql.notification listener
+        |> Task.andThen
+            (\payload ->
+                case payload of
+                    Just todo ->
+                        refresh todo
+
+                    Nothing ->
+                        Task.succeed ()
+            )
+
+-}
+notification : Listener -> Task Error (Maybe String)
+notification =
+    Elm.Kernel.NomiSql.notification
 
 
 

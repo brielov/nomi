@@ -95,6 +95,47 @@ suite =
                         )
                     |> Task.mapError Sql.errorToString
                     |> Task.map (Expect.equal ( True, True, True ))
+        , effect "LISTEN delivers what NOTIFY sends, in order; MySQL has no channels" <|
+            \env ->
+                case Database.kind of
+                    Postgres ->
+                        Database.fresh env.net
+                            |> Task.andThen
+                                (\db ->
+                                    Sql.listen "todos" db
+                                        |> Task.andThen
+                                            (\listener ->
+                                                Sql.execute "select pg_notify('todos', 'one'), pg_notify('todos', 'two')" [] db
+                                                    |> Task.andThen (\_ -> Task.map2 Tuple.pair (Sql.notification listener) (Sql.notification listener))
+                                            )
+                                )
+                            |> Task.mapError Sql.errorToString
+                            |> Task.map (Expect.equal ( Just "one", Just "two" ))
+
+                    _ ->
+                        Database.fresh env.net
+                            |> Task.andThen (Sql.listen "todos")
+                            |> expectError (Sql.Failed { code = "0A000", message = "LISTEN is Postgres's, and MySQL has no channels" })
+        , effect "a lost connection fails its listener, rather than drop what was sent meanwhile" <|
+            \env ->
+                if Database.kind /= Postgres then
+                    Task.succeed Expect.pass
+
+                else
+                    Database.fresh env.net
+                        |> Task.andThen
+                            (\db ->
+                                Sql.listen "todos" db
+                                    |> Task.andThen
+                                        (\listener ->
+                                            Sql.query "select pid from pg_stat_activity where query ilike 'listen%'" [] (Sql.field "pid" Sql.int) db
+                                                |> Task.andThen (\pids -> Task.sequence (List.map (\pid -> Sql.execute ("select pg_terminate_backend(" ++ String.fromInt pid ++ ")") [] db) pids))
+                                                |> Task.andThen (\_ -> Sql.notification listener)
+                                        )
+                            )
+                        |> Task.map (\_ -> "a notification came")
+                        |> Task.onError (\error -> Task.succeed (failedKind error))
+                        |> Task.map (Expect.equal "unreachable")
         , effect "other fibers' statements run beside a transaction, seeing it once it commits" <|
             \env ->
                 Database.fresh env.net

@@ -5,6 +5,7 @@ import Elm.Kernel.NomiFs exposing (onDisk)
 import Elm.Kernel.NomiNet exposing (allows)
 import Elm.Kernel.NomiStream exposing (bytes, view)
 import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
+import Maybe exposing (Just, Nothing)
 import Nomi.Sql as Sql exposing (FileError, NotOnDisk, NotAllowed, Unreachable, Violated, Failed, BadParameter, Closed, Null, Int, Int64, Float, Text, Blob, Bool, Unique, ForeignKey, NotNull, Check)
 
 */
@@ -397,6 +398,100 @@ var _NomiSql_transaction = F3(function(toError, f, db)
 		});
 	}));
 });
+
+
+// LISTENING
+
+// The most notifications a listener holds that no fiber has taken.
+var _NomiSql_mostHeld = 1000;
+
+// A listener of the channel, on a connection of its own, which the fiber
+// that made it owns: the payloads no fiber has taken, oldest first; the
+// fibers waiting for one; how it ended, once it has, `true` once it
+// stopped and otherwise the error it failed with; and Bun's handle. Bun
+// reconnects a listener whose connection was lost, and calls `onlisten`
+// again, the notifications sent meanwhile lost: the listener fails then.
+var _NomiSql_listen = F2(function(channel, db)
+{
+	var root = db.root;
+	if (root.kind !== 'postgres')
+	{
+		return _Runtime.fail(__Sql_Failed({ __$code: '0A000', __$message: 'LISTEN is Postgres\'s, and ' + (root.kind === 'mysql' ? 'MySQL' : 'SQLite') + ' has no channels' }));
+	}
+	var opened = _Runtime.andThen(_Runtime.succeed(__Utils_Tuple0), function() {
+		if (root.closed || db.ended) return _Runtime.fail(__Sql_Closed);
+		return _Runtime.fromPromise(function() {
+			var listener = { held: [], waiting: [], ended: null, sql: new Bun.SQL(root.url, { max: 1 }), handle: null };
+			var established = 0;
+			var heard = function(payload) { _NomiSql_heard(listener, payload); };
+			var listening = function() {
+				established++ === 0 || _NomiSql_stop(listener, __Sql_Unreachable(root.host + ': the listener\'s connection was lost, and what was sent meanwhile with it'));
+			};
+			return listener.sql.listen(channel, heard, listening).then(function(handle) {
+				listener.handle = handle;
+				return listener;
+			}, function(error) {
+				listener.sql.close();
+				throw error;
+			});
+		});
+	});
+	return _Runtime.acquireRelease(_Runtime.onError(opened, function(error) {
+		return _Runtime.fail(_NomiSql_error(root, error));
+	}), function(listener) {
+		return _Runtime.fromPromise(function() {
+			_NomiSql_stop(listener, true);
+			return Promise.resolve(listener.handle.unlisten())
+				.then(null, _NomiSql_unit)
+				.then(function() { return listener.sql.close(); })
+				.then(_NomiSql_unit, _NomiSql_unit);
+		});
+	});
+});
+
+function _NomiSql_heard(listener, payload)
+{
+	if (listener.ended !== null) return;
+	if (listener.held.length >= _NomiSql_mostHeld)
+	{
+		_NomiSql_stop(listener, __Sql_Failed({ __$code: '54000', __$message: 'the listener held ' + _NomiSql_mostHeld + ' notifications no fiber took' }));
+		return;
+	}
+	listener.held.push(payload);
+	_NomiSql_tell(listener);
+}
+
+function _NomiSql_stop(listener, how)
+{
+	listener.ended = listener.ended || how;
+	_NomiSql_tell(listener);
+}
+
+// Hands each waiting fiber a notification held, and once there are none
+// and the listener has ended, how it ended.
+function _NomiSql_tell(listener)
+{
+	while (listener.waiting.length > 0 && (listener.held.length > 0 || listener.ended !== null))
+	{
+		var resume = listener.waiting.shift();
+		resume(listener.held.length > 0
+			? _Runtime.succeed(__Maybe_Just(listener.held.shift()))
+			: listener.ended === true ? _Runtime.succeed(__Maybe_Nothing) : _Runtime.fail(listener.ended));
+	}
+}
+
+// The next notification held, waiting for the server to send one.
+function _NomiSql_notification(listener)
+{
+	return _Runtime.waitHost(function(resume) {
+		listener.waiting.push(resume);
+		_NomiSql_tell(listener);
+		return function() {
+			var at = listener.waiting.indexOf(resume);
+			at < 0 || listener.waiting.splice(at, 1);
+		};
+	});
+}
 
 
 // VALUES
