@@ -18,6 +18,7 @@
         "Nomi.Random",
         "Nomi.Password",
         "Nomi.Compress",
+        "Nomi.Log",
         "Nomi.Fs",
         "Nomi.Stdio",
         "Nomi.Process"

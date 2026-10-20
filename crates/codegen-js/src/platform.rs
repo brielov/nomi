@@ -15,6 +15,7 @@ const BUNDLED_KERNELS: &[&str] = &[
     "NomiFs",
     "NomiHttpClient",
     "NomiHttpServer",
+    "NomiLog",
     "NomiNet",
     "NomiPath",
     "NomiProcess",

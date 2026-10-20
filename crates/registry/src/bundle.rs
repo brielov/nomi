@@ -32,13 +32,14 @@ macro_rules! files {
 }
 
 /// The bundled packages' files, by path under `packages/`.
-const FILES: [(&str, &[u8]); 41] = files![
+const FILES: [(&str, &[u8]); 43] = files![
     "core/elm.json",
     "core/src/Elm/Kernel/Nomi.js",
     "core/src/Elm/Kernel/NomiBytes.js",
     "core/src/Elm/Kernel/NomiCompress.js",
     "core/src/Elm/Kernel/NomiCrypto.js",
     "core/src/Elm/Kernel/NomiFs.js",
+    "core/src/Elm/Kernel/NomiLog.js",
     "core/src/Elm/Kernel/NomiNet.js",
     "core/src/Elm/Kernel/NomiPath.js",
     "core/src/Elm/Kernel/NomiProcess.js",
@@ -50,6 +51,7 @@ const FILES: [(&str, &[u8]); 41] = files![
     "core/src/Nomi/Crypto.elm",
     "core/src/Nomi/Fiber.elm",
     "core/src/Nomi/Fs.elm",
+    "core/src/Nomi/Log.elm",
     "core/src/Nomi/Net.elm",
     "core/src/Nomi/Password.elm",
     "core/src/Nomi/Path.elm",

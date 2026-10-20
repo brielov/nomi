@@ -21,6 +21,8 @@
 //!   streamed, corrupt input refused.
 //! - `web`: nomi/http's routes, cookies (RFC 6265's examples, signed and
 //!   tampered) and forms (URL-encoded, and multipart with a part streamed).
+//! - `log`: `Nomi.Log`'s lines, JSON or text on a terminal, with each
+//!   logger's fields, which concurrent fibers never mix.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -85,4 +87,9 @@ fn the_crypto_suite_passes() {
 #[test]
 fn the_web_suite_passes() {
     passes("web");
+}
+
+#[test]
+fn the_log_suite_passes() {
+    passes("log");
 }
