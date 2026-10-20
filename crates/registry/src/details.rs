@@ -34,6 +34,15 @@ pub enum DetailsProblem<E> {
         wanted: Constraint,
         bundled: Version,
     },
+    /// The project asks for one of nomi's own packages by a name it no
+    /// longer has, which nomi bundles as `now`, at `version`; for an
+    /// application, `wanted` is exactly the version it names.
+    Renamed {
+        name: Name,
+        wanted: Constraint,
+        now: Name,
+        version: Option<Version>,
+    },
 }
 
 /// The releases a project builds with, each with what it depends on.
@@ -84,7 +93,19 @@ fn bundled<P: Packages>(
     constraints: &BTreeMap<Name, Constraint>,
 ) -> Result<(), DetailsProblem<P::Error>> {
     for (name, wanted) in constraints {
-        let Some(known) = packages.versions(name).filter(|_| bundle::is_bundled(name)) else {
+        if !bundle::is_bundled(name) {
+            continue;
+        }
+        let Some(known) = packages.versions(name) else {
+            if let Some(now) = bundle::renamed(name) {
+                let version = packages.versions(&now).map(|known| known.newest);
+                return Err(DetailsProblem::Renamed {
+                    name: name.clone(),
+                    wanted: *wanted,
+                    now,
+                    version,
+                });
+            }
             continue;
         };
         let mut releases = std::iter::once(&known.newest).chain(&known.previous);

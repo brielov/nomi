@@ -73,7 +73,7 @@ ln -s "$(command -v nomi)" ~/.local/bin/elm-test
 
 ## Bun
 
-nomi also builds Elm programs that run on [Bun](https://bun.sh) 1.4 or later: command-line tools, workers and servers. Bun is the only host for them; a built program run under Node says so and exits. Their packages, `nomi/core`, `nomi/server` and `nomi/test`, come with nomi; `nomi add nomi/core` adds one as any other.
+nomi also builds Elm programs that run on [Bun](https://bun.sh) 1.4 or later: command-line tools, workers and servers. Bun is the only host for them; a built program run under Node says so and exits. Their packages, `nomi/core`, `nomi/http` and `nomi/test`, come with nomi; `nomi add nomi/core` adds one as any other.
 
 ```elm
 import Nomi
@@ -95,7 +95,7 @@ nomi build src/Main.elm --output=main.mjs
 bun main.mjs world
 ```
 
-A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Bytes` and `Nomi.Stream` for bytes and streams of them, with backpressure, `Nomi.Fs` and `Nomi.Path` for files, symbolic links and watches inside a capability, `Nomi.Stdio` for the standard streams, `Nomi.Process` for running programs and catching signals, and `Nomi.Server` for HTTP, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Bun too (`--platform=bun`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
+A program is a task, run on fibers that are cancelled together and cleaned up in order: `Nomi.Fiber`, `Nomi.Ref` and `Nomi.Queue` for concurrency, `Nomi.Bytes` and `Nomi.Stream` for bytes and streams of them, with backpressure, `Nomi.Fs` and `Nomi.Path` for files, symbolic links and watches inside a capability, `Nomi.Stdio` for the standard streams, `Nomi.Process` for running programs and catching signals, and `Nomi.Http.Server` for HTTP, streaming bodies both ways, server-sent events and TLS, which on SIGTERM or Ctrl-C finishes the requests in flight before it exits. `nomi.toml`'s `[[entry]]` tables name a project's programs, which `nomi run` and `nomi run --watch` build and run. `nomi/test` runs a program's tasks in tests, on a file system in memory and a virtual clock. Plain Elm programs build for Bun too (`--platform=bun`), and a build that reaches a browser-only package says which path from `main` got there. [examples/todo-server](examples/todo-server) is a small API server.
 
 ## Workspaces
 

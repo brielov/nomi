@@ -438,7 +438,7 @@ const GATED: &str = r#"module Main exposing (main)
 import Nomi
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Process
-import Nomi.Server as Server
+import Nomi.Http.Server as Server
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -512,7 +512,7 @@ fn gated(api: &str, worker: &str) -> (tempfile::TempDir, PathBuf) {
         app(&root.join(dir), GATED, Some(&entry));
         fs::write(
             root.join(dir).join("elm.json"),
-            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8", "elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+            r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/http": "2.0.0"}, "indirect": {"elm/bytes": "1.0.8", "elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
         )
         .unwrap();
     }

@@ -297,7 +297,7 @@ program =
 module Main exposing (main)
 
 import Nomi
-import Nomi.Server as Server
+import Nomi.Http.Server as Server
 import Task exposing (Task)
 
 
@@ -305,7 +305,7 @@ main : Nomi.Program
 main =
     Nomi.program <|
         \env ->
-            Server.listen env.net { port_ = 8080 } handle
+            Server.listen Server.defaults handle env.net
                 |> Task.mapError Server.errorToString
 
 

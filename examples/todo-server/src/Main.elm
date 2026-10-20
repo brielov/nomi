@@ -13,7 +13,7 @@ import Nomi
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Ref as Ref exposing (Ref)
-import Nomi.Server as Server exposing (Method(..), Request, Response)
+import Nomi.Http.Server as Server exposing (Method(..), Request, Response)
 import Nomi.Task
 import Process
 import Task exposing (Task)
@@ -140,7 +140,7 @@ route store req =
                 |> Task.map (\s -> Server.json 200 (encode s.todos))
 
         ( Post, [ "todos" ] ) ->
-            Server.jsonBody (Decode.field "title" Decode.string) req
+            Server.bodyJson (Decode.field "title" Decode.string) req
                 |> Task.andThen
                     (\title ->
                         Ref.modify

@@ -52,9 +52,9 @@ const FILES: [(&str, &[u8]); 26] = files![
     "core/src/Nomi/Stdio.elm",
     "core/src/Nomi/Stream.elm",
     "core/src/Nomi/Task.elm",
-    "server/elm.json",
-    "server/src/Elm/Kernel/NomiServer.js",
-    "server/src/Nomi/Server.elm",
+    "http/elm.json",
+    "http/src/Elm/Kernel/NomiHttpServer.js",
+    "http/src/Nomi/Http/Server.elm",
     "test/elm.json",
     "test/src/Elm/Kernel/NomiTest.js",
     "test/src/Nomi/Test.elm",
@@ -76,6 +76,16 @@ static NAME: LazyLock<String> = LazyLock::new(|| {
 /// A variable naming a directory laid out as `packages/` is, whose
 /// packages replace the bundled ones, as tests bundle fixtures.
 const BUNDLE: &str = "NOMI_BUNDLE";
+
+/// nomi's own packages that took another name, each with the one it took.
+const RENAMED: &[(&str, &str)] = &[("nomi/server", "nomi/http")];
+
+/// The name one of nomi's own packages took in place of `name`.
+pub fn renamed(name: &Name) -> Option<Name> {
+    (RENAMED.iter())
+        .find(|(old, _)| name.to_string() == *old)
+        .and_then(|(_, new)| new.parse().ok())
+}
 
 /// Whether `name` is one of nomi's own, which only nomi bundles.
 #[inline]

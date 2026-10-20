@@ -5,7 +5,7 @@ A todo list with Elm at both ends: a server on Bun and a page in the browser, in
 ```
 nomi.toml            [workspace] members = ["apps/*", "packages/*"]
 packages/shared      acme/shared: the Todo type and its JSON encoder and decoders
-apps/api             the HTTP api, on Bun with nomi/server
+apps/api             the HTTP api, on Bun with nomi/http
 apps/web             the todo list page, calling the api with elm/http
 apps/landing         a page about the app, which uses no other member
 ```
@@ -28,7 +28,7 @@ Then edit something. A change rebuilds the members it touches and those that dep
 
 - **`nomi.toml`** at the root makes this a workspace. Its members are the directories the globs find, each with its own `elm.json`. nomi resolves them together, so the apps agree on every package's version.
 - **`packages/shared`** is a package that is never published: the apps depend on `acme/shared` 1.0.0 in their `elm.json`, and the workspace's member answers for that name, built from its source. Its tests, in `tests/`, check that the decoder reads what the encoder writes.
-- **`apps/api`** is a Bun program on nomi/server. Its entry in `nomi.toml` gives its arguments, the port and the origin of the page that calls it. The page is served from another origin, so the api answers with `Access-Control-Allow-Origin` for it, and answers the browser's preflight before a POST of JSON. Its tests answer requests with the handler, through `Nomi.Server.request` and `respond`, with no server listening.
+- **`apps/api`** is a Bun program on nomi/http. Its entry in `nomi.toml` gives its arguments, the port and the origin of the page that calls it. The page is served from another origin, so the api answers with `Access-Control-Allow-Origin` for it, and answers the browser's preflight before a POST of JSON. Its tests answer requests with the handler, through `Nomi.Http.Server.request` and `respond`, with no server listening.
 - **`apps/web`** is a browser entry with `static = "public"`: nomi serves the built code at `/Main.js`, the files in `public`, and `public/index.html` for the page, adding a script that reloads it after a rebuild. The page passes the api's address to the program as a flag, so nothing in the Elm code names a port.
 - **`apps/landing`** depends on no other member, so plain `elm make src/Main.elm` builds it as well. With no `static` directory, nomi serves a generated page around its code.
 

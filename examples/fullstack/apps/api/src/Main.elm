@@ -8,7 +8,7 @@ another origin, so every response says that origin may read it.
 import Json.Encode as Encode
 import Nomi
 import Nomi.Ref as Ref exposing (Ref)
-import Nomi.Server as Server exposing (Method(..), Request, Response)
+import Nomi.Http.Server as Server exposing (Method(..), Request, Response)
 import Task exposing (Task)
 import Todo exposing (Todo)
 
@@ -100,7 +100,7 @@ route todos req =
                 |> Task.map (\all -> Server.json 200 (Encode.list Todo.encode all))
 
         ( Post, [ "todos" ] ) ->
-            Server.jsonBody Todo.titleDecoder req
+            Server.bodyJson Todo.titleDecoder req
                 |> Task.andThen (\title -> Ref.modify (add title) todos)
                 |> Task.map (\todo -> Server.json 201 (Todo.encode todo))
                 |> Task.onError (\_ -> Task.succeed (Server.text 400 "expected {\"title\": string}"))

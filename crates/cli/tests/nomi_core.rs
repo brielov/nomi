@@ -3,7 +3,7 @@
 //! its task as the process, which exits with how the task ended, or at
 //! once, naming it, when its host isn't Bun 1.4 or later; joining a fiber that dies is the joiner's defect, and its fibers share refs
 //! and queues (`nomi_test.rs` runs its concurrent tasks, which take hours,
-//! on nomi/test's virtual clock); `Nomi.log` writes to stderr. nomi/server,
+//! on nomi/test's virtual clock); `Nomi.log` writes to stderr. nomi/http,
 //! bundled beside it, serves HTTP to a loopback client on the port it says
 //! it took, a request per fiber, and drains on SIGTERM.
 #![cfg(unix)]
@@ -193,7 +193,7 @@ const SERVER: &str = r#"module Main exposing (main)
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Nomi exposing (Env)
-import Nomi.Server as Server exposing (Request, Response)
+import Nomi.Http.Server as Server exposing (Request, Response)
 import Nomi.Stdio as Stdio
 import Task exposing (Task)
 
@@ -223,7 +223,7 @@ handle : Request -> Task Never Response
 handle req =
     case Server.path req of
         [ "json" ] ->
-            Server.jsonBody (Decode.field "n" Decode.int) req
+            Server.bodyJson (Decode.field "n" Decode.int) req
                 |> Task.map (\n -> Server.json 200 (Encode.object [ ( "n", Encode.int (n + 1) ) ]))
                 |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
 
@@ -249,7 +249,7 @@ handle req =
 const LIFECYCLE: &str = r#"module Main exposing (main)
 
 import Nomi exposing (Env)
-import Nomi.Server as Server exposing (Request, Response)
+import Nomi.Http.Server as Server exposing (Request, Response)
 import Nomi.Stdio as Stdio
 import Nomi.Task
 import Process
@@ -288,7 +288,7 @@ handle req =
 
         [ "slow" ] ->
             say "slow"
-                |> Task.andThen (\_ -> Server.body req)
+                |> Task.andThen (\_ -> Server.bodyText req)
                 |> Task.map (Server.text 200)
                 |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
 
@@ -304,14 +304,14 @@ say line =
     Task.succeed () |> Task.map (\_ -> Debug.log line ())
 "#;
 
-/// An application of `program` on nomi/core and nomi/server, in a new
+/// An application of `program` on nomi/core and nomi/http, in a new
 /// directory.
 fn project(program: &str) -> (tempfile::TempDir, PathBuf) {
     let work = tempfile::tempdir().unwrap();
     let root = fs::canonicalize(work.path()).unwrap();
     fs::write(
         root.join("elm.json"),
-        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/server": "1.0.0"}, "indirect": {"elm/bytes": "1.0.8", "elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
+        r#"{"type": "application", "source-directories": ["src"], "elm-version": "0.19.1", "dependencies": {"direct": {"elm/bytes": "1.0.8", "elm/core": "1.0.5", "elm/json": "1.1.4", "nomi/core": "2.0.0", "nomi/http": "2.0.0"}, "indirect": {"elm/time": "1.0.0"}}, "test-dependencies": {"direct": {}, "indirect": {}}}"#,
     )
     .unwrap();
     fs::create_dir(root.join("src")).unwrap();
@@ -568,12 +568,150 @@ fn fibers_share_refs_and_queues_in_order_and_interruption_loses_no_item() {
     );
 }
 
+/// A server on the port its first argument names, or one it picks,
+/// whose bodies may hold 1000 bytes, over TLS when its arguments after the
+/// port are `tls`, a certificate's file and a key's: `/stream/<n>` streams
+/// `n` chunks of 16 KiB, counting each as made, and `/made` says how many
+/// were; `/file` serves `served.txt`; `/events` sends server-sent events,
+/// each one `/emit/<data>` gives, until `/emit/end`; `/count` reads the
+/// body's stream and says how many bytes it held; `/text` reads it as
+/// text; any other path says hello.
+const STREAMING: &str = r#"module Main exposing (main)
+
+import Bytes
+import Bytes.Encode
+import Nomi exposing (Env)
+import Nomi.Bytes
+import Nomi.Fs as Fs
+import Nomi.Http.Server as Server exposing (Request, Response)
+import Nomi.Queue as Queue exposing (Queue)
+import Nomi.Ref as Ref exposing (Ref)
+import Nomi.Stdio as Stdio
+import Nomi.Stream as Stream
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env ->
+            let
+                defaults =
+                    Server.defaults
+            in
+            Task.map3 (\made events secure -> ( made, events, secure )) (Ref.make 0) Queue.unbounded (tls env)
+                |> Task.andThen
+                    (\( made, events, secure ) ->
+                        Server.listen { defaults | port_ = 0, maxBodyBytes = 1000, tls = secure, onListen = listening env } (handle env made events) env.net
+                            |> Task.mapError Server.errorToString
+                    )
+
+
+tls : Env -> Task String (Maybe { certificate : String, key : String })
+tls env =
+    case env.args of
+        [ _, "tls", certificate, key ] ->
+            Task.map2 (\c k -> Just { certificate = c, key = k }) (Fs.read certificate env.fs) (Fs.read key env.fs)
+                |> Task.mapError Fs.errorToString
+
+        _ ->
+            Task.succeed Nothing
+
+
+listening : Env -> Int -> Task x ()
+listening env port_ =
+    Stdio.printLine ("listening on " ++ String.fromInt port_) env.stdout
+        |> Task.onError (\_ -> Task.succeed ())
+
+
+handle : Env -> Ref Int -> Queue String -> Request -> Task Never Response
+handle env made events req =
+    case Server.path req of
+        [ "stream", n ] ->
+            let
+                chunk =
+                    Bytes.Encode.encode (Bytes.Encode.sequence (List.repeat 4096 (Bytes.Encode.unsignedInt32 Bytes.BE 0x61626364)))
+
+                count =
+                    String.toInt n |> Maybe.withDefault 0
+            in
+            Ref.make 0
+                |> Task.andThen
+                    (\given ->
+                        Stream.reader
+                            (Ref.modify (\i -> ( i, i + 1 )) given
+                                |> Task.andThen
+                                    (\i ->
+                                        if i < count then
+                                            Ref.update ((+) 1) made |> Task.map (\_ -> Just chunk)
+
+                                        else
+                                            Task.succeed Nothing
+                                    )
+                            )
+                    )
+                |> Task.map (Server.stream 200)
+
+        [ "made" ] ->
+            Ref.get made |> Task.map (String.fromInt >> Server.text 200)
+
+        [ "file" ] ->
+            Server.file "served.txt" env.fs
+                |> Task.onError (\error -> Task.succeed (Server.text 404 (Fs.errorToString error)))
+
+        [ "events" ] ->
+            Stream.reader
+                (Queue.take events
+                    |> Task.map
+                        (\data ->
+                            if data == "end" then
+                                Nothing
+
+                            else
+                                Just (Server.event { name = Just "news", id = Nothing, data = data })
+                        )
+                )
+                |> Task.map Server.events
+
+        [ "emit", data ] ->
+            Queue.offer data events |> Task.map (\_ -> Server.empty 204)
+
+        [ "count" ] ->
+            countBytes 0 (Server.body req)
+                |> Task.map (String.fromInt >> Server.text 200)
+                |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
+
+        [ "text" ] ->
+            Server.bodyText req
+                |> Task.map (Server.text 200)
+                |> Task.onError (\error -> Task.succeed (Server.text 400 (Debug.toString error)))
+
+        _ ->
+            Task.succeed (Server.text 200 "hello")
+
+
+countBytes : Int -> Stream.Reader -> Task Stream.Error Int
+countBytes size from =
+    Stream.read from
+        |> Task.andThen
+            (\next ->
+                case next of
+                    Just chunk ->
+                        countBytes (size + Nomi.Bytes.length chunk) from
+
+                    Nothing ->
+                        Task.succeed size
+            )
+"#;
+
 /// A server serving on the port it picked, stopped when dropped.
 struct Serving {
     port: u16,
     server: std::process::Child,
     /// The lines the server prints on standard output.
     said: mpsc::Receiver<String>,
+    /// The project the server was built in, and runs in.
+    root: PathBuf,
     _work: tempfile::TempDir,
 }
 
@@ -585,7 +723,13 @@ impl Serving {
     /// `program` built and serving on port 0, with `args` after it, once
     /// it says which port it took.
     fn of(program: &str, args: &[&str]) -> Serving {
+        Serving::prepared(program, args, |_| {})
+    }
+
+    /// As `of`, once `prepare` has had the project's directory.
+    fn prepared(program: &str, args: &[&str], prepare: impl FnOnce(&Path)) -> Serving {
         let (work, root) = built(program);
+        prepare(&root);
         let mut server = bun()
             .args(["dist/main.mjs", "0"])
             .args(args)
@@ -599,6 +743,7 @@ impl Serving {
             port: 0,
             server,
             said,
+            root,
             _work: work,
         };
         let line = (serving.said)
@@ -608,6 +753,10 @@ impl Serving {
         serving.port = port.parse().unwrap();
         assert_ne!(serving.port, 0);
         serving
+    }
+
+    fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Waits for the server to print `line`.
@@ -988,4 +1137,142 @@ fn a_request_still_running_when_the_drain_ends_is_interrupted_and_its_connection
     // Exited by itself, so with no line about the lifecycle's deadline.
     assert_eq!(serving.exit(), (Some(143), vec![]));
     assert!(signalled.elapsed() >= Duration::from_millis(900));
+}
+
+#[test]
+fn a_slow_client_holds_back_a_streamed_response() {
+    nomi_testkit::require_bun();
+    let serving = Serving::of(STREAMING, &[]);
+    let mut slow = serving.connect();
+    slow.write_all(&http::closing("GET", "/stream/2000", "", b""))
+        .unwrap();
+    // The client reads nothing for a while: the server makes no more than
+    // the socket's buffers hold, far from 2000 chunks of 16 KiB.
+    std::thread::sleep(Duration::from_millis(500));
+    let made: usize = serving
+        .send(&http::closing("GET", "/made", "", b""))
+        .text()
+        .parse()
+        .unwrap();
+    assert!(
+        made > 0 && made < 500,
+        "{made} chunks made before the client read"
+    );
+    let sent = http::read(slow).unwrap();
+    assert_eq!(sent.status, 200);
+    assert_eq!(sent.body.len(), 2000 * 16384);
+    assert!(sent.body.chunks(4).all(|word| word == b"abcd"));
+    let made = serving.send(&http::closing("GET", "/made", "", b"")).text();
+    assert_eq!(made, "2000");
+}
+
+#[test]
+fn a_file_is_served_streamed_with_its_type_and_size() {
+    nomi_testkit::require_bun();
+    let serving = Serving::of(STREAMING, &[]);
+    let missing = serving.send(&http::closing("GET", "/file", "", b""));
+    assert_eq!(
+        (missing.status, missing.text().as_str()),
+        (404, "served.txt: no such file or directory")
+    );
+    let text = "line\n".repeat(100_000);
+    fs::write(serving.root().join("served.txt"), &text).unwrap();
+    let sent = serving.send(&http::closing("GET", "/file", "", b""));
+    assert_eq!(sent.status, 200);
+    assert_eq!(
+        sent.header("content-type"),
+        Some("text/plain; charset=utf-8")
+    );
+    assert_eq!(
+        sent.header("content-length"),
+        Some("500000"),
+        "{:?}",
+        sent.headers
+    );
+    assert_eq!(sent.text(), text);
+}
+
+#[test]
+fn server_sent_events_arrive_as_they_are_sent() {
+    nomi_testkit::require_bun();
+    let serving = Serving::of(STREAMING, &[]);
+    let (status, lines) = http::events(serving.port, "/events").unwrap();
+    assert_eq!(status, 200);
+    for data in ["first", "second"] {
+        let emitted = serving.send(&http::closing("POST", &format!("/emit/{data}"), "", b""));
+        assert_eq!(emitted.status, 204);
+        // The event arrives before the next is given.
+        let arrived = nomi_testkit::process::expect(&lines, &format!("data: {data}"));
+        assert!(arrived.contains(&"event: news".to_owned()), "{arrived:?}");
+    }
+    serving.send(&http::closing("POST", "/emit/end", "", b""));
+}
+
+#[test]
+fn a_body_past_its_limit_fails_with_too_large_and_text_refuses_bad_utf_8() {
+    nomi_testkit::require_bun();
+    let serving = Serving::of(STREAMING, &[]);
+    let counted = serving.send(&http::closing("POST", "/count", "", &[b'x'; 1000]));
+    assert_eq!((counted.status, counted.text().as_str()), (200, "1000"));
+    let said = serving.send(&http::closing("POST", "/count", "", &[b'x'; 1001]));
+    assert_eq!((said.status, said.text().as_str()), (400, "TooLarge"));
+    // With no length given, the stream fails once it passes the limit.
+    let mut stream = serving.connect();
+    stream
+        .write_all(b"POST /count HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n")
+        .unwrap();
+    for _ in 0..3 {
+        stream.write_all(b"190\r\n").unwrap();
+        stream.write_all(&[b'x'; 400]).unwrap();
+        stream.write_all(b"\r\n").unwrap();
+    }
+    stream.write_all(b"0\r\n\r\n").unwrap();
+    let said = http::read(stream).unwrap();
+    assert_eq!((said.status, said.text().as_str()), (400, "TooLarge"));
+    let text = serving.send(&http::closing("POST", "/text", "", b"ok \xff"));
+    assert_eq!((text.status, text.text().as_str()), (400, "NotUtf8"));
+}
+
+#[test]
+fn a_server_answers_over_tls_with_a_certificate_given() {
+    nomi_testkit::require_bun();
+    let dir = tempfile::tempdir().unwrap();
+    let (certificate, key) = (dir.path().join("cert.pem"), dir.path().join("key.pem"));
+    let made = Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-nodes",
+        ])
+        .args(["-days", "1", "-subj", "/CN=localhost", "-keyout"])
+        .arg(&key)
+        .arg("-out")
+        .arg(&certificate)
+        .output()
+        .expect("openssl makes the test's certificate");
+    assert!(made.status.success(), "{made:?}");
+    let serving = Serving::prepared(STREAMING, &["tls", "cert.pem", "key.pem"], |root| {
+        fs::copy(&certificate, root.join("cert.pem")).unwrap();
+        fs::copy(&key, root.join("key.pem")).unwrap();
+    });
+    let fetched = bun()
+        .args(["-e", &format!(
+            "const r = await fetch('https://127.0.0.1:{}/', {{ tls: {{ rejectUnauthorized: false }} }}); console.log(r.status, await r.text());",
+            serving.port
+        )])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&fetched.stdout),
+        "200 hello\n",
+        "{fetched:?}"
+    );
+    // Plain HTTP is refused.
+    let plain =
+        std::panic::catch_unwind(|| serving.send(&http::closing("GET", "/", "", b"")).status);
+    assert!(plain.is_err() || plain.unwrap() != 200);
 }

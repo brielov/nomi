@@ -94,6 +94,7 @@ const CLOCK: &str = r#"module Clock exposing (aFreshCopy, aLeftover, anHourAndTh
 
 import Expect exposing (Expectation)
 import Nomi exposing (Env)
+import Nomi.Bytes
 import Nomi.Fiber as Fiber
 import Nomi.Fs as Fs
 import Nomi.Stdio as Stdio
@@ -412,7 +413,7 @@ speak say line =
     say line |> Task.mapError never
 "#;
 
-/// The test dependencies of `SERVING`: nomi/server, and elm/http for a
+/// The test dependencies of `SERVING`: nomi/http, and elm/http for a
 /// client.
 const SERVING_ELM_JSON: &str = r#"{
     "type": "application",
@@ -423,7 +424,7 @@ const SERVING_ELM_JSON: &str = r#"{
         "indirect": {}
     },
     "test-dependencies": {
-        "direct": {"elm-explorations/test": "2.2.1", "elm/http": "2.0.0", "nomi/core": "2.0.0", "nomi/server": "1.0.0", "nomi/test": "2.0.0"},
+        "direct": {"elm-explorations/test": "2.2.1", "elm/http": "2.0.0", "nomi/core": "2.0.0", "nomi/http": "2.0.0", "nomi/test": "2.0.0"},
         "indirect": {"elm/bytes": "1.0.8", "elm/file": "1.0.5", "elm/html": "1.0.1", "elm/json": "1.1.4", "elm/random": "1.0.0", "elm/time": "1.0.0", "elm/virtual-dom": "1.0.5"}
     }
 }
@@ -436,14 +437,16 @@ const SERVING_ELM_JSON: &str = r#"{
 /// in a test, whose client disconnects, interrupts the request on the
 /// test's runtime, so its finalizer logs there too; and one listening
 /// leaves the test's clock free to move.
-const SERVING: &str = r#"module Serving exposing (aDefect, aDisconnect, aRequest, aSleepBesideAServer, addedHeaders, repeatedHeaders, unwritable)
+const SERVING: &str = r#"module Serving exposing (aDefect, aDisconnect, aRequest, aSleepBesideAServer, aStream, addedHeaders, repeatedHeaders, unwritable)
 
 import Expect
 import Http
 import Nomi
+import Nomi.Bytes
 import Nomi.Fiber as Fiber
 import Nomi.Queue as Queue
-import Nomi.Server as Server exposing (Method(..))
+import Nomi.Http.Server as Server exposing (Method(..))
+import Nomi.Stream as Stream
 import Nomi.Task
 import Nomi.Test exposing (effect, stderr)
 import Process
@@ -469,7 +472,7 @@ aRequest =
 
 echo : Server.Request -> Task Never Server.Response
 echo req =
-    Server.body req
+    Server.bodyText req
         |> Task.map
             (\body ->
                 Server.text 200 (String.join " " [ Debug.toString (Server.method req == Patch), String.join "/" (Server.path req), Maybe.withDefault "-" (Server.query "q" req), Maybe.withDefault "-" (Server.header "X-a" req), body ])
@@ -561,6 +564,19 @@ addedHeaders =
                 (Server.respond (\_ -> Task.succeed cookies) (Server.request { method = Get, target = "/", headers = [], body = "" }))
                 (Server.respond (\_ -> Task.succeed (cookies |> Server.withHeader "SET-COOKIE" "c=3")) (Server.request { method = Get, target = "/", headers = [], body = "" }))
                 |> Task.map (Tuple.mapBoth .headers .headers >> Expect.equal ( [ ( "set-cookie", "a=1" ), ( "set-cookie", "b=2" ), ( "x-between", "1" ) ], [ ( "set-cookie", "c=3" ), ( "x-between", "1" ) ] ))
+
+
+aStream : Test
+aStream =
+    effect "respond reads streamed and event responses whole, as a client would" <|
+        \_ ->
+            let
+                streamed body =
+                    Server.respond (\_ -> Stream.fromBytes (Nomi.Bytes.fromString "streamed") |> Task.map body) (Server.request { method = Get, target = "/", headers = [], body = "" })
+                        |> Task.map .body
+            in
+            Task.map2 Tuple.pair (streamed (Server.stream 200)) (streamed Server.events)
+                |> Task.map (Expect.equal ( "streamed", ":\n\nstreamed" ))
 
 
 aSleepBesideAServer : Test
@@ -790,7 +806,7 @@ fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_i
     let (out, err) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{out}\n{err}");
     let completed = completed(&out);
-    assert_eq!(completed.len(), 7, "{out}");
+    assert_eq!(completed.len(), 8, "{out}");
     for (label, status, _) in &completed {
         assert_eq!(status, "pass", "{label}: {out}");
     }
@@ -802,9 +818,10 @@ fn handlers_are_tested_with_requests_made_in_the_test_or_a_server_listening_in_i
 /// event loop, and a wait for a message nobody sends.
 const HANGING: &str = r#"module Hanging exposing (hangs)
 
+import Nomi.Bytes
 import Nomi.Fiber as Fiber
 import Nomi.Queue as Queue
-import Nomi.Server as Server
+import Nomi.Http.Server as Server
 import Nomi.Test exposing (effect)
 import Task
 import Test exposing (Test)

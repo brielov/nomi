@@ -306,3 +306,33 @@ may need changes too.
         "{said}"
     );
 }
+
+#[test]
+fn a_project_naming_nomi_server_is_told_its_new_name() {
+    let cache = cache();
+    let program = Path::new(env!("CARGO_BIN_EXE_nomi"));
+    let main = "module Main exposing (main)\n\nmain : Program () () ()\nmain =\n    Platform.worker { init = \\_ -> ( (), Cmd.none ), update = \\_ m -> ( m, Cmd.none ), subscriptions = \\_ -> Sub.none }\n";
+    let (_work, root) = project(r#", "nomi/server": "1.0.0""#, main);
+    let made = offline(program, cache.path())
+        .current_dir(&root)
+        .args(["make", "src/Main.elm", "--output=/dev/null"])
+        .output()
+        .unwrap();
+    assert_eq!(made.status.code(), Some(1), "{made:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&made.stderr),
+        "-- PACKAGE RENAMED ---------------------------------------------------- elm.json
+
+Your elm.json asks for nomi/server, which nomi bundles under another name now:
+nomi/http.
+
+Ask for it by its new name, with the version this nomi bundles:
+
+    \"nomi/http\": \"2.0.0\"
+
+Its modules took new names too, and its API changed, so see its documentation
+for what to change in the code.
+
+"
+    );
+}

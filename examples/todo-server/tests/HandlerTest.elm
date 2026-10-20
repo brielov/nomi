@@ -5,7 +5,7 @@ import Expect
 import Main exposing (App)
 import Nomi.Fiber as Fiber
 import Nomi.Ref as Ref
-import Nomi.Server as Server exposing (Method(..))
+import Nomi.Http.Server as Server exposing (Method(..))
 import Nomi.Test exposing (advance, effect)
 import Task exposing (Task)
 import Test exposing (Test, describe)

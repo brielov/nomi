@@ -272,6 +272,16 @@ var _NomiFs_realPath = F2(function(path, fs)
 	});
 });
 
+// The file as a `Blob`, which a server sends with its size: on disk Bun's
+// file at the path the capability resolved, opened as it is sent; in
+// memory its bytes as they are now.
+var _NomiFs_blob = F2(function(path, fs)
+{
+	return _NomiFs_run(path, fs, _NomiFs_reads, function(store, names) {
+		return store.blob(fs.root, names);
+	});
+});
+
 var _NomiFs_reads = false;
 var _NomiFs_writes = true;
 
@@ -703,6 +713,15 @@ function _NomiFs_disk(base)
 		realPath: function(root, names) {
 			return _NomiFs_realFrom(space, root, names, function(at) { return p.stat(at); });
 		},
+		blob: function(root, names) {
+			return resolve(root, names, true).then(function(at) {
+				return p.lstat(at).then(function(stat) {
+					if (stat.isSymbolicLink()) throw _NomiFs_code('OUTSIDE');
+					if (stat.isDirectory()) throw _NomiFs_code('EISDIR');
+					return Bun.file(at);
+				});
+			});
+		},
 		openRead: function(root, names) {
 			return resolve(root, names, true).then(function(at) {
 				return _NomiFs_open(p.open(at, flags.O_RDONLY | _NomiFs_noFollow));
@@ -1055,6 +1074,11 @@ function _NomiFs_inMemory()
 					if (entry === undefined || entry.kind === 'link') throw _NomiFs_code('ENOENT');
 					resolve();
 				});
+			});
+		},
+		blob: function(root, names) {
+			return after([resolve(root, names, true)], function(at) {
+				return new Blob([file(at).bytes.slice()]);
 			});
 		},
 		// A reader of the file as it is when it is opened.

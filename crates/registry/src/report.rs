@@ -92,6 +92,12 @@ pub fn details_problem(
             wanted,
             bundled,
         } => unbundled(name, wanted, *bundled, compat),
+        DetailsProblem::Renamed {
+            name,
+            wanted,
+            now,
+            version,
+        } => renamed(name, wanted, now, *version, compat),
         DetailsProblem::PkgElm(constraint) => report::pkg_elm(constraint, compat),
         DetailsProblem::AppElm(version) => report::app_elm(*version, compat),
         DetailsProblem::HandEdited => Report::new(
@@ -138,6 +144,40 @@ fn unbundled(name: &Name, wanted: &Constraint, bundled: Version, compat: Compat)
                 "A new major version changes the package's API, so code written for \
                  the old one may need changes too."
             }),
+        ],
+    )
+}
+
+/// The `Renamed` problem: the project asks for `wanted` of `name`, which
+/// nomi bundles as `now`, at `version`.
+fn renamed(
+    name: &Name,
+    wanted: &Constraint,
+    now: &Name,
+    version: Option<Version>,
+    compat: Compat,
+) -> Report {
+    let instead = version.map_or_else(String::new, |version| {
+        if wanted.lower == wanted.upper {
+            format!(": \"{version}\"")
+        } else {
+            format!(": \"{}\"", Constraint::until_next_major(version, compat))
+        }
+    });
+    Report::new(
+        "PACKAGE RENAMED",
+        elm_json_path(),
+        &format!(
+            "Your elm.json asks for {name}, which nomi bundles under another name now: \
+             {now}."
+        ),
+        [
+            reflow("Ask for it by its new name, with the version this nomi bundles:"),
+            green(format!("\"{now}\"{instead}")).indent(4),
+            reflow(
+                "Its modules took new names too, and its API changed, so see its documentation \
+                 for what to change in the code.",
+            ),
         ],
     )
 }
