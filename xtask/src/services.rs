@@ -1,7 +1,9 @@
 //! `cargo xtask services`: the services tier 2 tests nomi's drivers
 //! against, each run in a container from the image references.toml pins,
-//! with podman or docker, and stopped once its suite has run. The suite is
-//! `xtask/services/smoke.js` for now; the drivers' own come with them.
+//! with podman or docker, and stopped once its suites have run: its smoke
+//! test, `xtask/services/smoke.js`, then the tests of nomi-cli's
+//! `nomi_services` target named for it, which the `services` feature
+//! builds.
 
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -78,6 +80,12 @@ impl Service {
             Service::Valkey => "valkey",
             Service::Garage => "garage",
         }
+    }
+
+    /// Whether nomi-cli's `nomi_services` target has tests for it, in a
+    /// module of its name.
+    fn tested(self) -> bool {
+        matches!(self, Service::Postgres | Service::Mysql)
     }
 
     /// The port it listens on in its container.
@@ -279,6 +287,7 @@ pub(crate) fn run(
         containers.start(service, image)?;
     }
     let mut failures = Vec::new();
+    let mut urls = Vec::new();
     for (&service, image) in services.iter().zip(&images) {
         let url = containers.ready(service, &stop)?;
         if smoke(root, service, &url)? {
@@ -289,12 +298,48 @@ pub(crate) fn run(
         if stop.load(Ordering::Relaxed) {
             bail!("interrupted");
         }
+        urls.push((service, url));
     }
-    containers.stop()?;
     if !failures.is_empty() {
         bail!("smoke tests failed: {}", failures.join(", "));
     }
-    Ok(())
+    let tested: Vec<(Service, String)> = (urls.into_iter())
+        .filter(|(service, _)| service.tested())
+        .collect();
+    if !tested.is_empty() {
+        suites(root, &tested)?;
+    }
+    containers.stop()
+}
+
+/// The tests of nomi-cli's `nomi_services` target for each service, given
+/// its URL in `NOMI_SERVICE_<NAME>`.
+fn suites(root: &Path, tested: &[(Service, String)]) -> Result<()> {
+    let envs: Vec<(String, &str)> = (tested.iter())
+        .map(|(service, url)| {
+            let var = format!("NOMI_SERVICE_{}", service.name().to_uppercase());
+            (var, url.as_str())
+        })
+        .collect();
+    let filters: Vec<String> = (tested.iter())
+        .map(|(service, _)| format!("{}::", service.name()))
+        .collect();
+    let mut args = vec![
+        "test",
+        "--package",
+        "nomi-cli",
+        "--features",
+        "services",
+        "--test",
+        "nomi_services",
+        "--locked",
+        "--",
+    ];
+    args.extend(filters.iter().map(String::as_str));
+    let envs: Vec<(&str, &str)> = (envs.iter())
+        .map(|(var, url)| (var.as_str(), *url))
+        .collect();
+    crate::cargo_with(root, &args, &envs)
 }
 
 /// A flag set by the signals that would end xtask, which instead lets it

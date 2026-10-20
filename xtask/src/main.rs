@@ -492,6 +492,9 @@ fn ci(root: &Path) -> Result<()> {
             "clippy",
             "--workspace",
             "--all-targets",
+            // The tier-2 suites `cargo xtask services` runs, linted here.
+            "--features",
+            "nomi-cli/services",
             "--locked",
             "--",
             "-D",

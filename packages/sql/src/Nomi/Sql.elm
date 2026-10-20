@@ -1,5 +1,6 @@
 module Nomi.Sql exposing
-    ( Db, open, memory, close
+    ( Db, connect, open, memory, close
+    , Config, config, configFromEnv, Tls(..), withTls, withPoolSize
     , query, execute, transaction
     , Value(..)
     , Decoder, field, int, int64, float, string, bytes, bool, nullable, value, columns
@@ -7,7 +8,8 @@ module Nomi.Sql exposing
     , Error(..), Constraint(..), errorToString
     )
 
-{-| SQL databases: SQLite, on a file or in memory, through `Bun.sql`.
+{-| SQL databases through `Bun.sql`: Postgres and MySQL, over the network,
+and SQLite, on a file or in memory.
 
     Nomi.Sql.open "todos.db" env.fs
         |> Task.andThen
@@ -22,15 +24,22 @@ module Nomi.Sql exposing
             (Nomi.Sql.field "id" Nomi.Sql.int)
             (Nomi.Sql.field "title" Nomi.Sql.string)
 
-A statement's parameters are `?`s, given in order, so a value is never
-spliced into its text. A SQLite statement runs on the event loop: while
-it runs, every fiber waits, a server's requests included, and a fiber
-interrupted meanwhile ends once it returns. Keep statements short, and
-page a large result with `limit` and `offset`, as each comes back whole.
+A statement's parameters are its placeholders, given in order, so a value
+is never spliced into its text: `?` on SQLite and MySQL, and `$1`, `$2`
+and on on Postgres, which can name one twice. A SQLite statement runs on
+the event loop: while it runs, every fiber waits, a server's requests
+included, and a fiber interrupted meanwhile ends once it returns. Keep
+statements short, and page a large result with `limit` and `offset`, as
+each comes back whole.
 
 This package is experimental until a release has run it in production.
 
-@docs Db, open, memory, close
+@docs Db, connect, open, memory, close
+
+
+# Servers
+
+@docs Config, config, configFromEnv, Tls, withTls, withPoolSize
 
 
 # Statements
@@ -56,8 +65,10 @@ This package is experimental until a release has run it in production.
 -}
 
 import Bytes exposing (Bytes)
+import Dict exposing (Dict)
 import Elm.Kernel.NomiSql
 import Nomi.Fs as Fs exposing (Fs)
+import Nomi.Net exposing (Net)
 import Task exposing (Task)
 
 
@@ -66,12 +77,28 @@ import Task exposing (Task)
 
 
 {-| A database, open: the fiber that opened it owns it, and it closes once
-that fiber ends, or on `close`. Fibers share it, each statement running
-in turn; while one runs a `transaction`, the others' statements wait for
-it to end.
+that fiber ends, or on `close`. Fibers share it, each statement running on
+a connection of its pool, or waiting for one to be free; a `transaction`
+holds one until it ends. SQLite's pool is its one connection, so there
+the others' statements wait for a transaction to end.
 -}
 type Db
     = Db
+
+
+{-| A pool of connections to the Postgres or MySQL server the config
+names, through the network, which must allow its host. The first
+connection is made at once, so a server that can't be reached, or
+refuses the credentials, fails here; the others as fibers need them, up
+to the pool's size.
+
+    Nomi.Sql.configFromEnv env.vars
+        |> Result.map (\config -> Nomi.Sql.connect config env.net)
+
+-}
+connect : Config -> Net -> Task Error Db
+connect (Config c) net =
+    Elm.Kernel.NomiSql.connect c.url (tlsMode c.tls) c.poolSize net
 
 
 {-| The SQLite database in the file at the path, created if it isn't there
@@ -98,6 +125,155 @@ memory =
 close : Db -> Task x ()
 close =
     Elm.Kernel.NomiSql.close
+
+
+
+-- SERVERS
+
+
+{-| Where a Postgres or MySQL server is, and how to reach it: its URL, as
+`postgres://user:password@host:5432/database` or
+`mysql://user:password@host:3306/database`, how the connection is
+secured, and the most connections the pool holds, 10 unless given.
+-}
+type Config
+    = Config { url : String, tls : Tls, poolSize : Int }
+
+
+{-| How a connection is secured, as libpq's `sslmode` names it: not at
+all (`disable`); with TLS where the server offers it, its certificate
+unchecked (`prefer`, the default); always with TLS, its certificate
+unchecked (`require`); or always with TLS, its certificate checked for the
+host's name (`verify-full`), which a server reached over a network
+others share should be. MySQL sends a password only over TLS unless the
+client fetches its key first, which a server in the middle could forge,
+so nomi never does: to MySQL, `disable` fails to sign in.
+-}
+type Tls
+    = NoTls
+    | PreferTls
+    | RequireTls
+    | VerifiedTls
+
+
+{-| The config of a URL, its scheme `postgres`, `postgresql` or `mysql`;
+its `sslmode` parameter, if it has one, says how it is secured. Other
+parameters are Bun's. A URL that isn't one fails, without repeating it,
+as it may hold a password.
+-}
+config : String -> Result String Config
+config url =
+    let
+        ( base, parameters ) =
+            case String.indexes "?" url of
+                at :: _ ->
+                    ( String.left at url, String.split "&" (String.dropLeft (at + 1) url) )
+
+                [] ->
+                    ( url, [] )
+
+        mode =
+            List.filterMap
+                (\parameter_ ->
+                    case String.split "=" parameter_ of
+                        [ "sslmode", value_ ] ->
+                            Just value_
+
+                        _ ->
+                            Nothing
+                )
+                parameters
+
+        others =
+            List.filter (\parameter_ -> not (String.startsWith "sslmode=" parameter_)) parameters
+
+        withOthers =
+            if List.isEmpty others then
+                base
+
+            else
+                base ++ "?" ++ String.join "&" others
+    in
+    if not (List.any (\scheme -> String.startsWith (scheme ++ "://") url) [ "postgres", "postgresql", "mysql" ]) then
+        Err "not a postgres://, postgresql:// or mysql:// URL"
+
+    else
+        case mode of
+            [] ->
+                Ok (Config { url = withOthers, tls = PreferTls, poolSize = 10 })
+
+            [ name ] ->
+                case tlsNamed name of
+                    Just tls ->
+                        Ok (Config { url = withOthers, tls = tls, poolSize = 10 })
+
+                    Nothing ->
+                        Err ("sslmode=" ++ name ++ ": not disable, prefer, require or verify-full")
+
+            _ ->
+                Err "sslmode is given more than once"
+
+
+tlsNamed : String -> Maybe Tls
+tlsNamed name =
+    case name of
+        "disable" ->
+            Just NoTls
+
+        "prefer" ->
+            Just PreferTls
+
+        "require" ->
+            Just RequireTls
+
+        "verify-full" ->
+            Just VerifiedTls
+
+        _ ->
+            Nothing
+
+
+tlsMode : Tls -> String
+tlsMode tls =
+    case tls of
+        NoTls ->
+            "disable"
+
+        PreferTls ->
+            "prefer"
+
+        RequireTls ->
+            "require"
+
+        VerifiedTls ->
+            "verify-full"
+
+
+{-| The config of the environment's `DATABASE_URL`.
+
+    Nomi.Sql.configFromEnv env.vars
+
+-}
+configFromEnv : Dict String String -> Result String Config
+configFromEnv vars =
+    Dict.get "DATABASE_URL" vars
+        |> Result.fromMaybe "DATABASE_URL is not set"
+        |> Result.andThen config
+
+
+{-| The config, its connections secured so.
+-}
+withTls : Tls -> Config -> Config
+withTls tls (Config c) =
+    Config { c | tls = tls }
+
+
+{-| The config, its pool holding at most this many connections, one at
+least.
+-}
+withPoolSize : Int -> Config -> Config
+withPoolSize size (Config c) =
+    Config { c | poolSize = max 1 size }
 
 
 
@@ -143,10 +319,11 @@ execute sql parameters =
 {-| Runs the task on the database in a transaction, which commits once it
 succeeds and rolls back once it fails, with a database's error or the
 program's own, or is interrupted. The task is given the transaction, to
-run its statements on. While it runs, other fibers' statements on the
-database wait; a transaction within it is a savepoint, which rolls back
-alone. The function turns the database's errors in beginning and
-committing into the program's.
+run its statements on, and holds a connection of the pool while it runs,
+on SQLite its only one, so there other fibers' statements wait for it. A
+transaction within it is a savepoint, which rolls back alone. The function
+turns the database's errors in beginning and committing into the
+program's.
 
     Nomi.Sql.transaction DatabaseError
         (\tx ->
@@ -169,8 +346,10 @@ transaction =
 {-| A parameter, and what a column holds. An `Int` past ±(2^53 − 1), the
 integers a JavaScript number holds exactly, is refused as a parameter,
 as it is already rounded: `Int64` passes any 64-bit integer as its
-decimal text, and a column holding one past that range reads as one. SQLite
-has no booleans, storing `Bool` as 1 or 0.
+decimal text, and a column holding one past that range reads as one.
+SQLite has no booleans, storing `Bool` as 1 or 0, and MySQL's are 1 or 0
+too. A `numeric` or `decimal` reads as `Text`, exactly; a date or time as
+`Text` in ISO 8601, to the millisecond; and JSON as its text.
 -}
 type Value
     = Null
@@ -536,15 +715,19 @@ firstOf decoders cell why =
 
 
 {-| Why a statement failed: the file couldn't be opened, as `Fs` says; the
-file system has no disk to hold one; a constraint refused the change; the
-database refused the statement otherwise, with its code (SQLite's, as
-`SQLITE_ERROR`) and message; a parameter, counted from 1, can't be passed;
-a row couldn't be read; or the database, or the transaction a `Db` stood
-for, is closed.
+file system has no disk to hold one; the network doesn't allow the
+server's host; the server couldn't be reached, or its connection was
+lost; a constraint refused the change; the database refused the statement
+otherwise, with its code (Postgres's and MySQL's SQLSTATE, as `42P01`, or
+SQLite's, as `SQLITE_ERROR`) and message; a parameter, counted from 1,
+can't be passed; a row couldn't be read; or the database, or the
+transaction a `Db` stood for, is closed.
 -}
 type Error
     = FileError Fs.Error
     | NotOnDisk String
+    | NotAllowed String
+    | Unreachable String
     | Violated Constraint String
     | Failed { code : String, message : String }
     | BadParameter Int String
@@ -572,6 +755,12 @@ errorToString error =
 
         NotOnDisk path ->
             path ++ ": the file system has no disk to hold a database"
+
+        NotAllowed host ->
+            host ++ ": not a host the network allows"
+
+        Unreachable why ->
+            why
 
         Violated _ message ->
             message

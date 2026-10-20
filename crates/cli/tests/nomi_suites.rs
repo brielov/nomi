@@ -47,7 +47,7 @@ fn passes(name: &str) {
         .join("tests/nomi_suites")
         .join(name);
     nomi_testkit::copy_tree(&suite, &root, |_| true).unwrap();
-    fs::create_dir(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
     let cache = website::fixture_cache();
     let tested = offline(Path::new(env!("CARGO_BIN_EXE_nomi")), cache.path())
         .current_dir(&root)

@@ -10,6 +10,15 @@ publish.workspace = true
 name = "nomi"
 path = "src/main.rs"
 
+# The tier-2 suites `cargo xtask services` runs against servers in
+# containers: tier 1 lints them, with this feature, and runs none.
+[[test]]
+name = "nomi_services"
+required-features = ["services"]
+
+[features]
+services = []
+
 [dependencies]
 clap.workspace = true
 mimalloc.workspace = true
