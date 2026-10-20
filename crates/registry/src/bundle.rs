@@ -32,11 +32,12 @@ macro_rules! files {
 }
 
 /// The bundled packages' files, by path under `packages/`.
-const FILES: [(&str, &[u8]); 26] = files![
+const FILES: [(&str, &[u8]); 30] = files![
     "core/elm.json",
     "core/src/Elm/Kernel/Nomi.js",
     "core/src/Elm/Kernel/NomiBytes.js",
     "core/src/Elm/Kernel/NomiFs.js",
+    "core/src/Elm/Kernel/NomiNet.js",
     "core/src/Elm/Kernel/NomiPath.js",
     "core/src/Elm/Kernel/NomiProcess.js",
     "core/src/Elm/Kernel/NomiStdio.js",
@@ -45,6 +46,7 @@ const FILES: [(&str, &[u8]); 26] = files![
     "core/src/Nomi/Bytes.elm",
     "core/src/Nomi/Fiber.elm",
     "core/src/Nomi/Fs.elm",
+    "core/src/Nomi/Net.elm",
     "core/src/Nomi/Path.elm",
     "core/src/Nomi/Process.elm",
     "core/src/Nomi/Queue.elm",
@@ -53,7 +55,9 @@ const FILES: [(&str, &[u8]); 26] = files![
     "core/src/Nomi/Stream.elm",
     "core/src/Nomi/Task.elm",
     "http/elm.json",
+    "http/src/Elm/Kernel/NomiHttpClient.js",
     "http/src/Elm/Kernel/NomiHttpServer.js",
+    "http/src/Nomi/Http/Client.elm",
     "http/src/Nomi/Http/Server.elm",
     "test/elm.json",
     "test/src/Elm/Kernel/NomiTest.js",

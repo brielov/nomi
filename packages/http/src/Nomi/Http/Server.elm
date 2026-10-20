@@ -59,7 +59,7 @@ import Bytes exposing (Bytes)
 import Elm.Kernel.NomiHttpServer
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
-import Nomi exposing (Net)
+import Nomi.Net exposing (Net)
 import Nomi.Bytes
 import Nomi.Fs as Fs exposing (Fs)
 import Nomi.Path

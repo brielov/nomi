@@ -13,6 +13,7 @@
         "Nomi.Bytes",
         "Nomi.Stream",
         "Nomi.Path",
+        "Nomi.Net",
         "Nomi.Fs",
         "Nomi.Stdio",
         "Nomi.Process"

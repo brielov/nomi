@@ -14,6 +14,8 @@
 //! - `process`: `Nomi.Process` under nomi/test: no command runs unless
 //!   `withCommands` answers it, each run starts with none run, and a
 //!   fiber waiting for a signal leaves the clock free.
+//! - `http`: a server and its clients on `Nomi.Net.loopback` under nomi
+//!   test, a handler's sleep and a request's timeout on the test's clock.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -63,4 +65,9 @@ fn the_fs_suite_passes() {
 #[test]
 fn the_process_suite_passes() {
     passes("process");
+}
+
+#[test]
+fn the_http_suite_passes() {
+    passes("http");
 }

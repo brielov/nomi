@@ -6,7 +6,7 @@ import Elm.Kernel.NomiStdio exposing (script, capture, captured, logs)
 import Elm.Kernel.NomiStream exposing (bytes)
 import Elm.Kernel.Utils exposing (Tuple0)
 import Maybe exposing (Just, Nothing)
-import Nomi exposing (Net)
+import Elm.Kernel.NomiNet exposing (real)
 import Result exposing (Ok, Err)
 
 */
@@ -86,7 +86,7 @@ var _NomiTest_nothing = new DataView(new ArrayBuffer(0));
 // an input that has ended, two captured outputs and the network.
 function _NomiTest_env(make)
 {
-	return A6(make, __NomiFs_memory(__List_Nil), _NomiTest_commands(function() { return __Maybe_Nothing; }), __NomiStdio_script(_NomiTest_nothing), __NomiStdio_capture(null), __NomiStdio_capture(null), __Nomi_Net);
+	return A6(make, __NomiFs_memory(__List_Nil), _NomiTest_commands(function() { return __Maybe_Nothing; }), __NomiStdio_script(_NomiTest_nothing), __NomiStdio_capture(null), __NomiStdio_capture(null), __NomiNet_real);
 }
 
 // Fake processes answering with `answer`, which each run of a test makes

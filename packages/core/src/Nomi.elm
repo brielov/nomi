@@ -1,8 +1,8 @@
-module Nomi exposing (Program, program, Env, Net, log)
+module Nomi exposing (Program, program, Env, log)
 
 {-| Programs that run on Bun.
 
-@docs Program, program, Env, Net, log
+@docs Program, program, Env, log
 
 -}
 
@@ -10,6 +10,7 @@ import Dict exposing (Dict)
 import Elm.Kernel.Nomi
 import Elm.Kernel.NomiStdio
 import Nomi.Fs exposing (Fs)
+import Nomi.Net exposing (Net)
 import Nomi.Process
 import Nomi.Stream as Stream
 import Task exposing (Task)
@@ -33,12 +34,12 @@ running its finalizers, and the process exits 130 or 143.
 program : (Env -> Task String ()) -> Program
 program run =
     Elm.Kernel.Nomi.program
-        (\args vars fs processes stdin stdout stderr ->
+        (\args vars fs net processes stdin stdout stderr ->
             run
                 { args = args
                 , vars = Dict.fromList vars
                 , fs = fs
-                , net = Net
+                , net = net
                 , processes = processes
                 , stdin = stdin
                 , stdout = stdout
@@ -61,13 +62,6 @@ type alias Env =
     , stdout : Stream.Writer
     , stderr : Stream.Writer
     }
-
-
-{-| The capability to listen on the network, which `Nomi.Server.listen`
-takes.
--}
-type Net
-    = Net
 
 
 {-| Writes the text and a newline to stderr, as `Nomi.Stdio.printLine`

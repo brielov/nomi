@@ -291,7 +291,7 @@ function _NomiStream_fromWeb(stream)
 {
 	var source = stream.getReader();
 	var reading = false;
-	return _NomiStream_reader(true, function(reader) {
+	var reader = _NomiStream_reader(true, function(reader) {
 		if (reading || !_NomiStream_wanting(reader)) return;
 		reading = true;
 		source.read().then(function(read) {
@@ -302,6 +302,11 @@ function _NomiStream_fromWeb(stream)
 			_NomiStream_fail(reader, { error: _NomiStream_error(error) });
 		});
 	});
+	// Drops what is left of the stream, as once nobody may read it.
+	reader.cancel = function() {
+		reader.end === null && source.cancel().catch(function() {});
+	};
+	return reader;
 }
 
 

@@ -2,6 +2,7 @@
 
 import Elm.Kernel.List exposing (fromArray, toArray)
 import Elm.Kernel.NomiFs exposing (blob)
+import Elm.Kernel.NomiNet exposing (key)
 import Elm.Kernel.NomiStdio exposing (log)
 import Elm.Kernel.NomiStream exposing (reader, held, give, fail, wanting, read, bytes, view)
 import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
@@ -28,6 +29,14 @@ var _NomiHttpServer_margin = 5000;
 // runtime running the server, which is a test's under `nomi test`.
 var _NomiHttpServer_listen = F3(function(config, handle, net)
 {
+	if (!net.listen)
+	{
+		return _Runtime.fail(__Server_PermissionDenied({ __$host: config.__$host, __$port_: config.__$port_ }));
+	}
+	if (net.loopback !== null)
+	{
+		return _NomiHttpServer_onLoopback(config, handle, net.loopback);
+	}
 	var drain = config.__$drainMilliseconds;
 	return _Runtime.withRuntime(function(runtime) {
 		_Runtime.allowShutdown(runtime, drain + _NomiHttpServer_margin);
@@ -462,6 +471,76 @@ var _NomiHttpServer_header = F2(function(name, request)
 });
 
 
+// LOOPBACKS
+
+// A server on a loopback is its handler, kept under its host and port,
+// one the loopback picks for port 0, until the task is interrupted. The
+// loopback's clients answer their requests with it.
+function _NomiHttpServer_onLoopback(config, handle, loopback)
+{
+	var port = config.__$port_ === 0 ? loopback.next++ : config.__$port_;
+	var address = { __$host: config.__$host, __$port_: port };
+	var key = __NomiNet_key(config.__$host, port);
+	if (loopback.servers.has(key))
+	{
+		return _Runtime.fail(__Server_AddressInUse(address));
+	}
+	var listening = _Runtime.acquireRelease(
+		_Runtime.sync(function() {
+			loopback.servers.set(key, { handle: handle, max: config.__$maxBodyBytes });
+			return key;
+		}),
+		function(key) {
+			return _Runtime.sync(function() {
+				loopback.servers.delete(key);
+				return __Utils_Tuple0;
+			});
+		}
+	);
+	return _Runtime.andThen(listening, function() {
+		return _Runtime.andThen(config.__$onListen(port), function() {
+			return _Runtime.wait(function() {});
+		});
+	});
+}
+
+// Answers a loopback's request with `server`'s handler, on a fiber of the
+// sender's, so the sender ending is the client going away, and succeeds
+// with the request, whose response `loopbackResponse` waits for: it
+// comes as soon as it is given, its body streaming on.
+function _NomiHttpServer_loopbackAnswer(server, method, target, headers, body)
+{
+	var received = _Runtime.sync(function() {
+		var request = _NomiHttpServer_incoming(method, target, headers, server.max);
+		request.bytes = body === null ? new Uint8Array(0) : body;
+		request.answer = function(response) {
+			request.response = response;
+			request.waiter && request.waiter(_Runtime.succeed(response));
+		};
+		return request;
+	});
+	return _Runtime.andThen(received, function(request) {
+		return _Runtime.map(_Runtime.fork(_NomiHttpServer_respond(server.handle, request)), function(fiber) {
+			request.exchange = fiber;
+			return request;
+		});
+	});
+}
+
+function _NomiHttpServer_loopbackResponse(request)
+{
+	return _Runtime.wait(function(resume) {
+		if (request.response)
+		{
+			resume(_Runtime.succeed(request.response));
+			return;
+		}
+		request.waiter = resume;
+		return function() { request.waiter = null; };
+	});
+}
+
+
 // FILES
 
 // The file at `path` in `fs`, as Bun sends a file: with its size.
@@ -482,9 +561,9 @@ function _NomiHttpServer_body(request)
 	if (request.reader === null)
 	{
 		var max = request.max;
-		if (request.text !== undefined)
+		if (request.text !== undefined || request.bytes !== undefined)
 		{
-			var given = _NomiHttpServer_encoder.encode(request.text);
+			var given = request.bytes !== undefined ? request.bytes : _NomiHttpServer_encoder.encode(request.text);
 			request.reader = given.length > max ? _NomiHttpServer_failed(__Stream_TooLarge) : __NomiStream_held(__NomiStream_bytes(given));
 		}
 		else if (Number(request.req.headers.get('content-length')) > max)
