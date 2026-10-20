@@ -29,6 +29,9 @@
 //!   transactions committing, rolling back on a database's error, the
 //!   program's own and interruption, holding off other fibers, and nesting
 //!   as savepoints.
+//! - `net`: nomi/net's TCP on a socket and on a loopback alike: echo to the
+//!   end a client sets, a refused connection, a fiber per connection, and
+//!   an interrupted fiber's socket closed; the network's narrowing.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -103,4 +106,9 @@ fn the_log_suite_passes() {
 #[test]
 fn the_sql_suite_passes() {
     passes("sql");
+}
+
+#[test]
+fn the_net_suite_passes() {
+    passes("net");
 }
