@@ -1206,17 +1206,14 @@ fn a_body_past_its_limit_fails_with_too_large_and_text_refuses_bad_utf_8() {
     let said = serving.send(&http::closing("POST", "/count", "", &[b'x'; 1001]));
     assert_eq!((said.status, said.text().as_str()), (400, "TooLarge"));
     // With no length given, the stream fails once it passes the limit.
-    let mut stream = serving.connect();
-    stream
-        .write_all(b"POST /count HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n")
-        .unwrap();
+    let mut chunked = b"POST /count HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
     for _ in 0..3 {
-        stream.write_all(b"190\r\n").unwrap();
-        stream.write_all(&[b'x'; 400]).unwrap();
-        stream.write_all(b"\r\n").unwrap();
+        chunked.extend_from_slice(b"190\r\n");
+        chunked.extend_from_slice(&[b'x'; 400]);
+        chunked.extend_from_slice(b"\r\n");
     }
-    stream.write_all(b"0\r\n\r\n").unwrap();
-    let said = http::read(stream).unwrap();
+    chunked.extend_from_slice(b"0\r\n\r\n");
+    let said = serving.send(&chunked);
     assert_eq!((said.status, said.text().as_str()), (400, "TooLarge"));
     let text = serving.send(&http::closing("POST", "/text", "", b"ok \xff"));
     assert_eq!((text.status, text.text().as_str()), (400, "NotUtf8"));
