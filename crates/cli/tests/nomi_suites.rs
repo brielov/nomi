@@ -31,7 +31,8 @@
 //!   as savepoints.
 //! - `net`: nomi/net's TCP on a socket and on a loopback alike: echo to the
 //!   end a client sets, a refused connection, a fiber per connection, and
-//!   an interrupted fiber's socket closed; the network's narrowing.
+//!   an interrupted fiber's socket closed; the network's narrowing; TLS on
+//!   a loopback, in memory, upgraded or not.
 
 #[path = "support/website.rs"]
 pub mod website;

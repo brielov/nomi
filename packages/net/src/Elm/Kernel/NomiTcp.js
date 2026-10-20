@@ -4,7 +4,7 @@ import Elm.Kernel.NomiNet exposing (allows, key)
 import Elm.Kernel.NomiStream exposing (reader, give, fail, wanting, bytes, view, writer, error)
 import Elm.Kernel.Utils exposing (Tuple0)
 import Nomi.Stream as Stream exposing (Closed)
-import Nomi.Tcp as Tcp exposing (NotAllowed, NotFound, Refused, AddressInUse, PermissionDenied, Other)
+import Nomi.Tcp as Tcp exposing (NotAllowed, NotFound, Refused, Untrusted, AddressInUse, PermissionDenied, Other)
 
 */
 
@@ -73,8 +73,27 @@ var _NomiTcp_connect = F3(function(host, port, net)
 	var address = _NomiTcp_address(host, port);
 	return _NomiTcp_owned(net.loopback !== null
 		? _NomiTcp_dialLoopback(net.loopback, __NomiNet_key(host, port), address)
-		: _NomiTcp_dial({ hostname: host, port: port }, address, host));
+		: _NomiTcp_dial({ hostname: host, port: port }, address, host, null));
 });
+
+// Over TLS, the server's certificate checked against the system's
+// authorities, or those in `pem`, for `host`. On a loopback, nothing is on
+// a wire to secure.
+var _NomiTcp_connectTls = F4(function(pem, host, port, net)
+{
+	var bad = _NomiTcp_badPort(port, 1);
+	if (bad !== null) return bad;
+	if (!__NomiNet_allows(net, host)) return _Runtime.fail(__Tcp_NotAllowed(host));
+	var address = _NomiTcp_address(host, port);
+	return _NomiTcp_owned(net.loopback !== null
+		? _NomiTcp_dialLoopback(net.loopback, __NomiNet_key(host, port), address)
+		: _NomiTcp_dial({ hostname: host, port: port, tls: _NomiTcp_trust(pem, host) }, address, host, host));
+});
+
+function _NomiTcp_trust(pem, host)
+{
+	return pem === '' ? { serverName: host } : { ca: pem, serverName: host };
+}
 
 // A narrowed network reaches no Unix socket: none is a host it names.
 var _NomiTcp_connectUnix = F2(function(path, net)
@@ -82,20 +101,22 @@ var _NomiTcp_connectUnix = F2(function(path, net)
 	if (net.hosts !== null) return _Runtime.fail(__Tcp_NotAllowed(path));
 	return _NomiTcp_owned(net.loopback !== null
 		? _NomiTcp_dialLoopback(net.loopback, 'unix:' + path, path)
-		: _NomiTcp_dial({ unix: path }, path, path));
+		: _NomiTcp_dial({ unix: path }, path, path, null));
 });
 
 
 // ON SOCKETS
 
 // A connection on Bun's socket, kept as the socket's `data` with whether
-// it closed and the write waiting for it to drain. The socket is read
-// only while a read waits that what it sent can't answer.
-function _NomiTcp_onSocket(socket, peer)
+// it closed, the write waiting for it to drain, and, over TLS, whether its
+// handshake is still on and what waits for its outcome. The socket is read
+// only while a read waits that what it sent can't answer, but always
+// during a handshake, which reads to go on.
+function _NomiTcp_onSocket(socket, peer, secure)
 {
-	var state = { socket: socket, closed: false, drained: null, connection: null };
+	var state = { socket: socket, closed: false, drained: null, connection: null, handshaking: secure, checked: null };
 	var reader = __NomiStream_reader(true, function(reader) {
-		state.closed || (__NomiStream_wanting(reader) ? socket.resume() : socket.pause());
+		state.closed || state.handshaking || (__NomiStream_wanting(reader) ? socket.resume() : socket.pause());
 	});
 	var writer = __NomiStream_writer({
 		write: function(bytes) { return _NomiTcp_write(state, bytes); },
@@ -111,7 +132,8 @@ function _NomiTcp_onSocket(socket, peer)
 	state.connection = _NomiTcp_connection(reader, writer, peer, function() {
 		state.closed || socket.end();
 	});
-	socket.pause();
+	state.connection.state = state;
+	secure || socket.pause();
 	return state;
 }
 
@@ -167,25 +189,57 @@ function _NomiTcp_handlers(open)
 		error: function(socket, error) {
 			var reader = socket.data.connection.reader;
 			reader.end === null && __NomiStream_fail(reader, { error: __NomiStream_error(error) });
+		},
+		// A TLS handshake is over: the socket is read as the reads ask from
+		// now on, and what waited for the outcome is told it.
+		handshake: function(socket, success, problem) {
+			var state = socket.data;
+			state.handshaking = false;
+			var reader = state.connection.reader;
+			reader.demand(reader);
+			var checked = state.checked;
+			state.checked = null;
+			checked && checked(success, problem);
 		}
 	};
 }
 
-// A connection Bun made to `options`, its peer's address `address`.
-function _NomiTcp_dial(options, address, named)
+// A connection Bun made to `options`, its peer's address `address`; over
+// TLS to `secured`, once its handshake is done and the server's
+// certificate trusted, which Bun reports rather than refuses.
+function _NomiTcp_dial(options, address, named, secured)
 {
 	return _Runtime.async(function(resume) {
 		var gone = false;
+		var settled = false;
+		var settle = function(connection, failure)
+		{
+			if (settled) return;
+			settled = true;
+			if (gone) return connection && connection.end();
+			resume(failure ? _Runtime.fail(failure) : _Runtime.succeed(connection));
+		};
 		var handlers = _NomiTcp_handlers(function(socket) {
-			socket.data = _NomiTcp_onSocket(socket, address);
+			socket.data = _NomiTcp_onSocket(socket, address, secured !== null);
+			var connection = socket.data.connection;
+			socket.data.checked = function(success, problem) {
+				if (success && !problem) return settle(connection, null);
+				connection.end();
+				settle(null, _NomiTcp_untrusted(secured, problem));
+			};
 		});
 		Bun.connect(Object.assign({ socket: handlers }, options)).then(function(socket) {
-			gone ? socket.data.connection.end() : resume(_Runtime.succeed(socket.data.connection));
+			secured === null && settle(socket.data.connection, null);
 		}, function(error) {
-			gone || resume(_Runtime.fail(_NomiTcp_error(error, named, address)));
+			settle(null, _NomiTcp_error(error, named, address));
 		});
 		return function() { gone = true; };
 	});
+}
+
+function _NomiTcp_untrusted(host, problem)
+{
+	return __Tcp_Untrusted(host + ': the server\'s certificate isn\'t trusted for it: ' + (problem && (problem.code || problem.message) || 'the handshake failed'));
 }
 
 function _NomiTcp_error(error, named, address)
@@ -223,6 +277,19 @@ var _NomiTcp_listen = F5(function(host, port, onListen, handle, net)
 	return _NomiTcp_serveLoopback(loopback, __NomiNet_key(host, taken), _NomiTcp_address(host, taken), onListen(taken), handle);
 });
 
+// `listen` over TLS: on a loopback, nothing is on a wire to secure.
+var _NomiTcp_listenTls = F7(function(certificate, key, host, port, onListen, handle, net)
+{
+	var address = _NomiTcp_address(host, port);
+	if (!net.listen) return _Runtime.fail(__Tcp_PermissionDenied(address));
+	var bad = _NomiTcp_badPort(port, 0);
+	if (bad !== null) return bad;
+	if (net.loopback === null) return _NomiTcp_serve({ hostname: host, port: port, tls: { cert: certificate, key: key } }, address, onListen, handle);
+	var loopback = net.loopback;
+	var taken = port === 0 ? loopback.next++ : port;
+	return _NomiTcp_serveLoopback(loopback, __NomiNet_key(host, taken), _NomiTcp_address(host, taken), onListen(taken), handle);
+});
+
 var _NomiTcp_listenUnix = F4(function(path, onListen, handle, net)
 {
 	if (!net.listen) return _Runtime.fail(__Tcp_PermissionDenied(path));
@@ -251,7 +318,7 @@ function _NomiTcp_serve(options, address, onListen, handle)
 			server.bun = Bun.listen(Object.assign({
 				socket: _NomiTcp_handlers(function(socket) {
 					var peer = socket.remoteAddress ? _NomiTcp_address(socket.remoteAddress, socket.remotePort) : address;
-					socket.data = _NomiTcp_onSocket(socket, peer);
+					socket.data = _NomiTcp_onSocket(socket, peer, options.tls !== undefined);
 					_NomiTcp_arrived(server, socket.data.connection);
 				})
 			}, options));
@@ -272,7 +339,7 @@ function _NomiTcp_serve(options, address, onListen, handle)
 	});
 	return _Runtime.scoped(_Runtime.andThen(listening, function(server) {
 		return _Runtime.andThen(onListen(server.bun.port || 0), function() {
-			return _NomiTcp_accept(server, handle);
+			return _NomiTcp_accepting(server, handle);
 		});
 	}));
 }
@@ -293,7 +360,7 @@ function _NomiTcp_serveLoopback(loopback, key, address, told, handle)
 	});
 	return _Runtime.scoped(_Runtime.andThen(listening, function(server) {
 		return _Runtime.andThen(told, function() {
-			return _NomiTcp_accept(server, handle);
+			return _NomiTcp_accepting(server, handle);
 		});
 	}));
 }
@@ -308,7 +375,7 @@ function _NomiTcp_arrived(server, connection)
 // Takes each connection as it comes, handing it to `handle` on a fiber of
 // the server's scope, which closes it once it ends. It waits for the next
 // as for another fiber: an idle server holds no test's clock.
-function _NomiTcp_accept(server, handle)
+function _NomiTcp_accepting(server, handle)
 {
 	var next = _Runtime.wait(function(resume) {
 		if (server.accepted.length > 0)
@@ -325,6 +392,61 @@ function _NomiTcp_accept(server, handle)
 		});
 	});
 	return loop;
+}
+
+
+// UPGRADING
+
+// The client's side: the connection over TLS, the server's certificate
+// trusted for `host`. One in memory is already as secure as it gets.
+var _NomiTcp_upgrade = F3(function(pem, host, connection)
+{
+	return connection.state === undefined
+		? _Runtime.succeed(connection)
+		: _NomiTcp_owned(_NomiTcp_secure(connection, _NomiTcp_trust(pem, host), host));
+});
+
+// The server's side, with its certificate.
+var _NomiTcp_accept = F3(function(certificate, key, connection)
+{
+	return connection.state === undefined
+		? _Runtime.succeed(connection)
+		: _NomiTcp_owned(_NomiTcp_secure(connection, { cert: certificate, key: key }, null));
+});
+
+// The connection's socket over TLS, once the handshake is done, a client's
+// (whose `host` isn't null) once the server's certificate is trusted for
+// it. The plain connection is then the secure one's: reading or writing it
+// fails, and ending it ends the secure one.
+function _NomiTcp_secure(connection, tls, host)
+{
+	return _Runtime.async(function(resume) {
+		var plain = connection.state;
+		if (plain.closed) return resume(_Runtime.fail(__Tcp_Other(connection.peer + ': the connection is closed')));
+		var settled = false;
+		// The TLS layer reads the plain socket, which reads no more for it.
+		plain.socket.resume();
+		var socket = plain.socket.upgradeTLS({ tls: tls, socket: _NomiTcp_handlers(function() {}) })[1];
+		socket.data = _NomiTcp_onSocket(socket, connection.peer, true);
+		var secured = socket.data.connection;
+		socket.data.checked = function(success, problem) {
+			if (settled) return;
+			settled = true;
+			// A server's `problem` is about a client's certificate, which none gives.
+			if (success && (host === null || !problem)) return resume(_Runtime.succeed(secured));
+			secured.end();
+			resume(_Runtime.fail(host !== null
+				? _NomiTcp_untrusted(host, problem)
+				: __Tcp_Other(connection.peer + ': the TLS handshake failed' + (problem ? ': ' + (problem.code || problem.message) : ''))));
+		};
+		plain.closed = true;
+		connection.reader.end === null && __NomiStream_fail(connection.reader, { error: __Stream_Closed });
+		connection.end = function() { secured.end(); };
+		return function() {
+			settled || secured.end();
+			settled = true;
+		};
+	});
 }
 
 

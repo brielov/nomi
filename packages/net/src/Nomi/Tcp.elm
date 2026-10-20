@@ -145,13 +145,15 @@ listenUnix { path, onListen } =
 
 {-| Why a connection wasn't made, or a server didn't listen: the network
 doesn't allow the host, or listening; no address goes by the host's name;
-nothing listens at the address; the address is taken, or the process may
-not listen there; or something else, said.
+nothing listens at the address; the server's certificate isn't one to
+trust for the host, over TLS, with why; the address is taken, or the
+process may not listen there; or something else, said.
 -}
 type Error
     = NotAllowed String
     | NotFound String
     | Refused String
+    | Untrusted String
     | AddressInUse String
     | PermissionDenied String
     | Other String
@@ -170,6 +172,9 @@ errorToString error =
 
         Refused address ->
             address ++ ": connection refused"
+
+        Untrusted why ->
+            why
 
         AddressInUse address ->
             address ++ ": address already in use"
