@@ -4,6 +4,7 @@ module Nomi.Http.Server exposing
     , body, bodyBytes, bodyText, bodyJson, BodyError(..)
     , Response, text, json, bytes, empty, stream, file, withHeader, addHeader
     , events, event
+    , upgrade
     , request, respond
     )
 
@@ -49,6 +50,11 @@ read it whole, so a body is read once: after that it is empty.
 @docs events, event
 
 
+# WebSockets
+
+@docs upgrade
+
+
 # Testing
 
 @docs request, respond
@@ -62,6 +68,7 @@ import Json.Encode as Encode
 import Nomi.Net exposing (Net)
 import Nomi.Bytes
 import Nomi.Fs as Fs exposing (Fs)
+import Nomi.Http.WebSocket exposing (WebSocket)
 import Nomi.Path
 import Nomi.Stream as Stream
 import Task exposing (Task)
@@ -104,14 +111,14 @@ listen config handle net =
 unwrap :
     (Request -> Task Never Response)
     -> Request
-    -> Task Never { status : Int, headers : List ( String, String ), text : Maybe String, bytes : Maybe Bytes, reader : Maybe Stream.Reader, opening : Maybe String, file : Maybe File }
+    -> Task Never { status : Int, headers : List ( String, String ), text : Maybe String, bytes : Maybe Bytes, reader : Maybe Stream.Reader, opening : Maybe String, file : Maybe File, upgrade : Maybe (WebSocket -> Task Never ()) }
 unwrap handle req =
     handle req
         |> Task.map
             (\(Response response) ->
                 let
                     none =
-                        { status = response.status, headers = response.headers, text = Nothing, bytes = Nothing, reader = Nothing, opening = Nothing, file = Nothing }
+                        { status = response.status, headers = response.headers, text = Nothing, bytes = Nothing, reader = Nothing, opening = Nothing, file = Nothing, upgrade = Nothing }
                 in
                 case response.body of
                     NoBody ->
@@ -131,6 +138,9 @@ unwrap handle req =
 
                     FileBody content ->
                         { none | file = Just content }
+
+                    Upgrade connected ->
+                        { none | upgrade = Just connected }
             )
 
 
@@ -403,6 +413,7 @@ type Body
     | StreamBody Stream.Reader
     | EventsBody Stream.Reader
     | FileBody File
+    | Upgrade (WebSocket -> Task Never ())
 
 
 {-| A file as Bun sends one.
@@ -611,6 +622,28 @@ event { name, id, data } =
             String.lines data |> List.map (\line -> "data: " ++ line ++ "\n") |> String.concat
     in
     Nomi.Bytes.fromString (field "event" name ++ field "id" id ++ lines ++ "\n")
+
+
+
+-- WEBSOCKETS
+
+
+{-| Makes the request's connection a WebSocket, whose messages the task
+receives and sends, on a fiber of the request's: once it ends, the
+connection closes with 1000, and once the client leaves, the fiber is
+interrupted, its finalizers running, where `Nomi.Http.WebSocket.closed`
+says what code the client closed with. A request that isn't a WebSocket's
+is answered 426. The server's drain gives a connection its time, as any
+request, before interrupting it.
+
+    case Nomi.Http.Server.path req of
+        [ "chat" ] ->
+            Task.succeed (Nomi.Http.Server.upgrade (\socket -> echo socket |> Task.onError (\_ -> Task.succeed ())))
+
+-}
+upgrade : (WebSocket -> Task Never ()) -> Response
+upgrade connected =
+    Response { status = 101, headers = [], body = Upgrade connected }
 
 
 

@@ -3,6 +3,7 @@
 import Elm.Kernel.List exposing (fromArray, toArray)
 import Elm.Kernel.NomiFs exposing (blob)
 import Elm.Kernel.NomiNet exposing (key)
+import Elm.Kernel.NomiWebSocket exposing (connection, handlers, pair, ended)
 import Elm.Kernel.NomiStdio exposing (log)
 import Elm.Kernel.NomiStream exposing (reader, held, give, fail, wanting, read, bytes, view)
 import Elm.Kernel.Utils exposing (Tuple0, Tuple2)
@@ -84,7 +85,8 @@ function _NomiHttpServer_open(config, runtime)
 				fetch: function(req, bun) {
 					bun.timeout(req, 0);
 					return _NomiHttpServer_received(server, req, max);
-				}
+				},
+				websocket: __NomiWebSocket_handlers
 			});
 		}
 		catch (error)
@@ -218,6 +220,10 @@ function _NomiHttpServer_error(error, config)
 function _NomiHttpServer_respond(handle, request)
 {
 	var answered = _Runtime.andThen(_Runtime.andThen(_Runtime.succeed(request), handle), function(response) {
+		if (__Maybe_isJust(response.__$upgrade))
+		{
+			return _NomiHttpServer_upgraded(request, response.__$upgrade.a);
+		}
 		var streams = __Maybe_isJust(response.__$reader) && !_NomiHttpServer_bodiless[response.__$status];
 		return streams
 			? _NomiHttpServer_streamed(request, response, response.__$reader.a)
@@ -471,6 +477,55 @@ var _NomiHttpServer_header = F2(function(name, request)
 });
 
 
+// WEBSOCKETS
+
+// Makes the request's connection a WebSocket, Bun's or, on a loopback,
+// one of a pair whose other end the client gets, and runs `connected` on
+// a fiber of the request's, which the peer leaving interrupts. Once it
+// ends, the connection closes. A request no connection can upgrade is
+// answered 426.
+function _NomiHttpServer_upgraded(request, connected)
+{
+	var upgraded = _Runtime.async(function(resume) {
+		if (request.loopback && (request.headers.get('upgrade') || '').toLowerCase() === 'websocket')
+		{
+			var both = __NomiWebSocket_pair();
+			request.answered = true;
+			request.answer({ upgraded: both.client, status: 101 });
+			resume(_Runtime.succeed(both.server));
+			return;
+		}
+		var connection = __NomiWebSocket_connection(true);
+		connection.opened = function() { resume(_Runtime.succeed(connection)); };
+		if (request.loopback || request.req === null || request.server === null || !request.server.bun.upgrade(request.req, { data: connection }))
+		{
+			_NomiHttpServer_send(request, new Response('this request is not a WebSocket\'s', {
+				status: 426,
+				headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Upgrade': 'websocket' }
+			}));
+			resume(_Runtime.succeed(null));
+			return;
+		}
+		request.answered = true;
+		request.answer(undefined);
+	});
+	return _Runtime.andThen(upgraded, function(connection) {
+		if (connection === null) return _Runtime.succeed(__Utils_Tuple0);
+		return _Runtime.withRuntime(function(runtime) {
+			return _Runtime.andThen(_Runtime.fork(connected(connection)), function(fiber) {
+				connection.left = function() { runtime.interrupt(fiber); };
+				connection.closed !== null && runtime.interrupt(fiber);
+				var closing = _Runtime.sync(function() {
+					connection.closed === null && connection.transport.close(1000, '');
+					return __Utils_Tuple0;
+				});
+				return _Runtime.ensuring(_Runtime.map(_Runtime.awaitFiber(fiber), function() { return __Utils_Tuple0; }), closing);
+			});
+		});
+	});
+}
+
+
 // LOOPBACKS
 
 // A server on a loopback is its handler, kept under its host and port,
@@ -512,6 +567,7 @@ function _NomiHttpServer_loopbackAnswer(server, method, target, headers, body)
 {
 	var received = _Runtime.sync(function() {
 		var request = _NomiHttpServer_incoming(method, target, headers, server.max);
+		request.loopback = true;
 		request.bytes = body === null ? new Uint8Array(0) : body;
 		request.answer = function(response) {
 			request.response = response;

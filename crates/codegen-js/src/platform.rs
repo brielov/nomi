@@ -19,6 +19,7 @@ const BUNDLED_KERNELS: &[&str] = &[
     "NomiStdio",
     "NomiStream",
     "NomiTest",
+    "NomiWebSocket",
 ];
 
 /// The kernel modules, by short name, a program for `platform` may not

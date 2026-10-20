@@ -372,6 +372,169 @@ say env line =
     Stdio.printLine line env.stdout |> Task.onError (\_ -> Task.succeed ())
 "#;
 
+/// A WebSocket server, upgrading `/echo` (which echoes, and says how its
+/// client closed), `/bye` (which says hello and closes with 4000) and
+/// `/flood` (which sends 256 KiB messages until it can't, counting each
+/// in `/sent`). With `exchange`, it connects to itself on a socket and on
+/// a loopback and prints what came of each exchange; otherwise it serves.
+const WEBSOCKETS: &str = r#"module Main exposing (main)
+
+import Bytes
+import Bytes.Encode
+import Nomi exposing (Env)
+import Nomi.Bytes
+import Nomi.Fiber as Fiber
+import Nomi.Http.Server as Server exposing (Request, Response)
+import Nomi.Http.WebSocket as WebSocket exposing (Message(..), WebSocket)
+import Nomi.Net as Net exposing (Net)
+import Nomi.Queue as Queue exposing (Queue)
+import Nomi.Ref as Ref exposing (Ref)
+import Nomi.Stdio as Stdio
+import Nomi.Task
+import Process
+import Task exposing (Task)
+
+
+main : Nomi.Program
+main =
+    Nomi.program <|
+        \env ->
+            Task.map2 Tuple.pair Queue.unbounded (Ref.make 0)
+                |> Task.andThen
+                    (\( closes, sent ) ->
+                        case env.args of
+                            [ "exchange" ] ->
+                                serve env.net closes sent
+                                    |> Task.andThen (\real -> Net.loopback |> Task.andThen (\loop -> serve loop closes sent |> Task.map (\port_ -> ( real, loop, port_ ))))
+                                    |> Task.andThen
+                                        (\( real, loop, loopPort ) ->
+                                            exchange env env.net real closes
+                                                |> Task.andThen (\_ -> say env "loopback")
+                                                |> Task.andThen (\_ -> exchange env loop loopPort closes)
+                                        )
+
+                            _ ->
+                                serve env.net closes sent
+                                    |> Task.andThen (\port_ -> say env ("listening on " ++ String.fromInt port_))
+                                    |> Task.andThen (\_ -> Process.sleep 3600000)
+                    )
+
+
+serve : Net -> Queue String -> Ref Int -> Task String Int
+serve net closes sent =
+    let
+        defaults =
+            Server.defaults
+    in
+    Queue.unbounded
+        |> Task.andThen
+            (\ports ->
+                Fiber.fork (Server.listen { defaults | port_ = 0, onListen = \port_ -> Queue.offer port_ ports } (handle closes sent) net)
+                    |> Task.andThen (\_ -> Queue.take ports)
+            )
+
+
+handle : Queue String -> Ref Int -> Request -> Task Never Response
+handle closes sent req =
+    case Server.path req of
+        [ "echo" ] ->
+            Task.succeed (Server.upgrade (\socket -> echo socket |> Task.onError (\_ -> Task.succeed ()) |> Nomi.Task.ensure (heardClose socket closes)))
+
+        [ "bye" ] ->
+            Task.succeed
+                (Server.upgrade
+                    (\socket ->
+                        WebSocket.send (Text "hello") socket
+                            |> Task.andThen (\_ -> WebSocket.close 4000 "bye" socket)
+                            |> Task.onError (\_ -> Task.succeed ())
+                    )
+                )
+
+        [ "flood" ] ->
+            Task.succeed (Server.upgrade (\socket -> flood socket sent |> Task.onError (\_ -> Task.succeed ())))
+
+        [ "sent" ] ->
+            Ref.get sent |> Task.map (String.fromInt >> Server.text 200)
+
+        _ ->
+            Task.succeed (Server.text 200 "not a WebSocket's route")
+
+
+echo : WebSocket -> Task WebSocket.Error ()
+echo socket =
+    WebSocket.receive socket
+        |> Task.andThen (\message -> WebSocket.send message socket)
+        |> Task.andThen (\_ -> echo socket)
+
+
+heardClose : WebSocket -> Queue String -> Task Never ()
+heardClose socket closes =
+    WebSocket.closed socket |> Task.andThen (\how -> Queue.offer (Debug.toString (Maybe.map .code how)) closes)
+
+
+flood : WebSocket -> Ref Int -> Task WebSocket.Error ()
+flood socket sent =
+    WebSocket.send (Binary (Bytes.Encode.encode (Bytes.Encode.sequence (List.repeat 65536 (Bytes.Encode.unsignedInt32 Bytes.BE 0))))) socket
+        |> Task.andThen (\_ -> Ref.update ((+) 1) sent)
+        |> Task.andThen (\_ -> flood socket sent)
+
+
+exchange : Env -> Net -> Int -> Queue String -> Task String ()
+exchange env net port_ closes =
+    let
+        url path =
+            "ws://127.0.0.1:" ++ String.fromInt port_ ++ path
+
+        line name task =
+            task |> Task.map (\value -> name ++ ": " ++ value) |> Task.onError (\error -> Task.succeed (name ++ ": " ++ Debug.toString error)) |> Task.andThen (say env)
+
+        shown message =
+            case message of
+                Text text ->
+                    "Text " ++ text
+
+                Binary bytes ->
+                    "Binary " ++ Maybe.withDefault "?" (Nomi.Bytes.toString bytes)
+    in
+    line "echo"
+        (Fiber.fork
+            (WebSocket.connect (url "/echo") net
+                |> Task.andThen
+                    (\socket ->
+                        WebSocket.send (Text "hi") socket
+                            |> Task.andThen (\_ -> WebSocket.receive socket)
+                            |> Task.andThen (\first -> WebSocket.send (Binary (Nomi.Bytes.fromString "bytes")) socket |> Task.andThen (\_ -> WebSocket.receive socket) |> Task.map (\second -> shown first ++ ", " ++ shown second))
+                            |> Task.andThen (\both -> WebSocket.close 4001 "done" socket |> Task.map (\_ -> both))
+                    )
+            )
+            |> Task.andThen Fiber.join
+            |> Task.andThen (\both -> Queue.take closes |> Task.map (\code -> both ++ "; the server heard " ++ code))
+        )
+        |> Task.andThen
+            (\_ ->
+                line "left"
+                    (Fiber.fork (WebSocket.connect (url "/echo") net |> Task.map (\_ -> ()))
+                        |> Task.andThen Fiber.join
+                        |> Task.andThen (\_ -> Queue.take closes)
+                        |> Task.map (\code -> "the server heard " ++ code)
+                    )
+            )
+        |> Task.andThen
+            (\_ ->
+                line "bye"
+                    (WebSocket.connect (url "/bye") net
+                        |> Task.andThen (\socket -> WebSocket.receive socket |> Task.andThen (\first -> WebSocket.receive socket |> Task.map (\_ -> "?") |> Task.onError (\error -> Task.succeed (shown first ++ "; then " ++ Debug.toString error))))
+                    )
+            )
+        |> Task.andThen (\_ -> line "not upgraded" (WebSocket.connect (url "/") net |> Task.map (\_ -> "?")))
+        |> Task.andThen (\_ -> line "not allowed" (WebSocket.connect (url "/echo") (Net.onlyHosts [ "example.com" ] net) |> Task.map (\_ -> "?")))
+
+
+say : Env -> String -> Task x ()
+say env text =
+    Stdio.printLine text env.stdout |> Task.onError (\_ -> Task.succeed ())
+"#;
+
 /// A server on the port its first argument names, or one it picks,
 /// whose bodies may hold 1000 bytes, over TLS when its arguments after the
 /// port are `tls`, a certificate's file and a key's: `/stream/<n>` streams
@@ -1127,4 +1290,68 @@ fiber timed out: Nothing; heard started, finalized
 request timed out: Timeout; heard started, finalized
 "#
     );
+}
+
+#[test]
+fn websockets_exchange_messages_and_close_codes_alike_on_a_socket_and_a_loopback() {
+    nomi_testkit::require_bun();
+    let (_work, root) = built(WEBSOCKETS);
+    let ran = bun()
+        .args(["dist/main.mjs", "exchange"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(ran.status.success(), "{ran:?}");
+    let each = r#"echo: Text hi, Binary bytes; the server heard Just 4001
+left: the server heard Just 1000
+bye: Text hello; then Closed { code = 4000, reason = "bye" }
+not upgraded: Refused
+not allowed: NotAllowed "127.0.0.1"
+"#;
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        format!("{each}loopback\n{each}")
+    );
+}
+
+#[test]
+fn a_websocket_send_waits_while_the_peer_reads_nothing() {
+    nomi_testkit::require_bun();
+    let serving = Serving::of(WEBSOCKETS, &[]);
+    let mut socket = serving.connect();
+    socket
+        .write_all(b"GET /flood HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+        .unwrap();
+    let mut head = Vec::new();
+    let mut byte = [0];
+    while !head.ends_with(b"\r\n\r\n") {
+        socket.read_exact(&mut byte).unwrap();
+        head.push(byte[0]);
+    }
+    assert!(
+        head.starts_with(b"HTTP/1.1 101"),
+        "{}",
+        String::from_utf8_lossy(&head)
+    );
+    let sent = || -> usize {
+        serving
+            .send(&http::closing("GET", "/sent", "", b""))
+            .text()
+            .parse()
+            .unwrap()
+    };
+    // Reading nothing, the peer holds the server's sends back.
+    std::thread::sleep(Duration::from_millis(500));
+    let held = sent();
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(sent(), held, "sends went on while nothing was read");
+    assert!(
+        held < 200,
+        "{held} messages of 256 KiB sent to a peer reading nothing"
+    );
+    // Once the peer reads, they drain, and the sends go on.
+    let mut drained = vec![0; 64 << 20];
+    socket.read_exact(&mut drained).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(sent() > held);
 }
