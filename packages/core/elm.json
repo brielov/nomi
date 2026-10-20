@@ -10,6 +10,7 @@
         "Nomi.Fiber",
         "Nomi.Ref",
         "Nomi.Queue",
+        "Nomi.Bytes",
         "Nomi.Fs",
         "Nomi.Stdio",
         "Nomi.Process"

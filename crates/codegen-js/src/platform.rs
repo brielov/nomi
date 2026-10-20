@@ -7,7 +7,14 @@ use crate::runtime::{self, Override};
 
 /// The kernel modules of the packages bundled with nomi, by short name,
 /// in order: each `packages/*/src/Elm/Kernel/*.js`.
-const BUNDLED_KERNELS: &[&str] = &["Nomi", "NomiFs", "NomiServer", "NomiStdio", "NomiTest"];
+const BUNDLED_KERNELS: &[&str] = &[
+    "Nomi",
+    "NomiBytes",
+    "NomiFs",
+    "NomiServer",
+    "NomiStdio",
+    "NomiTest",
+];
 
 /// The kernel modules, by short name, a program for `platform` may not
 /// reach, with `dom`. Bun has no DOM of its own. The browser lacks
