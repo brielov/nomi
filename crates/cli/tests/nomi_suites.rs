@@ -32,7 +32,9 @@
 //! - `net`: nomi/net's TCP on a socket and on a loopback alike: echo to the
 //!   end a client sets, a refused connection, a fiber per connection, and
 //!   an interrupted fiber's socket closed; the network's narrowing; TLS on
-//!   a loopback, in memory, upgraded or not.
+//!   a loopback, in memory, upgraded or not; UDP's datagrams both ways and
+//!   its sockets closing with their fibers, on a socket and a loopback; and
+//!   DNS, of `localhost`, and of this machine's names alone on a loopback.
 
 #[path = "support/website.rs"]
 pub mod website;

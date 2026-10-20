@@ -12,6 +12,7 @@ const BUNDLED_KERNELS: &[&str] = &[
     "NomiBytes",
     "NomiCompress",
     "NomiCrypto",
+    "NomiDns",
     "NomiFs",
     "NomiHttpClient",
     "NomiHttpServer",
@@ -24,6 +25,7 @@ const BUNDLED_KERNELS: &[&str] = &[
     "NomiStream",
     "NomiTcp",
     "NomiTest",
+    "NomiUdp",
     "NomiWebSocket",
 ];
 

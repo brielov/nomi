@@ -10,8 +10,9 @@ import Elm.Kernel.List exposing (toArray)
 // A network capability: the hosts it may reach, by lower-case name, or
 // null for any; whether it may listen; and for a loopback, its HTTP
 // servers by host and port, each a function answering a request, its TCP
-// listeners by host and port or Unix path, each taking connections, and
-// the port the next one picking a port takes.
+// listeners by host and port or Unix path, each taking connections, its
+// UDP sockets by host and port, and the port the next one picking a port
+// takes.
 var _NomiNet_real = { hosts: null, listen: true, loopback: null };
 
 var _NomiNet_onlyHosts = F2(function(hosts, net)
@@ -30,7 +31,7 @@ function _NomiNet_noListen(net)
 }
 
 var _NomiNet_loopback = _Runtime.sync(function() {
-	return { hosts: null, listen: true, loopback: { servers: new Map(), listeners: new Map(), next: 49152 } };
+	return { hosts: null, listen: true, loopback: { servers: new Map(), listeners: new Map(), datagrams: new Map(), next: 49152 } };
 });
 
 // Whether `net` may reach `host`.
