@@ -73,7 +73,7 @@ pub(in crate::run) fn watch(
         caught: &mut caught,
     };
     let nomi = streams.nomi();
-    let mut caught_now = watch.read(&mut engine, console, dirs);
+    let mut caught_now = watch.read(&mut engine, console, &mut snapshot, dirs);
     loop {
         if let Some(signal) = caught_now {
             return (watch.running).drain(
@@ -83,7 +83,6 @@ pub(in crate::run) fn watch(
                 signal.stop.code(),
             );
         }
-        snapshot.watch(watch.paths(), watch.statics());
         console.err(&format!("{nomi}Watching for changes...\n"));
         let queue = match watch.wait(&mut engine, console, &mut snapshot) {
             Ok(queue) => queue,
@@ -94,7 +93,7 @@ pub(in crate::run) fn watch(
         };
         console.err(&format!("{nomi}{}\n", message(&queue)));
         cx.vfs.disk_changed();
-        caught_now = watch.changed(&mut engine, console, *watched, &queue);
+        caught_now = watch.changed(&mut engine, console, &mut snapshot, *watched, &queue);
     }
 }
 
@@ -226,6 +225,7 @@ impl Watch {
         &mut self,
         engine: &mut Engine<'_, '_, impl Http + Sync>,
         console: &mut dyn Console,
+        snapshot: &mut Snapshot,
         dirs: Vec<PathBuf>,
     ) -> Option<Signalled> {
         let entries: Vec<(&Member, &Entry)> = (self.workspace.members().iter())
@@ -279,6 +279,9 @@ impl Watch {
             return Some(signal);
         }
         self.dirs = dirs;
+        // Watched before the build reads them, so that a change made while
+        // it builds, or while the programs start, is one.
+        snapshot.watch(self.paths(), self.statics());
         let every = self.dirs.clone();
         self.rebuild(engine, console, &every)
     }
@@ -375,6 +378,7 @@ impl Watch {
         &mut self,
         engine: &mut Engine<'_, '_, impl Http + Sync>,
         console: &mut dyn Console,
+        snapshot: &mut Snapshot,
         watched: Watched<'_>,
         queue: &[Change],
     ) -> Option<Signalled> {
@@ -391,9 +395,9 @@ impl Watch {
             return match watched.read(engine.cx) {
                 Ok(Some((workspace, dirs))) => {
                     self.workspace = workspace;
-                    self.read(engine, console, dirs)
+                    self.read(engine, console, snapshot, dirs)
                 }
-                Ok(None) => self.read(engine, console, Vec::new()),
+                Ok(None) => self.read(engine, console, snapshot, Vec::new()),
                 Err(report) => {
                     console::report(console, &report, Compat::LATEST);
                     None
