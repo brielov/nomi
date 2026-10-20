@@ -282,6 +282,17 @@ var _NomiFs_blob = F2(function(path, fs)
 	});
 });
 
+// Where the file at the path is on the disk, for what opens a file by its
+// path itself, as SQLite does: its real path and whether `fs` may write,
+// or null where `fs` has no disk. Where it may write, the file may not be
+// there yet, but the directory it goes in must.
+var _NomiFs_onDisk = F2(function(path, fs)
+{
+	return _NomiFs_run(path, fs, _NomiFs_reads, function(store, names) {
+		return store.onDisk ? store.onDisk(fs.root, names, fs.writable) : Promise.resolve(null);
+	});
+});
+
 var _NomiFs_reads = false;
 var _NomiFs_writes = true;
 
@@ -720,6 +731,18 @@ function _NomiFs_disk(base)
 					if (stat.isSymbolicLink()) throw _NomiFs_code('OUTSIDE');
 					if (stat.isDirectory()) throw _NomiFs_code('EISDIR');
 					return Bun.file(at);
+				});
+			});
+		},
+		onDisk: function(root, names, writable) {
+			return resolve(root, names, true).then(function(at) {
+				var found = { path: at, writable: writable };
+				return p.stat(at).then(function(stat) {
+					if (stat.isDirectory()) throw _NomiFs_code('EISDIR');
+					return found;
+				}, function(error) {
+					if (error.code !== 'ENOENT' || !writable) throw error;
+					return parentOf(at).then(function() { return found; });
 				});
 			});
 		},

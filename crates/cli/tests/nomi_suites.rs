@@ -23,6 +23,12 @@
 //!   tampered) and forms (URL-encoded, and multipart with a part streamed).
 //! - `log`: `Nomi.Log`'s lines, JSON or text on a terminal, with each
 //!   logger's fields, which concurrent fibers never mix.
+//! - `sql`: nomi/sql on SQLite in memory: rows decoded by column, every
+//!   kind of value round-tripping, integers past 2^53 exact through
+//!   `Int64` and refused by `int`, each constraint told apart, and
+//!   transactions committing, rolling back on a database's error, the
+//!   program's own and interruption, holding off other fibers, and nesting
+//!   as savepoints.
 
 #[path = "support/website.rs"]
 pub mod website;
@@ -92,4 +98,9 @@ fn the_web_suite_passes() {
 #[test]
 fn the_log_suite_passes() {
     passes("log");
+}
+
+#[test]
+fn the_sql_suite_passes() {
+    passes("sql");
 }
