@@ -1,10 +1,10 @@
 # nomi build plan
 
-Status: 2026-10-06. Companion to [architecture.md](architecture.md). Progress is tracked by the checkboxes below and `git log`, nothing else.
+Status: 2026-10-06; redirected 2026-10-20 (F). Companion to [architecture.md](architecture.md). Progress is tracked by the checkboxes below and `git log`, nothing else.
 
 ## Scope
 
-One binary, `nomi`, that replaces three tools and then adds capabilities on top:
+One binary, `nomi`, that first replaced three of Elm's tools and added a server platform (M2–MB), and from 2026-10-20 is the toolchain of its own language, compiled to native code (F; architecture §1):
 
 | Milestone | Replaces or adds | Parity target | Release |
 |---|---|---|---|
@@ -16,14 +16,20 @@ One binary, `nomi`, that replaces three tools and then adds capabilities on top:
 | MQ | Code quality | architecture.md §13, behavior unchanged | — |
 | M11 | Server platform | Node kernels, `nomi/*` packages, fiber runtime | 0.5 |
 | M12 | Workspaces | one resolution; packages shared by web and api | 0.6 |
-| MB | Backend platform | the Elm way, no FFI, on Bun: streams, processes, sockets, crypto, SQL, Redis, S3 | 0.7 |
-| MP | Raw performance | multiples ahead of upstream; the least work for every operation | 0.8 |
-
-The frontend-plus-backend goal is reachable at M11: two projects can already share code through `source-directories` (R7). M12 makes sharing first-class.
+| MB | Backend platform | on Bun: streams, processes, sockets, crypto, SQL; stopped at MB.18b, unreleased | — |
+| MP | Raw performance | superseded by F2.6 and F6 | — |
+| F0 | The fork | `elm-compat-final`; the design | — |
+| F1 | Strip | no Elm compatibility, no browser | — |
+| F2 | Typed IR, interpreter, scoreboard | nomi's semantics without JavaScript | — |
+| F3 | Type classes | no `number`, `comparable`, `appendable` | — |
+| F4 | Native | static Linux x86-64 executables, same output as the interpreter | — |
+| F5 | The platform, native | nomi/* without Bun; JavaScript deleted | — |
+| F6 | Optimization | the scoreboard | — |
+| F7 | The registry | nomi's own packages | — |
 
 nomi stays 0.x after these milestones. 1.0 is a promise of stability, so it waits until nomi has run in real production projects, its own maintainers' and others', for long enough to keep that promise; no milestone here releases it.
 
-**Not planned:** `elm repl`, `elm reactor`, and elm-format's `--elm-version 0.18` input. Under the `elm` and `elm-format` names these exit with a one-line explanation.
+Releases after 0.6 are numbered when the F milestones reach something worth releasing; the maintainer decides which.
 
 ## Working rules
 
@@ -1492,63 +1498,104 @@ MB comes before MP, so that MP measures the platform as it will stay. MB.1 remov
 - [x] **MB.18b** `net: UDP and DNS`. `Nomi.Udp` on `Bun.udpSocket` and `Nomi.Dns` on `Bun.dns`, each through the `Net` and on `Net.loopback`. **Check:** datagrams both ways, on a socket and on `Net.loopback`; lookups of `localhost`; `onlyHosts` holding for each; an interrupted fiber's socket closed.
 
   Done: `Nomi.Udp` on `Bun.udpSocket`: `bind` (port 0 a client's, which `Net.noListen` allows; a port of its own refused there), `localPort`, `send` (through the network the socket was bound through, a name looked up first), `receive`, its own `Error`; 1,000 datagrams held, those past dropped as UDP drops them. `Nomi.Dns.lookup` on `Bun.dns`. Both on `Net.loopback`, whose datagrams to nobody are dropped and whose names are this machine's alone. The `net` suite (22 tests) adds datagrams both ways and a socket closed with its fiber, on a socket and a loopback, `localhost`'s lookup, narrowing and listening for each. DECISIONS has the binding and dropping.
-- [ ] **MB.19** `redis`. Blocking commands and subscriptions get a connection of their own, so closing it on interruption fails no other fiber's commands. **Check:** the typed commands and `command` against Valkey; pub/sub; an interrupted blocking command closes its connection while another fiber's command on the same client succeeds; `Redis.memory` agrees with Valkey on the common commands.
-- [ ] **MB.20** `s3`. **Check:** against Garage: put and get streamed, head, list, delete, presigned URLs; an interrupted upload is aborted; `S3.fromFs` agrees.
-- [ ] **MB.21** `examples and review`. todo-server on SQLite, so its tests need no container; fullstack with a WebSocket; a CLI example; the README's server section; an exit review of MB as M12's, its fixes as steps. **Check:** the examples' tests; the review's must-fix findings fixed.
-- [ ] **MB.22** `release: 0.7`.
+MB stopped here on 2026-10-20, when nomi became its own language (DECISIONS): Redis (MB.19), S3 (MB.20), the examples and review (MB.21) and release 0.7 (MB.22) were dropped, since the platform is rebuilt natively in F5. The tree at `elm-compat-final` is MB.18b.
 
-**Exit:** server programs and every test suite run on Bun with no Node; each `nomi/*` module's fake and interruption guarantees are tested, on each OS CI runs where the OS has the feature; the services suite passes against Postgres, MySQL, Valkey and Garage; the examples use the platform and nothing else; and the tests, javascript and lsp corpus suites are unchanged.
+**Exit** (not reached; MB stopped at MB.18b): server programs and every test suite run on Bun with no Node; each `nomi/*` module's fake and interruption guarantees are tested, on each OS CI runs where the OS has the feature; the services suite passes against Postgres, MySQL, Valkey and Garage; the examples use the platform and nothing else; and the tests, javascript and lsp corpus suites are unchanged.
 
-## MP: Raw performance, release 0.8
+## MP: Raw performance (superseded)
 
-Goal: nomi does the least work its job allows. M8b beat elm and elm-format on every cell; MP aims to beat them by multiples, and to make what has no upstream (the editor, tests, watch, the server runtime, workspaces) as lean: fewer cycles and instructions, fewer allocations and bytes copied, less peak and retained memory, better algorithms, shorter critical paths, and nothing busy while idle. Every trick is in scope (allocators, arenas, data layout, SIMD, LTO, PGO, better algorithms) as long as the code stays safe Rust, output stays byte-identical, a profile picked the change and a measurement kept it.
+Superseded on 2026-10-20 by F2's scoreboard and F6 (DECISIONS): MP measured and tuned a toolchain for Elm whose output ran on Bun, and nomi's output will be native code. Its measurement contract carries over to F2.6; the toolchain's own speed (parsing, inference, the editor) is measured on the same terms whenever a step makes it a question.
 
-MP follows MB and covers all of MQ's, M11's, M12's and MB's code; measuring what exists can start once MQ ends. P.1–P.4 build the measurements; P.5 onward are areas, each refined into small steps, one root cause a commit, once P.4's cost map ranks it. Experiments that lose are recorded too.
+## F: nomi, its own language
 
-**Where it starts.** [benchmarks.md](benchmarks.md) records M8b's 204 of 204 cells (exosphere cold under 0.19.3: 1.47 s wall, 5.29 s CPU, 702 MiB; warm 136 ms; docspell cold 1.11 s; elm-material-icons `--docs` 468 ms), and 9.22b the language server's (exosphere's first diagnostics 2.65 s, saves 27 ms, completion 30 ms, 890 MiB). MQ has moved all of them, and nothing yet measures allocations, live or retained heap, idle cost, hardware counters or latency tails. What is already in place is measured, not proposed again: mimalloc, the one-word interned `Text`, FxHash, HIR arenas, the chunked union-find, shared alias bodies, lazy interfaces, artifact reuse and DAG scheduling. `NOMI_TIMINGS` sums `Instant` durations across threads: it locates work but isn't CPU time.
+Goal: Elm's way of writing programs, made a language of its own for servers and command-line programs, compiled to a static executable for Linux x86-64 that performs like the best of Go, Rust and OCaml on the scoreboard. architecture.md §1, §3, §14 and §15 hold the design; DECISIONS 2026-10-20 the reversals.
 
-**Measurement contract**, which `cargo xtask bench` enforces rather than this prose:
-- Every result carries its provenance: revision and dirty state, binary hash, corpus pins, command and environment, machine, toolchain, build flags, allocator, threads, artifact-cache and page-cache state. Storage-sensitive changes are measured on a real disk, not `/tmp`'s RAM.
+The order keeps a working oracle at every point: the JavaScript backend on Bun checks the reference interpreter (F2), the interpreter checks the native backend (F4), and the JavaScript backend goes only once native programs do everything it does (F5). Upstream's oracles go first (F1), since nothing is held to upstream any more. Near milestones are detailed; later ones are refined when they start (rule 4).
+
+**Open questions**, each with the step that settles it:
+
+| Question | Default until settled | Settled by |
+|---|---|---|
+| Does `String.length` count Unicode scalars or bytes? | scalars, `String.byteLength` beside it | the maintainer, before F2.4 |
+| The syntax of classes and instances | the draft in F3.1 | F3.1, with the maintainer |
+| Is `Ord Float` IEEE's comparison or a total order? | a total order for `compare`, IEEE for `<` | F3.1 |
+| How does a program put work on another core? | `Server.listen` uses every core; nothing else does | F4.1 |
+| Which TLS and SQLite without libc? | rustls on the runtime's own I/O; SQLite with a VFS of nomi's | F5.1 |
+| Is a cycle collector for `Ref` and `Queue` needed? | no, until a workload leaks | F6 |
+| Where is the registry hosted? | — | F7.1 |
+
+### F0: The fork
+
+- [ ] **F0.1** `docs: nomi becomes its own language`. The tag `elm-compat-final` on the last commit of MB, local until the maintainer pushes it; architecture.md §1 and §3 rewritten, §14 and §15 added; this plan's F milestones, with MB stopped and MP superseded; DECISIONS for each reversal; the open questions above. **Check:** the maintainer agrees.
+
+### F1: Strip
+
+Goal: everything that exists for Elm's compatibility or for the browser is gone, so that F2 onward work on nomi alone. Server programs, `nomi test`, the LSP, the formatter and the examples keep working on Bun throughout. Each step deletes, and its check is that CI is green and nothing in the tree names what it removed, outside THIRD-PARTY-NOTICES, DECISIONS and this plan.
+
+- [ ] **F1.1** `cli: nomi alone`. The `elm` and `elm-format` personalities, their hand-written argument parsers and their transcripts go; the CLI is clap's alone.
+- [ ] **F1.2** `oracles: none from upstream`. `xtask/src/oracle`, tier 3, the upstream binaries and Node in references.toml, elm-review in the LSP, and every parity ratchet against upstream go. What the ratchets recorded of nomi's own output (the formatter's corpus, the reports) stays as nomi's snapshots, no longer compared to anything upstream made.
+- [ ] **F1.3** `compiler: one language`. `Compat`, its three releases' differences and its place in cache keys go; regions, columns and reports follow one model.
+- [ ] **F1.4** `syntax: nomi's own syntax errors`. The port of upstream's parser (`crates/syntax/src/elm`) goes, and syntax errors come from the recovering parser, with reports in nomi's style. **Check:** every case of the syntax error corpus is reported at the same region or one nearer its cause, which a table in the test records.
+- [ ] **F1.5** `language: no browser, ports or effect modules`. The browser packages and their kernels, browser output (the IIFE, `--debug`, field shortening and `optimized/binary.rs`), the availability check's DOM rules, `nomi run --watch`'s dev server, browser test projects, ports (`optimize/port.rs`), effect modules (`effects.rs`), GLSL (`glsl.rs`, `shader.rs`), `Cmd`, `Sub` and `Platform.worker`. A `main` that isn't a `Nomi.Program` is reported.
+- [ ] **F1.6** `packages: vendored, nothing downloaded`. The elm/* packages programs use (core, json, bytes, time, url, parser, regex, random) move into `packages/` as nomi packages, their notices kept; package.elm-lang.org, the registry client, `publish`, `bump` and `diff` go. Until F7, a project depends on bundled packages and workspace members alone.
+- [ ] **F1.7** `project: .nomi and nomi.toml`. Source files end in `.nomi`, and nomi.toml is the only manifest (R6), elm.json's fields moved into it; the formatter, LSP, test runner and watch follow. The examples and test projects are converted by a script that runs once.
+- [ ] **F1.8** `docs: what remains`. README and architecture §2 and §4–§13 rewritten for the toolchain as it now is.
+
+**Exit:** CI green on every platform, the server suites and examples unchanged on Bun, and the lines removed counted in the gate's summary.
+
+### F2: Typed IR, the reference interpreter and the scoreboard
+
+Goal: nomi's semantics are executable without JavaScript, and its speed is measured from now on.
+
+- [ ] **F2.1** `types: a type for every node`. Inference records the resolved type of every expression and pattern by ID, not by range as hover's `ExprTypes` does; class constraints arrive in F3.
+- [ ] **F2.2** `ir: the typed IR`. A crate with the IR of §15, lowering from the typed HIR, a printer, and the IR's own type checker, run after lowering in every test. **Check:** every module of the test suites, examples and corpus lowers and checks.
+- [ ] **F2.3** `ir: monomorphization`. Whole-program, from the entry; polymorphic recursion reported (§14). **Check:** the IR checker passes after it on everything F2.2 lowers; a table of programs with polymorphic recursion is reported.
+- [ ] **F2.4** `interp: pure evaluation`. The interpreter over the monomorphized IR, with §14's numbers and text: wrapping 64-bit `Int`, UTF-8 `String`. Kernels for the pure stdlib in Rust, shaped as the native runtime's will be. **Check:** every pure elm-test test the JavaScript backend passes, apart from a listed table of the spec's differences (an `Int` past 2^53, string lengths outside ASCII).
+- [ ] **F2.5** `interp: tasks and fibers`. The scheduler of §8 in Rust, with fibers, scopes, interruption, the clock, standard I/O and signals; `check.test.js`'s model checker ported to it. **Check:** the runtime's tests that need no I/O beyond those, run against it.
+- [ ] **F2.6** `bench: the scoreboard`. §15's workloads in nomi and the other languages, `cargo xtask bench` running them under the measurement contract below, nomi on Bun at `elm-compat-final` as the baseline, and the first numbers in benchmarks.md.
+- [ ] **F2.7** `fuzz: programs`. A generator of well-typed nomi programs and a target running each on the interpreter and the JavaScript backend, outside the listed differences. **Check:** an hour without a difference on the dev machine, and the seeds kept.
+
+**Measurement contract**, from MP, which `cargo xtask bench` enforces rather than this prose:
+- Every result carries its provenance: revision and dirty state, binary hash, command and environment, machine, toolchain, build flags and allocator.
 - Baseline and candidate are built first and run alternately under the same conditions, with nothing else running. Raw samples are kept; medians, spread and paired changes reported. An inconclusive comparison is repeated, never called a win.
-- Two tiers: a fixed quick set, minutes long, for every experiment; the full sweep, its duration stated, to land one.
-- Profiling is apart from timing: profiles from symbolized optimized builds, gains confirmed on the shipping binary and allocator without the profiler.
-- What is measured: wall and user/system CPU; cycles, instructions, cache and branch misses and page faults where the hardware gives them; allocations, bytes allocated, peak live and retained heap, with an allocation profiler checked to see mimalloc's; whole-tree CPU and simultaneous memory for process trees; latency distributions, with enough samples for the percentile claimed, for the editor and server.
-- Work as well as time: parses, inferences, decodes, bytes read and written, requests completed. Output is checked: a failed request, a stale diagnostic, a skipped test or a smaller output is never a speedup.
-- Results go in `docs/benchmarks.md`, samples and profiles under the development cache by revision; no service or dashboard.
+- What is measured: wall and user/system CPU; cycles, instructions, cache and branch misses and page faults; allocations, bytes allocated and peak memory; for servers, throughput and latency distributions, with enough samples for the percentile claimed.
+- Output is checked: a failed request or a wrong answer is never a speedup.
+- Results go in `docs/benchmarks.md`, samples and profiles under the development cache by revision.
 
-**Workloads**, from the pinned corpus: every buildable app (exosphere, docspell with its generated API, liascript, elm-3d-scene's shaders, concourse's entries and the rest) and the six documentation packages, plus the package corpus's measured extremes (large unions, records, aliases, matches, dependency graphs); `check`, development, `--debug`, `--optimize` and `--docs` under each Compat; builds with empty artifacts, with dependencies built, unchanged in a fresh process and in a live one, and after each kind of edit (a body, an interface, a widely imported module, the manifest, a failure and then its fix); formatting whole trees and largest modules, formatted or not, Markdown and shaders included; error workloads from mutated real modules; editor sessions from todomvc to concourse, captured and generated, past 1,000 edits for retention; the seven runnable test suites by worker count and reporter; M11's server and M12's workspace under recorded traffic; and xtask's own corpus runs.
+**Exit:** the interpreter runs the test suites and examples' pure code and their tasks; the fuzzer finds no difference outside the listed ones; the scoreboard has its baseline.
 
-- [ ] **P.1** `bench: the workload matrix`. The corpus inventoried by size, module counts and features; the quick set chosen; deterministic edits and sessions for the states above; missing archives and expected failures listed with their reasons, never counted as throughput. **Check:** each replay has a stable input digest, the work and output it expects, and a command that runs it alone in its own sandbox.
-- [ ] **P.2** `bench: samples and the whole operation`. `Cost`/`best_of` keep samples and summarize comparable runs. The language server's benchmark fails on an error response, saves update text and disk, diagnostics are matched to their revision, and deadlines cover the whole exchange; it reports launch to first diagnostics as well as open to diagnostics. CPU ticks come from the platform, children's CPU is counted once, and idle CPU and memory are measured. **Check:** a failing or stale answer can't win, and the harness's own timing floor is reported.
-- [ ] **P.3** `bench: profiles`. CPU (perf or samply), allocations (a profiler validated against mimalloc) and Bun's CPU, heap and GC profiles for the runtime and test runner, with entry points per phase only where the real workloads need them. **Check:** profiles resolve to nomi's functions, and unprofiled repetitions bound the profiler's overhead.
-- [ ] **P.4** `bench: baseline and cost map`. The baseline frozen and published beside the old scoreboard; each user-facing operation's cost mapped to crate, function and critical path (inclusive and exclusive CPU, allocations, live and retained memory, repeated work), with whole-process profiles showing what is negligible; P.5 onward ranked by measured share, each with a numeric target set against the noise. **Check:** every ranking has a reproducible profile behind it.
-- [ ] **P.5** `perf: release builds`. Thin and full LTO and codegen units first, since they change every later profile and the inlining that Q.6 had to mark by hand; then PGO, trained on P.1's workloads and validated on held-out projects and sessions; then allocator options against the whole matrix (B.3: huge pages won cold wall time and lost warm CPU and memory). `target-cpu=native` only as a labelled experiment. **Check:** the distributable binary improves beyond the noise, with binary size and build time recorded.
-- [ ] **P.6** `perf: text, names and reports`. base and project: UTF-16 and Elm-column prefix scans, suggestions' vectors, document fitting, name hashing and the interner's lock. `Text` leaks each new spelling for the process's life, which a long editor session grows: bounded or scoped interning weighed against that retention.
-- [ ] **P.7** `perf: syntax`. Lexing, lookahead, events, tree construction, validation, GLSL and the two error recognizers (SYN-03's borrowed names if their allocations show). A batch tree only if rowan dominates and the conversion pays; one grammar and lossless recovery stay.
-- [ ] **P.8** `perf: lowering and canonicalization`. Copied environments and metadata, export lookups, data built for no consumer, shared union descriptions or compact ids.
-- [ ] **P.9** `perf: type inference`. Constraints, copying and restoring, generalization, unification, record maps and the union-find; descriptor size and allocations per instantiation; the occurs check's active `Vec` and its revisits of shared subgraphs (CB02), with chain and DAG scaling checks.
-- [ ] **P.10** `perf: patterns and optimization`. Exhaustiveness matrices, decision trees and branch sharing on morphir-elm and the corpus's extremes, with `.elmo` and `o.dat` bytes identical.
-- [ ] **P.11** `perf: JavaScript generation`. One output buffer sized ahead, borrowed generation, one reachability visit per global, bytes emitted and copied measured. Elm's JS value representation is a compatibility decision, not a printer one.
-- [ ] **P.12** `perf: formatting and Markdown`. Borrowed source, fewer strings per atom, `@docs` grouping by lookup (FMT-03), rendering straight into a sized buffer, Cheapskate's label parsing measured on real input; the dialect stays Cheapskate's.
-- [ ] **P.13** `perf: engine, artifacts and scheduling`. VFS reads and canonicalization, the crawl, package memoization, artifact hashing and codecs, what each graph keeps alive and how `trash` frees it; hashing nomi's own 22 MB executable on every run to key the cache (CR.6), which may be a sixth of a warm build; thread counts with critical-path and lock-wait evidence, since busier cores are not less work.
-- [ ] **P.14** `perf: registry and package commands`. Solves replayed against the pinned index, backtracking and `oldest` included; local CPU apart from transfer, through the fixture server; no network on warm local commands, and never a real publish.
-- [ ] **P.15** `perf: language server`. Every provider and the protocol conversion, references across large generated modules among them (octicons-elm's take minutes unoptimized); first-use inference apart from later requests; requests during diagnostics, cancellations and several projects, for the index lock and queueing; 1,000 edits and more, and repeated opening and closing, for retention.
-- [ ] **P.16** `perf: test runner and watch`. Discovery, compilation, loading, Bun's startup, execution, messages and reporters, by worker count. The watcher walks the tree every 100 ms: an event-driven one if it measures better and gives the same events.
-- [ ] **P.17** `perf: fiber runtime and the server platform`. Bun's CPU, heap and GC profiles under real tasks and the server's traffic: continuations, run-queue compaction, scopes, joins, interruption, host calls and timers (`TestClock`'s sorted array); requests per second, CPU per request, p50/p95/p99, event-loop delay, and what is still alive once traffic drains. Fairness, the virtual clock's order, cancellation and graceful shutdown stay. Candidates from Effect 4.0.5's fiber runtime, read on 2026-10-15, when on Node 100,000 suspended fibers cost 1,240 bytes each here and 834 there, and a million chained steps took about 118 ms here and 83 there: an exit that is itself the task, as Effect's and elm/core's are, rather than a task wrapping an exit (two objects per `succeed`); a success handed straight to the next continuation, bounded at a fixed inline depth, rather than unwound through the loop; a fiber's observers, reapers and scope allocated when first used; one class per task kind, so property reads stay monomorphic; and a finished fiber's stack swapped for a shared empty one. Not candidates: its priority buckets, context caches, tracer hooks and immediate forks, which would change Elm's scheduling order.
-- [ ] **P.18** `perf: workspaces and tooling`. Modules M12's members share built once; xtask and testkit on the full corpus, whose graphs run peaks at 8.6 GB.
-- [ ] **P.19** `perf: SIMD and data layout`. With P.6–P.18's profiles: safe vectorized scanning (`memchr`/`memmem`, auto-vectorization checked in the assembly) in the lexer, `LineIndex`, literal, comment and GLSL scanning, JSON escaping and hashing; arenas, recycled buffers, compact ids, inline small collections and sorted vectors where measured sizes call for them. Stable Rust and the minimum version, no intrinsics and no `unsafe`, portable to CPUs without vector units; an architecture-specific gain counts only on hardware it was measured on.
-- [ ] **P.20** `bench: final numbers`. The full matrix against the frozen baseline and the pinned upstream tools: before and after, spread, allocations and retention, attribution, replay commands, and what was tried and rejected. Deterministic work-count and scaling checks guard each kind of regression found; wall-clock budgets stay out of shared CI.
-- [ ] **P.21** `release: 0.8`.
+### F3: Type classes
 
-**Exit:** each user-facing operation has a measured cost map, failures, incrementality, long sessions and idle time included; every landed change has its before and after against the same baseline; every dominant cost has been investigated and what remains is accounted for; and output, diagnostics, every ratchet and corpus suite, and the runtime's properties are unchanged.
+Goal: classes as §14 describes, replacing every special case of `number`, `comparable`, `appendable` and `compappend`. Refined when it starts. In outline: the syntax and semantics agreed (F3.1); the built-in classes and operators bound to them, with the stdlib's signatures moved; records' and tuples' structural instances; derivations; user classes and instances with the orphan rule and their reports; dictionaries in the typed IR, gone after monomorphization; `==` requiring `Eq`.
+
+**Exit:** no special case of the four remains in the compiler; the stdlib, packages, examples and tests are on classes; every class report has a test.
+
+### F4: Native
+
+Goal: the programs the interpreter runs, as static Linux x86-64 executables with the same output. Refined when it starts. In outline: the runtime's design (F4.1: cores, the API across them, the scheduler's data, the I/O ring); data layout; RC insertion, borrowing and reuse, checked by the interpreter's counting mode; nomi's SSA; Cranelift emission; the static linker and DWARF; the `no_std` runtime with fibers, the clock, standard I/O, signals and the pure kernels, on io_uring and epoll; the 100,000-fiber benchmark.
+
+**Exit:** every test the interpreter passes passes natively; the program fuzzer finds no difference between them; the counting mode finds no leak; the scoreboard has native numbers for every compute and runtime workload.
+
+### F5: The platform, native
+
+Goal: everything nomi/* does on Bun, done natively, then the JavaScript backend deleted. Refined when it starts. In outline: TLS and SQLite without libc (F5.1); files and paths; processes; TCP, UDP and DNS; TLS; the HTTP server and client and WebSockets; crypto, passwords and compression; SQL; then `crates/codegen-js`, `runtime/`, the Bun kernels and Bun itself removed from the toolchain and CI.
+
+**Exit:** every nomi/* suite and the services suite pass natively; the examples are native; no JavaScript is left in the tree; the server workloads are on the scoreboard.
+
+### F6: Optimization
+
+Goal: the scoreboard's numbers, ranked by profile. Each step names a workload and a target before it starts. Candidates: inlining and specialization across modules; unboxed fields and returns; escape analysis, so short-lived values never reach the heap; tail calls modulo constructors; fused `Task` chains; the allocator's size classes per core; a hand-written encoder, only if code generation shows in the profiles; a cycle collector for `Ref` and `Queue`, only if a workload needs one.
+
+### F7: The registry
+
+Goal: nomi's own packages, published and resolved. Refined when it starts: hosting (F7.1), the index and its protocol, publishing with semantic versioning checked from interfaces, the lockfile (R6), and the solver's reports.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| Error-message parity is the longest pole: `Syntax.hs` is 5,904 lines, `Type.hs` 1,619 and `Canonicalize.hs` 1,258. | Titles and regions gate first, and message text ratchets to 100% by 0.2. |
-| Formatter parity stalls on edge cases. | The formatter tree mirrors elm-format's AST, and rule 6 applies. |
-| Upstream ships changes, such as 0.19.4 or server modules through Acadia. | One Compat per release; server code lives only in packages and kernels. |
-| Scale: upstream is about 95k lines across the three tools. | Releases 0.1, 0.2 and 0.3 each replace one tool on their own. |
+| Native code is slower than promised, because the memory model costs more than the code generator saves. | The scoreboard from F2.6, native numbers from F4, and the counting interpreter, which shows where counts are touched before any profile does. |
+| A bug in the native backend or the runtime corrupts memory. | The interpreter as the reference; programs fuzzed against it; `unsafe` in one crate, under Miri and sanitizers (R2). |
+| io_uring is refused where programs are deployed. | epoll beside it from the start, chosen at startup, every I/O test run on both. |
+| Without libc, TLS, SQLite and DNS need more of nomi's own code. | Rust crates that work without the standard library where they exist; F5.1 decides before F5 starts. |
 | Sessions don't share memory. | The plan, the tests and the history carry all state. |
-| Some oracles need GHC. | Only tier 3 uses them; their snapshots are checked in. |

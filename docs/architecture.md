@@ -1,33 +1,47 @@
 # nomi architecture
 
-Status: proposal, 2026-10-06.
+Status: proposal, 2026-10-06; redirected 2026-10-20, when nomi became its own language.
 
-nomi is one Rust toolchain for Elm: compiler, formatter, language server, test runner, package manager and workspaces, plus a server platform. This document covers three things:
+nomi is a programming language and its toolchain: compiler, formatter, language server, test runner, package manager and workspaces, and a runtime. It began as a Rust toolchain for Elm. From 2026-10-20 it is its own language, forked from Elm 0.19 at the tag `elm-compat-final`: a backend language compiled ahead of time to a static executable for Linux x86-64. This document covers:
 
-- a verdict on the plan;
-- the structural mistakes of the first attempt, with evidence;
-- the rules and structure that prevent those mistakes.
+- the direction, and a verdict on the first plan (§1);
+- the structural mistakes of the first attempt, with evidence (§2);
+- the rules and structure that prevent those mistakes (§3–§13);
+- the language (§14) and its native target (§15).
+
+§2 and §4–§13 describe the toolchain as it stood at `elm-compat-final`. Each is rewritten as the F milestones change what it describes; until then, where one of them names Elm's compatibility, upstream parity or the browser, §1, §3, §14 and §15 win.
 
 Anything not settled here should be settled by a test, not by more prose.
 
-## 1. Verdict
+## 1. Direction
 
-| Idea | Verdict | Adjustment |
+nomi is a pure, strict, statically typed functional language for servers and command-line programs. Its starting point is Elm: Elm's syntax, its module system, records, custom types and pattern matching, Hindley–Milner inference with extensible records, no exceptions, no null and no mutation of values, and Elm's style of error messages. Its aim is performance: code written the Elm way should run as fast as idiomatic Go, or Rust on tokio, on the same server workloads, and a scoreboard measures it (§15).
+
+**Why a fork.** What makes Elm easy to compile well is its semantics: strict, pure, a closed world, no reflection and no exceptions. What holds it back on a server isn't the language's core but what compatibility pins down:
+
+- its target, JavaScript, where every value is a heap object a garbage collector traces;
+- its numbers, where `Int` is a double whose integer arithmetic loses precision past 2^53;
+- its strings, UTF-16 with lengths in code units;
+- no way to abstract over equality, ordering, hashing or serialization except four special cases, `number`, `comparable`, `appendable` and `compappend`, which no user type joins;
+- an effect system of `Cmd`, `Sub` and ports, built for the browser.
+
+A fork can change each of these; a compatible toolchain can change none.
+
+**What changes, from the first plan:**
+
+| Idea | Verdict | Now |
 |---|---|---|
-| One Rust toolchain | Yes | The payoff is a single parser, resolver and type checker shared by the compiler, formatter, LSP and test runner. Today elm-language-server reimplements Elm's scoping and inference in TypeScript, which is where tools disagree. |
-| CST for the parser | Yes, alongside other trees | Three shapes, each with one job: a lossless CST for syntax, a lowered HIR with IDs for semantics, and a formatter tree with comments attached in one pass. Typed views sit over the CST. |
-| `Task` and fibers on the server instead of TEA | Yes | Extend Elm's own scheduler, which is already a cooperative fiber runtime, in the server's kernel. Keep the elm/core API identical; new concurrency APIs go in `nomi/*` packages. No new syntax. |
-| `nomi.toml` selects server or browser | Yes, but narrower | The platform belongs to each entry point, not to the project. It never changes what Elm code means, only which kernel JS is linked and how the output is packaged. `elm.json` stays canonical. |
-| Drop-in replacement | Yes | Measure it continuously with differential tests against pinned upstream binaries, for each upstream version. |
-| Monorepo | Yes | One resolution per workspace; member packages resolve by name. Builds dedupe shared code through content-addressed artifacts, not ownership rules. |
+| One Rust toolchain | Kept | One parser, resolver and type checker shared by the compiler, formatter, LSP and test runner. |
+| CST, HIR and formatter tree | Kept | As §5 and §6 describe. A typed IR follows them (§15). |
+| `Task` and fibers on the server | Kept, and the only effect system | `main : Nomi.Program`. `Cmd`, `Sub`, ports, effect modules and `Platform.worker` go. |
+| `nomi.toml` selects server or browser | Reversed | One platform: Linux x86-64. No browser. |
+| Drop-in replacement for elm, elm-format, elm-language-server and elm-test | Reversed | No compatibility with Elm's compiler, packages or tools. The formatter keeps elm-format's style as nomi's own. |
+| Monorepo | Kept | Workspaces as §7 describes. |
+| Upstream may ship server modules (Acadia) | No longer a risk | nomi doesn't follow upstream. |
 
-**Strategic caveat.** Upstream is active again. Elm 0.19.2 shipped on 2026-07-06 and 0.19.3 on 2026-10-02, both with no language changes. Even so, 0.19.3 rewrote the parser's internals and fixed off-by-one regions in JSON reports and `Debug.todo`. In the feature tree from *Another step towards Elm 1.0*, **server modules** branch off **Acadia**, which follows **Acadia alignment**. The post describes Acadia as a database-related compiler, in private alpha until later this year. Upstream may ship its own server story. Therefore:
+**What doesn't change:** the toolchain's structure (§3–§13), the tolerant phases and the policy layer, the incremental engine, the code rules, and the fiber runtime's guarantees (§8): structured concurrency, interruption, exits, fairness and lifecycle, ported from JavaScript to the native runtime.
 
-- no language changes;
-- no compiler special cases for servers;
-- everything server-specific lives in `nomi/*` packages and the server's kernels.
-
-That way nomi can adopt upstream's design as another platform instead of becoming a fork. The durable value is the toolchain; server mode is one platform plugged into it.
+**How it gets there.** The JavaScript backend on Bun stays as the program oracle while a reference interpreter is built and checked against it (plan F2); the interpreter then becomes the oracle the native backend is checked against (F4), and the JavaScript backend goes once the native platform covers what it does (F5). Upstream binaries, Compat and every parity suite go first (F1).
 
 ## 2. What went wrong in the first attempt
 
@@ -87,16 +101,17 @@ The skeleton of the syntax crate was sound: the event parser, rowan, Missing/Err
 
 ## 3. Rules
 
-These rules are the architecture. Breaking one requires an entry in `DECISIONS.md`. Wherever possible a rule is enforced by the crate dependency graph or a CI check, not by prose.
+These rules are the architecture. Breaking one requires an entry in `DECISIONS.md`. Wherever possible a rule is enforced by the crate dependency graph or a CI check, not by prose. R1 and R5 were rewritten on 2026-10-20, when nomi left Elm's compatibility; the first versions are at `elm-compat-final`.
 
-**R1. One semantics, many platforms.** An Elm module type-checks and means the same thing everywhere. A platform is a set of kernel JS implementations, an output format and an entry shim, and nothing else.
+**R1. One semantics, specified; one platform.** A nomi program means what the language reference (§14) and the reference interpreter say, and nothing else.
 
-- elm/* APIs are identical on every platform.
-- The server platform, on Bun, overrides only the kernels that need a host: `Scheduler` and `Platform` for structured concurrency and process lifecycle, `Process` and `Time` so timers and the current time go through the runtime's clock, and `Http` via `fetch`. DOM kernels (`Browser`, `VirtualDom`, `File`) are unavailable there.
-- The linker checks availability on the program that is reachable after dead-code elimination. A server may import a module that defines a `view`, as long as it never calls it. The error names the path, e.g. `main → Page.view → Html.div → Elm.Kernel.VirtualDom (not available on node)`.
-- The compiler has no platform enum, and cache keys contain no platform.
+- The interpreter is the executable form of the reference. A backend's output is correct when it agrees with the interpreter; where the two disagree, one of them, or the reference, has a bug.
+- There is one platform: Linux x86-64, static executables. Another platform is added only by a DECISIONS entry, and it means the same programs the same way.
+- Until the JavaScript backend goes (plan F5), it is held to the same semantics, apart from the differences the reference lists, and the compiler has no platform enum.
 
-**R2. Pure core, effects at the edges.** `syntax`, `format`, `compiler` and `codegen-js` take values and return values. They touch no filesystem, network, clock, threads or environment variables, and CI checks that they don't depend on crates that do. Only `engine` (through a VFS) and `registry` perform I/O.
+**R2. Pure core, effects at the edges.** `syntax`, `format`, `compiler`, the IR, the interpreter's evaluator and the backends take values and return values. They touch no filesystem, network, clock, threads or environment variables, and CI checks that they don't depend on crates that do. Only `engine` (through a VFS), `registry` and the runtime perform I/O.
+
+- `unsafe` is allowed in one crate, the native runtime (§15), and in the code the native backend emits. Every `unsafe` block states the invariant it relies on, and the runtime's tests run under Miri where they can and under sanitizers where they can't. Everything else stays `#![forbid(unsafe_code)]`.
 
 **R3. One incremental engine** serves the CLI, watch mode, LSP and tests. It is module-granular and content-addressed, with early cutoff on interface hashes (§6).
 
@@ -104,20 +119,19 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 
 - Every phase returns `(output, diagnostics)` and never abandons a module. Unresolved names and failed unifications become error nodes and error types that absorb follow-on errors.
 - A policy layer then decides what to show:
-  - The CLI reproduces upstream: only errors from the earliest failing phase of each module, and nothing from modules blocked by a failed dependency.
+  - The CLI shows only errors from the earliest failing phase of each module, and nothing from modules blocked by a failed dependency.
   - The IDE shows everything that's useful.
 
-**R5. Compatibility is measured, versioned and continuous.**
+**R5. Language changes are deliberate, and backends are tested against the reference.**
 
-- Differential tests run against pinned upstream binaries. Their outputs are saved as snapshots, so running the tests never needs the binaries; only regenerating the snapshots does.
-- Observable differences between upstream releases (report regions, `Debug.todo` regions, doc links) live in one `Compat` value. It comes from `elm.json`'s `elm-version`: upstream requires an application's `elm-version` to equal the compiler version (`Elm/Details.hs`, `verifyApp`), so that field says exactly which behavior to emulate. Packages declare a range, so they take the Compat of the application being built, or the newest supported release when built alone.
-- Port upstream's *behavior*, not its structure. Internals change between releases even when the language doesn't.
+- A change to the language is a DECISIONS entry, its text in the reference, and the interpreter's tests for it, in that order.
+- Every backend runs the same programs as the interpreter, with the same output: the test suites, the examples, the corpus and generated well-typed programs. A difference fails CI.
+- A claim about speed is a number on the scoreboard (§15), with its provenance, against the same baseline. A change to the runtime or the backend that makes a scoreboard workload slower beyond the noise needs a DECISIONS entry.
 
 **R6. One source of truth per fact.**
 
-- `elm.json` owns source directories and dependencies for every project, so `elm`, elm-review, editors and nomi all read the same file.
-- `nomi.toml` holds only what elm.json can't express: workspace members, entries and platforms, and server settings.
-- There is no lockfile for applications, because elm.json already pins exact versions.
+- One manifest per project owns its source directories, dependencies and entries.
+- The lockfile, when there is one (plan F7), is generated, never edited.
 - One module computes every path.
 
 **R7. One owner per file per view.**
@@ -504,3 +518,75 @@ The tests say what nomi does; this section says how its code reads. Each rule is
 - **N3. Every `pub` module, type and function has a doc comment**, one sentence when one does; a field or variant has one when its name and type don't say enough. No commented-out code.
 
 The code-quality milestone (MQ) changes no behavior: every ratchet, transcript and corpus suite is unchanged by it, and no hot path gets slower. Speed is the business of a profiling pass after the milestones.
+
+## 14. The language
+
+This section is the reference's outline: what nomi keeps from Elm 0.19 and what it changes. Each change is a DECISIONS entry. Where this section says *open*, plan.md names the step that decides it.
+
+**Files and modules.** Source files end in `.nomi`. Modules, imports, exposing lists and layout are Elm's. `infix` declarations stay restricted to the bundled packages.
+
+**Numbers.**
+- `Int` is a 64-bit two's complement integer, and its arithmetic wraps. `//`, `modBy` and `remainderBy` by zero give 0, as Elm's do.
+- `Float` is an IEEE 754 double. Nothing converts between them implicitly.
+- An integer literal has any type of class `Num` and defaults to `Int` when nothing else decides it; a literal with a point or an exponent is a `Float`.
+
+**Text.**
+- `String` is immutable UTF-8 text. Its header holds its length in bytes and whether it is all ASCII.
+- `Char` is a Unicode scalar value.
+- `String.length` and the functions that take indexes (`slice`, `left`, `dropLeft` and so on) count Unicode scalars, as `String.toList` gives them; on an ASCII string they take constant time. `String.byteLength` is the length in bytes, also constant. Grapheme clusters are a module of their own. (Provisional: the maintainer has the last word, plan F0.)
+
+**Equality and classes.**
+- `==` requires `Eq`. Functions have no `Eq`, so comparing them is a type error rather than Elm's runtime crash.
+- Type classes replace `number`, `comparable`, `appendable` and `compappend`: one type parameter, superclasses, instances by declaration or by derivation. Coherence follows the orphan rule: an instance is declared in the module of its class or of its type.
+- Records and tuples have structural instances of the built-in classes their fields have, which the compiler provides and no module can declare. A custom type has an instance only when it derives one or declares one; nothing is derived implicitly.
+- Built-in derivations: `Eq`, `Ord`, `Hash`, `Debug`, `Encode` and `Decode`.
+- Operators are bound to classes: `+` to `Num`, `<` to `Ord`, `++` to `Append`.
+- Open: the syntax of classes and instances (plan F3.1); whether `Ord Float` is IEEE's or a total order (F3.1).
+
+**Polymorphism.** Every program is monomorphized whole (§15), so polymorphic recursion, which Elm allows under an annotation, is rejected with a report naming the cycle.
+
+**Effects.**
+- A program is `main : Nomi.Program`. Effects are `Task`s run by fibers, with structured concurrency, interruption, scoped resources and capabilities passed in `Env`, as §8 describes.
+- `Cmd`, `Sub`, ports, effect modules, `Platform.worker` and GLSL shaders are gone.
+- `Debug.log` writes to standard error, and `Debug.todo` is a defect of the fiber that reaches it.
+
+**Data.** `List`, `Dict`, `Set` and `Array` keep their APIs, with class constraints where Elm had `comparable`. `Array` is a reference-counted vector that an update changes in place when nothing else holds it (§15). `Ref` and `Queue` are the only mutable cells, and only tasks touch them.
+
+**Packages.** The standard library is vendored into this repository from elm/core and the other elm/* packages nomi keeps, under nomi's package names, with their BSD notices in `THIRD-PARTY-NOTICES.md`. Kernel code is Rust in the native runtime and exists only in bundled packages. nomi has its own registry (plan F7); it reads nothing from package.elm-lang.org.
+
+## 15. The native target
+
+**Pipeline.**
+
+```
+CST → HIR → canonical → typed (a type for every node)
+    → typed IR → monomorphized IR
+    → RC IR (explicit dup, drop and reuse)
+    → nomi's SSA → machine code → object → static ELF
+```
+
+- The **typed IR** is small and explicit: variables, literals, applications of known and unknown functions, constructors, `case` as decision trees, `let`, and class dictionaries as ordinary values. It has its own type checker, run in tests after every pass.
+- **Monomorphization** is whole-program: each function exists once per set of types it is used at, and dictionaries become direct calls.
+- The **reference interpreter** runs the typed IR. It also runs the RC IR in a checked mode, which counts every reference and fails on a leak, a double drop or a use after free, so the memory model is tested before any machine code exists.
+- **SSA** is nomi's own. Machine code comes from Cranelift first, behind that boundary, so that the memory model and the runtime can be measured early; a hand-written x86-64 encoder replaces it only if the scoreboard shows code generation is what's slow.
+- **Linking** is nomi's: a static linker for the relocations rustc and the backend emit, combining the program with the runtime's archive. The output is a static executable with no dynamic loader and no libc, carrying DWARF line tables so that perf and gdb work.
+
+**Memory.**
+- Reference counting in the style of Perceus: precise `dup` and `drop` inserted by the compiler, borrowed parameters inferred so that a function that only reads a value touches no count, and reuse, where a value whose count is one gives its memory to the value built from it. Pure code updates in place whenever nothing else holds what it updates.
+- Data layout follows the types: `Int`, `Float`, `Char` and `Bool` are unboxed words; constructors without fields are small integers; a heap object is one header word, holding the count and the constructor's tag, followed by its fields, which monomorphization lets hold unboxed numbers. The full layout is a plan F4 step.
+- Immutable values can't form cycles. `Ref` and `Queue` cells can, and are the only roots a cycle collector would scan (plan F6).
+
+**Runtime.** One `no_std` Rust crate, the only one with `unsafe` (R2).
+- **Thread per core, nothing shared.** Each core has its own scheduler, run queue, timers, allocator and I/O ring. A fiber and its children stay on the core that started them, so reference counts are never atomic. A server listens on every core, the kernel spreading connections with `SO_REUSEPORT`.
+- **Across cores.** A value sent to another core is copied, or frozen, after which its count is atomic and it is never reused in place. `Ref` and `Queue` belong to the core that made them; a task on another core reaches one by message, which tasks hide, as every access to a cell is already a task. Open: the API that puts work on another core (plan F4).
+- **Fibers.** A `Task` is data the scheduler runs, as Elm's scheduler and §8's runtime do; pure code runs on the core's own stack, with a guard page that turns an overflow into a defect of the fiber. A suspended fiber costs its continuation and nothing else, which the 100,000-fiber benchmark measures.
+- **I/O** goes through io_uring, and through epoll where io_uring is refused, as Docker's default seccomp profile refuses it; the runtime decides at startup, and a check runs every I/O test on both.
+- **Kernels** (strings, bytes, numbers, hashing, and later files, processes and sockets) are Rust functions in the runtime with typed signatures. The first runtime has fibers, the clock, standard I/O, signals and the pure kernels; the rest of §8's platform follows in plan F5.
+- §8's guarantees hold unchanged, and the JavaScript runtime's model checker (`runtime/test/check.test.js`) is ported to test the scheduler.
+
+**Scoreboard.** `cargo xtask bench` measures, under the measurement contract in plan.md (F2):
+- compute and allocation: binary-trees, n-body, fannkuch, spectral-norm, a `Dict`- and `Set`-heavy workload, JSON encoding and decoding, string building;
+- the runtime: 100,000 fibers sleeping and waking, ping-pong across a `Queue`, timers;
+- servers: TechEmpower-style plaintext and JSON over HTTP/1.1, latency percentiles under fixed load, memory per idle connection.
+
+Each is written the idiomatic way in nomi, Go, Rust (tokio for servers), OCaml and TypeScript on Bun, plus nomi on Bun as it was at `elm-compat-final`, the baseline every step is measured against.
