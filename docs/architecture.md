@@ -41,7 +41,7 @@ A fork can change each of these; a compatible toolchain can change none.
 
 **What doesn't change:** the toolchain's structure (§3–§13), the tolerant phases and the policy layer, the incremental engine, the code rules, and the fiber runtime's guarantees (§8): structured concurrency, interruption, exits, fairness and lifecycle, ported from JavaScript to the native runtime.
 
-**How it gets there.** The JavaScript backend on Bun stays as the program oracle while a reference interpreter is built and checked against it (plan F2); the interpreter then becomes the oracle the native backend is checked against (F4), and the JavaScript backend goes once the native platform covers what it does (F5). Upstream binaries, Compat and every parity suite go first (F1).
+**How it gets there.** First everything kept for Elm's sake goes, and the library shrinks to the first stage's: the basic types, tasks and fibers, and standard I/O (plan F1). The JavaScript backend on Bun then checks a reference interpreter on that small language and goes once the interpreter agrees with it (F2). The interpreter is the oracle from then on: for classes (F3), for the native backend (F4), and for the library as it grows back natively (F5). The Bun platform as it was, HTTP, SQL and sockets included, stays at the tag `elm-compat-final` for reference.
 
 ## 2. What went wrong in the first attempt
 
@@ -107,7 +107,7 @@ These rules are the architecture. Breaking one requires an entry in `DECISIONS.m
 
 - The interpreter is the executable form of the reference. A backend's output is correct when it agrees with the interpreter; where the two disagree, one of them, or the reference, has a bug.
 - There is one platform: Linux x86-64, static executables. Another platform is added only by a DECISIONS entry, and it means the same programs the same way.
-- Until the JavaScript backend goes (plan F5), it is held to the same semantics, apart from the differences the reference lists, and the compiler has no platform enum.
+- Until the JavaScript backend goes (plan F2), it is held to the same semantics, apart from the differences the reference lists, and the compiler has no platform enum.
 
 **R2. Pure core, effects at the edges.** `syntax`, `format`, `compiler`, the IR, the interpreter's evaluator and the backends take values and return values. They touch no filesystem, network, clock, threads or environment variables, and CI checks that they don't depend on crates that do. Only `engine` (through a VFS), `registry` and the runtime perform I/O.
 
@@ -533,15 +533,38 @@ This section is the reference's outline: what nomi keeps from Elm 0.19 and what 
 **Text.**
 - `String` is immutable UTF-8 text. Its header holds its length in bytes and whether it is all ASCII.
 - `Char` is a Unicode scalar value.
-- `String.length` and the functions that take indexes (`slice`, `left`, `dropLeft` and so on) count Unicode scalars, as `String.toList` gives them; on an ASCII string they take constant time. `String.byteLength` is the length in bytes, also constant. Grapheme clusters are a module of their own. (Provisional: the maintainer has the last word, plan F0.)
+- `String.length` and the functions that take indexes (`slice`, `left`, `dropLeft` and so on) count Unicode scalars, as `String.toList` gives them; on an ASCII string they take constant time. `String.byteLength` is the length in bytes, also constant. Grapheme clusters are a module of their own.
 
 **Equality and classes.**
 - `==` requires `Eq`. Functions have no `Eq`, so comparing them is a type error rather than Elm's runtime crash.
-- Type classes replace `number`, `comparable`, `appendable` and `compappend`: one type parameter, superclasses, instances by declaration or by derivation. Coherence follows the orphan rule: an instance is declared in the module of its class or of its type.
-- Records and tuples have structural instances of the built-in classes their fields have, which the compiler provides and no module can declare. A custom type has an instance only when it derives one or declares one; nothing is derived implicitly.
-- Built-in derivations: `Eq`, `Ord`, `Hash`, `Debug`, `Encode` and `Decode`.
-- Operators are bound to classes: `+` to `Num`, `<` to `Ord`, `++` to `Append`.
-- Open: the syntax of classes and instances (plan F3.1); whether `Ord Float` is IEEE's or a total order (F3.1).
+- Type classes replace `number`, `comparable`, `appendable` and `compappend`: one type parameter, superclasses, instances declared or derived. Coherence follows the orphan rule: an instance is declared in the module of its class or of its type, and there is at most one per class and type in a program.
+- A class is declared as a record of its methods' types, as `type alias` declares a record, and an instance as a record of their definitions. An instance without a body is derived. A constraint goes before `=>` in a signature, a superclass before the class's name.
+
+  ```
+  type class Eq a =
+      { eq : a -> a -> Bool }
+
+  type class Eq a => Ord a =
+      { compare : a -> a -> Order }
+
+  instance Eq Color =
+      { eq = \x y -> toInt x == toInt y }
+
+  instance Eq a => Eq (Tree a) =
+      { eq = treeEquals }
+
+  instance Ord Color
+
+  member : Eq a => a -> List a -> Bool
+
+  sortAndDedupe : (Ord a, Hash a) => List a -> List a
+  ```
+
+- `class` is a keyword only after `type`; `instance` is a keyword. A class has no default methods: a function every instance shares is an ordinary function with the class as its constraint. Exposing `Eq(..)` exposes the class's methods, as `Color(..)` exposes constructors; instances aren't exposed or imported, being global.
+- Records and tuples have structural instances of the built-in classes their fields have, which the compiler provides and no module can declare. A custom type has an instance only when it declares or derives one.
+- Built-in derivations: `Eq`, `Ord`, `Hash` and `Debug`; `Encode` and `Decode` arrive with JSON (plan F5).
+- Operators are bound to classes: `+`, `-` and `*` to `Num`, `<` and the other comparisons to `Ord`, `++` to `Append`. `/` stays `Float`'s and `//` `Int`'s.
+- Open: whether `Ord Float` is IEEE's comparison or a total order (plan F3.1).
 
 **Polymorphism.** Every program is monomorphized whole (§15), so polymorphic recursion, which Elm allows under an annotation, is rejected with a report naming the cycle.
 
@@ -550,9 +573,10 @@ This section is the reference's outline: what nomi keeps from Elm 0.19 and what 
 - `Cmd`, `Sub`, ports, effect modules, `Platform.worker` and GLSL shaders are gone.
 - `Debug.log` writes to standard error, and `Debug.todo` is a defect of the fiber that reaches it.
 
-**Data.** `List`, `Dict`, `Set` and `Array` keep their APIs, with class constraints where Elm had `comparable`. `Array` is a reference-counted vector that an update changes in place when nothing else holds it (§15). `Ref` and `Queue` are the only mutable cells, and only tasks touch them.
+**Library.** The standard library is vendored into this repository from elm/core, under nomi's package names, with its BSD notice in `THIRD-PARTY-NOTICES.md`. Kernel code is Rust in the runtime and exists only in bundled packages. nomi has its own registry (plan F7); it reads nothing from package.elm-lang.org.
 
-**Packages.** The standard library is vendored into this repository from elm/core and the other elm/* packages nomi keeps, under nomi's package names, with their BSD notices in `THIRD-PARTY-NOTICES.md`. Kernel code is Rust in the native runtime and exists only in bundled packages. nomi has its own registry (plan F7); it reads nothing from package.elm-lang.org.
+- **The first stage** is as small as a useful program allows, so that the native target is built on a small surface: `Basics`, `Bitwise`, `Char`, `String`, `List`, `Maybe`, `Result`, `Tuple` and `Debug`; `Task`, `Nomi.Fiber` (fork, join, interrupt, sleep), which the runtime is built around; and `Nomi` with the program's arguments and exit code, and `Nomi.Stdio`, which reads and writes text on the standard streams.
+- **Later**, natively and each with its own tests (plan F5): `Dict`, `Set` and `Array`, `Array` being a reference-counted vector an update changes in place when nothing else holds it (§15); bytes and streams; time; `Ref` and `Queue`, the only mutable cells, touched only by tasks; JSON; files and processes; a test library; sockets, TLS and HTTP; SQL. Each comes back designed for the native runtime, taking what still holds from the Bun platform at `elm-compat-final`.
 
 ## 15. The native target
 
@@ -581,12 +605,12 @@ CST → HIR → canonical → typed (a type for every node)
 - **Across cores.** A value sent to another core is copied, or frozen, after which its count is atomic and it is never reused in place. `Ref` and `Queue` belong to the core that made them; a task on another core reaches one by message, which tasks hide, as every access to a cell is already a task. Open: the API that puts work on another core (plan F4).
 - **Fibers.** A `Task` is data the scheduler runs, as Elm's scheduler and §8's runtime do; pure code runs on the core's own stack, with a guard page that turns an overflow into a defect of the fiber. A suspended fiber costs its continuation and nothing else, which the 100,000-fiber benchmark measures.
 - **I/O** goes through io_uring, and through epoll where io_uring is refused, as Docker's default seccomp profile refuses it; the runtime decides at startup, and a check runs every I/O test on both.
-- **Kernels** (strings, bytes, numbers, hashing, and later files, processes and sockets) are Rust functions in the runtime with typed signatures. The first runtime has fibers, the clock, standard I/O, signals and the pure kernels; the rest of §8's platform follows in plan F5.
+- **Kernels** (strings, numbers, standard I/O, and later bytes, hashing, files, processes and sockets) are Rust functions in the runtime with typed signatures. The first runtime serves the first stage's library (§14): fibers, the clock, standard I/O, signals and the pure kernels.
 - §8's guarantees hold unchanged, and the JavaScript runtime's model checker (`runtime/test/check.test.js`) is ported to test the scheduler.
 
 **Scoreboard.** `cargo xtask bench` measures, under the measurement contract in plan.md (F2):
-- compute and allocation: binary-trees, n-body, fannkuch, spectral-norm, a `Dict`- and `Set`-heavy workload, JSON encoding and decoding, string building;
-- the runtime: 100,000 fibers sleeping and waking, ping-pong across a `Queue`, timers;
-- servers: TechEmpower-style plaintext and JSON over HTTP/1.1, latency percentiles under fixed load, memory per idle connection.
+- compute and allocation, from the first stage: binary-trees, n-body, fannkuch-redux, spectral-norm, a `List`-heavy workload (sorting, mapping and folding), string building;
+- the runtime, from the first stage: 100,000 fibers sleeping and waking, forks and joins, reading and writing lines on the standard streams;
+- as the library grows back (plan F5): a `Dict`- and `Set`-heavy workload, JSON encoding and decoding, ping-pong across a `Queue`, and servers, TechEmpower-style plaintext and JSON over HTTP/1.1, with latency percentiles under fixed load and memory per idle connection.
 
-Each is written the idiomatic way in nomi, Go, Rust (tokio for servers), OCaml and TypeScript on Bun, plus nomi on Bun as it was at `elm-compat-final`, the baseline every step is measured against.
+Each is written the idiomatic way in nomi, Go, Rust (tokio for servers), OCaml and TypeScript on Bun, plus nomi on Bun as it was at `elm-compat-final`, built from the tag, the baseline every step is measured against.

@@ -19,11 +19,11 @@ One binary, `nomi`, that first replaced three of Elm's tools and added a server 
 | MB | Backend platform | on Bun: streams, processes, sockets, crypto, SQL; stopped at MB.18b, unreleased | — |
 | MP | Raw performance | superseded by F2.6 and F6 | — |
 | F0 | The fork | `elm-compat-final`; the design | — |
-| F1 | Strip | no Elm compatibility, no browser | — |
-| F2 | Typed IR, interpreter, scoreboard | nomi's semantics without JavaScript | — |
+| F1 | Strip | no Elm compatibility, no browser; the first stage's library | — |
+| F2 | Typed IR, interpreter, scoreboard | nomi's semantics without JavaScript; JavaScript deleted | — |
 | F3 | Type classes | no `number`, `comparable`, `appendable` | — |
 | F4 | Native | static Linux x86-64 executables, same output as the interpreter | — |
-| F5 | The platform, native | nomi/* without Bun; JavaScript deleted | — |
+| F5 | The library, native | collections, I/O, JSON, tests, sockets, HTTP, SQL | — |
 | F6 | Optimization | the scoreboard | — |
 | F7 | The registry | nomi's own packages | — |
 
@@ -1504,56 +1504,58 @@ MB stopped here on 2026-10-20, when nomi became its own language (DECISIONS): Re
 
 ## MP: Raw performance (superseded)
 
-Superseded on 2026-10-20 by F2's scoreboard and F6 (DECISIONS): MP measured and tuned a toolchain for Elm whose output ran on Bun, and nomi's output will be native code. Its measurement contract carries over to F2.6; the toolchain's own speed (parsing, inference, the editor) is measured on the same terms whenever a step makes it a question.
+Superseded on 2026-10-20 by F2's scoreboard and F6 (DECISIONS): MP measured and tuned a toolchain for Elm whose output ran on Bun, and nomi's output will be native code. Its measurement contract carries over to F2; the toolchain's own speed (parsing, inference, the editor) is measured on the same terms whenever a step makes it a question.
 
 ## F: nomi, its own language
 
 Goal: Elm's way of writing programs, made a language of its own for servers and command-line programs, compiled to a static executable for Linux x86-64 that performs like the best of Go, Rust and OCaml on the scoreboard. architecture.md §1, §3, §14 and §15 hold the design; DECISIONS 2026-10-20 the reversals.
 
-The order keeps a working oracle at every point: the JavaScript backend on Bun checks the reference interpreter (F2), the interpreter checks the native backend (F4), and the JavaScript backend goes only once native programs do everything it does (F5). Upstream's oracles go first (F1), since nothing is held to upstream any more. Near milestones are detailed; later ones are refined when they start (rule 4).
+The first stage is small on purpose: the language with its basic types, tasks and fibers, and standard I/O (architecture §14), so that the native target is built and measured on the least surface. The order keeps a working oracle at every point: the JavaScript backend on Bun checks the reference interpreter on that small language and then goes (F2), the interpreter checks classes (F3) and the native backend (F4), and the library grows back natively against it (F5). Near milestones are detailed; later ones are refined when they start (rule 4).
 
 **Open questions**, each with the step that settles it:
 
 | Question | Default until settled | Settled by |
 |---|---|---|
-| Does `String.length` count Unicode scalars or bytes? | scalars, `String.byteLength` beside it | the maintainer, before F2.4 |
-| The syntax of classes and instances | the draft in F3.1 | F3.1, with the maintainer |
 | Is `Ord Float` IEEE's comparison or a total order? | a total order for `compare`, IEEE for `<` | F3.1 |
 | How does a program put work on another core? | `Server.listen` uses every core; nothing else does | F4.1 |
-| Which TLS and SQLite without libc? | rustls on the runtime's own I/O; SQLite with a VFS of nomi's | F5.1 |
+| Which TLS and SQLite without libc? | rustls on the runtime's own I/O; SQLite with a VFS of nomi's | F5, before sockets |
 | Is a cycle collector for `Ref` and `Queue` needed? | no, until a workload leaks | F6 |
 | Where is the registry hosted? | — | F7.1 |
 
 ### F0: The fork
 
-- [ ] **F0.1** `docs: nomi becomes its own language`. The tag `elm-compat-final` on the last commit of MB, local until the maintainer pushes it; architecture.md §1 and §3 rewritten, §14 and §15 added; this plan's F milestones, with MB stopped and MP superseded; DECISIONS for each reversal; the open questions above. **Check:** the maintainer agrees.
+- [x] **F0.1** `docs: nomi becomes its own language`. The tag `elm-compat-final` on the last commit of MB, local until the maintainer pushes it; architecture.md §1 and §3 rewritten, §14 and §15 added; this plan's F milestones, with MB stopped and MP superseded; DECISIONS for each reversal; the open questions above; then, from the maintainer's answers, the first stage's library, the syntax of classes and `String.length` counting scalars. **Check:** the maintainer agrees.
+
+  Done: `elm-compat-final` tags ac035b18 (MB.18b), locally. architecture §1 is the direction and §3's R1 and R5 are rewritten (one specified semantics on one platform; backends tested against the reference interpreter; `unsafe` in the runtime crate alone); §14 outlines the language and §15 the native target. MB stopped at MB.18b, MP is superseded, and F0–F7 are written, F1 and F2 in steps. The maintainer's answers: the name stays nomi and files end in `.nomi`, in this repository; `String.length` counts scalars; classes are `type class` and `instance`, an instance without a body derived; and the first stage's library is the basic types, tasks and fibers, and standard I/O, so F1 removes the Bun platform's packages and elm-test, and the JavaScript backend goes at the end of F2. DECISIONS has an entry for each.
 
 ### F1: Strip
 
-Goal: everything that exists for Elm's compatibility or for the browser is gone, so that F2 onward work on nomi alone. Server programs, `nomi test`, the LSP, the formatter and the examples keep working on Bun throughout. Each step deletes, and its check is that CI is green and nothing in the tree names what it removed, outside THIRD-PARTY-NOTICES, DECISIONS and this plan.
+Goal: everything that exists for Elm's compatibility, the browser or the Bun platform's breadth is gone, leaving the first stage's language and library on the JavaScript backend for F2 to check against. The formatter, the LSP, the engine and workspaces stay. Each step deletes, and its check is that CI is green and nothing in the tree names what it removed, outside THIRD-PARTY-NOTICES, DECISIONS and this plan.
 
 - [ ] **F1.1** `cli: nomi alone`. The `elm` and `elm-format` personalities, their hand-written argument parsers and their transcripts go; the CLI is clap's alone.
 - [ ] **F1.2** `oracles: none from upstream`. `xtask/src/oracle`, tier 3, the upstream binaries and Node in references.toml, elm-review in the LSP, and every parity ratchet against upstream go. What the ratchets recorded of nomi's own output (the formatter's corpus, the reports) stays as nomi's snapshots, no longer compared to anything upstream made.
 - [ ] **F1.3** `compiler: one language`. `Compat`, its three releases' differences and its place in cache keys go; regions, columns and reports follow one model.
 - [ ] **F1.4** `syntax: nomi's own syntax errors`. The port of upstream's parser (`crates/syntax/src/elm`) goes, and syntax errors come from the recovering parser, with reports in nomi's style. **Check:** every case of the syntax error corpus is reported at the same region or one nearer its cause, which a table in the test records.
-- [ ] **F1.5** `language: no browser, ports or effect modules`. The browser packages and their kernels, browser output (the IIFE, `--debug`, field shortening and `optimized/binary.rs`), the availability check's DOM rules, `nomi run --watch`'s dev server, browser test projects, ports (`optimize/port.rs`), effect modules (`effects.rs`), GLSL (`glsl.rs`, `shader.rs`), `Cmd`, `Sub` and `Platform.worker`. A `main` that isn't a `Nomi.Program` is reported.
-- [ ] **F1.6** `packages: vendored, nothing downloaded`. The elm/* packages programs use (core, json, bytes, time, url, parser, regex, random) move into `packages/` as nomi packages, their notices kept; package.elm-lang.org, the registry client, `publish`, `bump` and `diff` go. Until F7, a project depends on bundled packages and workspace members alone.
-- [ ] **F1.7** `project: .nomi and nomi.toml`. Source files end in `.nomi`, and nomi.toml is the only manifest (R6), elm.json's fields moved into it; the formatter, LSP, test runner and watch follow. The examples and test projects are converted by a script that runs once.
-- [ ] **F1.8** `docs: what remains`. README and architecture §2 and §4–§13 rewritten for the toolchain as it now is.
+- [ ] **F1.5** `language: no browser, ports or effect modules`. The browser packages and their kernels, browser output (the IIFE, `--debug`, field shortening and `optimized/binary.rs`), the availability check's DOM rules, `nomi run --watch`'s dev server, ports (`optimize/port.rs`), effect modules (`effects.rs`), GLSL (`glsl.rs`, `shader.rs`), `Cmd`, `Sub` and `Platform.worker`. A `main` that isn't a `Nomi.Program` is reported.
+- [ ] **F1.6** `test: programs and their output`. elm-test goes with the browser it depends on: `nomi test`, `crates/test`, nomi/test, elm-explorations/test and the LSP's test requests. In their place, the tests of the language and its library are programs, each a `.elm` file (`.nomi` from F1.8) beside the standard output, standard error and exit code it must give, run by a harness in testkit on every backend there is. A test library for users comes back in F5.
+- [ ] **F1.7** `library: the first stage`. nomi/core keeps `Nomi`, `Nomi.Fiber`, `Nomi.Task` and `Nomi.Stdio` on text, and elm/core is vendored into `packages/` without `Dict`, `Set`, `Array`, `Process` and `Platform`; nomi/http, nomi/net, nomi/sql, the other elm/* packages, their kernels and the runtime's code for them go, with the services suite, its xtask command, images and CI job. package.elm-lang.org, the registry client, `publish`, `bump` and `diff` go: until F7, a project depends on bundled packages and workspace members alone. The examples become console programs. **Check:** the program tests cover every function the first stage's library exposes.
+- [ ] **F1.8** `project: .nomi and nomi.toml`. Source files end in `.nomi`, and nomi.toml is the only manifest (R6), elm.json's fields moved into it; the formatter, LSP and watch follow. The examples and tests are converted by a script that runs once.
+- [ ] **F1.9** `docs: what remains`. README and architecture §2 and §4–§13 rewritten for the toolchain as it now is.
 
-**Exit:** CI green on every platform, the server suites and examples unchanged on Bun, and the lines removed counted in the gate's summary.
+**Exit:** CI green on every platform; the program tests and examples pass on Bun; the lines removed counted in the gate's summary.
 
 ### F2: Typed IR, the reference interpreter and the scoreboard
 
-Goal: nomi's semantics are executable without JavaScript, and its speed is measured from now on.
+Goal: nomi's semantics are executable without JavaScript, the JavaScript backend goes, and speed is measured from now on.
 
 - [ ] **F2.1** `types: a type for every node`. Inference records the resolved type of every expression and pattern by ID, not by range as hover's `ExprTypes` does; class constraints arrive in F3.
-- [ ] **F2.2** `ir: the typed IR`. A crate with the IR of §15, lowering from the typed HIR, a printer, and the IR's own type checker, run after lowering in every test. **Check:** every module of the test suites, examples and corpus lowers and checks.
+- [ ] **F2.2** `ir: the typed IR`. A crate with the IR of §15, lowering from the typed HIR, a printer, and the IR's own type checker, run after lowering in every test. **Check:** every module of the library, the program tests and the examples lowers and checks.
 - [ ] **F2.3** `ir: monomorphization`. Whole-program, from the entry; polymorphic recursion reported (§14). **Check:** the IR checker passes after it on everything F2.2 lowers; a table of programs with polymorphic recursion is reported.
-- [ ] **F2.4** `interp: pure evaluation`. The interpreter over the monomorphized IR, with §14's numbers and text: wrapping 64-bit `Int`, UTF-8 `String`. Kernels for the pure stdlib in Rust, shaped as the native runtime's will be. **Check:** every pure elm-test test the JavaScript backend passes, apart from a listed table of the spec's differences (an `Int` past 2^53, string lengths outside ASCII).
-- [ ] **F2.5** `interp: tasks and fibers`. The scheduler of §8 in Rust, with fibers, scopes, interruption, the clock, standard I/O and signals; `check.test.js`'s model checker ported to it. **Check:** the runtime's tests that need no I/O beyond those, run against it.
-- [ ] **F2.6** `bench: the scoreboard`. §15's workloads in nomi and the other languages, `cargo xtask bench` running them under the measurement contract below, nomi on Bun at `elm-compat-final` as the baseline, and the first numbers in benchmarks.md.
-- [ ] **F2.7** `fuzz: programs`. A generator of well-typed nomi programs and a target running each on the interpreter and the JavaScript backend, outside the listed differences. **Check:** an hour without a difference on the dev machine, and the seeds kept.
+- [ ] **F2.4** `interp: pure evaluation`. The interpreter over the monomorphized IR, with §14's numbers and text: wrapping 64-bit `Int`, UTF-8 `String` counted in scalars. Kernels for the pure library in Rust, shaped as the native runtime's will be. **Check:** the program tests' pure parts give the JavaScript backend's output, apart from a listed table of the spec's differences (an `Int` past 2^53, lengths of text outside ASCII).
+- [ ] **F2.5** `interp: tasks, fibers and standard I/O`. The scheduler of §8 in Rust, with fibers, scopes, interruption, the clock, standard I/O and signals; `check.test.js`'s model checker ported to it. **Check:** every program test gives the same output on the interpreter as on Bun, apart from the listed differences.
+- [ ] **F2.6** `bench: the scoreboard`. The first stage's workloads of §15 in nomi and the other languages, `cargo xtask bench` running them under the measurement contract below, nomi on Bun built from `elm-compat-final` as the baseline, and the first numbers in benchmarks.md.
+- [ ] **F2.7** `fuzz: programs`. A generator of well-typed programs of the first stage and a target running each on the interpreter and the JavaScript backend, outside the listed differences. **Check:** an hour without a difference on the dev machine, and the seeds kept.
+- [ ] **F2.8** `js: removed`. `crates/codegen-js`, `runtime/`, the JavaScript kernels and Bun go from the toolchain and CI; `nomi run` runs the interpreter until F4. The baseline stays buildable from the tag.
 
 **Measurement contract**, from MP, which `cargo xtask bench` enforces rather than this prose:
 - Every result carries its provenance: revision and dirty state, binary hash, command and environment, machine, toolchain, build flags and allocator.
@@ -1562,25 +1564,25 @@ Goal: nomi's semantics are executable without JavaScript, and its speed is measu
 - Output is checked: a failed request or a wrong answer is never a speedup.
 - Results go in `docs/benchmarks.md`, samples and profiles under the development cache by revision.
 
-**Exit:** the interpreter runs the test suites and examples' pure code and their tasks; the fuzzer finds no difference outside the listed ones; the scoreboard has its baseline.
+**Exit:** the interpreter runs every program test and example; the fuzzer found no difference outside the listed ones before the JavaScript backend went; the scoreboard has its baseline; no JavaScript is left in the tree.
 
 ### F3: Type classes
 
-Goal: classes as §14 describes, replacing every special case of `number`, `comparable`, `appendable` and `compappend`. Refined when it starts. In outline: the syntax and semantics agreed (F3.1); the built-in classes and operators bound to them, with the stdlib's signatures moved; records' and tuples' structural instances; derivations; user classes and instances with the orphan rule and their reports; dictionaries in the typed IR, gone after monomorphization; `==` requiring `Eq`.
+Goal: classes as §14 describes, replacing every special case of `number`, `comparable`, `appendable` and `compappend`. Refined when it starts. In outline: `Ord Float` decided (F3.1); parsing and formatting `type class` and `instance`; the built-in classes and operators bound to them, with the library's signatures moved; records' and tuples' structural instances; derivations; user classes and instances with the orphan rule and their reports; dictionaries in the typed IR, gone after monomorphization; `==` requiring `Eq`; the LSP's hover, completion and navigation for classes and instances.
 
-**Exit:** no special case of the four remains in the compiler; the stdlib, packages, examples and tests are on classes; every class report has a test.
+**Exit:** no special case of the four remains in the compiler; the library, examples and program tests are on classes; every class report has a test.
 
 ### F4: Native
 
-Goal: the programs the interpreter runs, as static Linux x86-64 executables with the same output. Refined when it starts. In outline: the runtime's design (F4.1: cores, the API across them, the scheduler's data, the I/O ring); data layout; RC insertion, borrowing and reuse, checked by the interpreter's counting mode; nomi's SSA; Cranelift emission; the static linker and DWARF; the `no_std` runtime with fibers, the clock, standard I/O, signals and the pure kernels, on io_uring and epoll; the 100,000-fiber benchmark.
+Goal: the programs the interpreter runs, as static Linux x86-64 executables with the same output. Refined when it starts. In outline: the runtime's design (F4.1: cores, the API across them, the scheduler's data, the I/O ring); data layout; RC insertion, borrowing and reuse, checked by the interpreter's counting mode; nomi's SSA; Cranelift emission; the static linker and DWARF; the `no_std` runtime with fibers, the clock, standard I/O, signals and the pure kernels, on io_uring and epoll; the 100,000-fiber benchmark; `nomi build` and `nomi run` native.
 
-**Exit:** every test the interpreter passes passes natively; the program fuzzer finds no difference between them; the counting mode finds no leak; the scoreboard has native numbers for every compute and runtime workload.
+**Exit:** every program test passes natively with the interpreter's output; the program fuzzer finds no difference between them; the counting mode finds no leak; the scoreboard has native numbers for every first-stage workload.
 
-### F5: The platform, native
+### F5: The library, native
 
-Goal: everything nomi/* does on Bun, done natively, then the JavaScript backend deleted. Refined when it starts. In outline: TLS and SQLite without libc (F5.1); files and paths; processes; TCP, UDP and DNS; TLS; the HTTP server and client and WebSockets; crypto, passwords and compression; SQL; then `crates/codegen-js`, `runtime/`, the Bun kernels and Bun itself removed from the toolchain and CI.
+Goal: the library grows back, each module designed for the native runtime, specified in the reference, run by the interpreter and the native backend alike, and measured. Refined when it starts. In outline, in order: `Dict`, `Set` and `Array`; bytes and streams; time; `Ref` and `Queue`; JSON, with `Encode` and `Decode` derivations; files and paths; processes and signals; a test library and `nomi test`; TCP, UDP and DNS; TLS; the HTTP server and client and WebSockets; crypto, passwords and compression; SQL. The Bun platform at `elm-compat-final` is where each module's tests and guarantees are taken from where they still hold.
 
-**Exit:** every nomi/* suite and the services suite pass natively; the examples are native; no JavaScript is left in the tree; the server workloads are on the scoreboard.
+**Exit:** each module's guarantees are tested on both the interpreter and native code; the server workloads are on the scoreboard.
 
 ### F6: Optimization
 
@@ -1597,5 +1599,5 @@ Goal: nomi's own packages, published and resolved. Refined when it starts: hosti
 | Native code is slower than promised, because the memory model costs more than the code generator saves. | The scoreboard from F2.6, native numbers from F4, and the counting interpreter, which shows where counts are touched before any profile does. |
 | A bug in the native backend or the runtime corrupts memory. | The interpreter as the reference; programs fuzzed against it; `unsafe` in one crate, under Miri and sanitizers (R2). |
 | io_uring is refused where programs are deployed. | epoll beside it from the start, chosen at startup, every I/O test run on both. |
-| Without libc, TLS, SQLite and DNS need more of nomi's own code. | Rust crates that work without the standard library where they exist; F5.1 decides before F5 starts. |
+| Without libc, TLS, SQLite and DNS need more of nomi's own code. | Rust crates that work without the standard library where they exist; F5 decides before its sockets. |
 | Sessions don't share memory. | The plan, the tests and the history carry all state. |
