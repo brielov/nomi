@@ -33,7 +33,7 @@ A fork can change each of these; a compatible toolchain can change none.
 |---|---|---|
 | One Rust toolchain | Kept | One parser, resolver and type checker shared by the compiler, formatter, LSP and test runner. |
 | CST, HIR and formatter tree | Kept | As §5 and §6 describe. A typed IR follows them (§15). |
-| `Task` and fibers on the server | Kept, and the only effect system | `main : Nomi.Program`. `Cmd`, `Sub`, ports, effect modules and `Platform.worker` go. |
+| `Task` and fibers on the server | Kept, and the only effect system | `main : Program`. `Cmd`, `Sub`, ports, effect modules and `Platform.worker` go. |
 | `nomi.toml` selects server or browser | Reversed | One platform: Linux x86-64. No browser. |
 | Drop-in replacement for elm, elm-format, elm-language-server and elm-test | Reversed | No compatibility with Elm's compiler, packages or tools. The formatter keeps elm-format's style as nomi's own. |
 | Monorepo | Kept | Workspaces as §7 describes. |
@@ -569,13 +569,14 @@ This section is the reference's outline: what nomi keeps from Elm 0.19 and what 
 **Polymorphism.** Every program is monomorphized whole (§15), so polymorphic recursion, which Elm allows under an annotation, is rejected with a report naming the cycle.
 
 **Effects.**
-- A program is `main : Nomi.Program`. Effects are `Task`s run by fibers, with structured concurrency, interruption, scoped resources and capabilities passed in `Env`, as §8 describes.
+- A program is `main : Program`. Effects are `Task`s run by fibers, with structured concurrency, interruption, scoped resources and capabilities passed in `Env`, as §8 describes.
 - `Cmd`, `Sub`, ports, effect modules, `Platform.worker` and GLSL shaders are gone.
 - `Debug.log` writes to standard error, and `Debug.todo` is a defect of the fiber that reaches it.
 
 **Library.** The standard library is vendored into this repository from elm/core, under nomi's package names, with its BSD notice in `THIRD-PARTY-NOTICES.md`. Kernel code is Rust in the runtime and exists only in bundled packages. nomi has its own registry (plan F7); it reads nothing from package.elm-lang.org.
 
-- **The first stage** is as small as a useful program allows, so that the native target is built on a small surface: `Basics`, `Bitwise`, `Char`, `String`, `List`, `Maybe`, `Result`, `Tuple` and `Debug`; `Task`, `Nomi.Fiber` (fork, join, interrupt, sleep), which the runtime is built around; and `Nomi` with the program's arguments and exit code, and `Nomi.Stdio`, which reads and writes text on the standard streams.
+- **Module names have no prefix.** nomi doesn't sit beside another standard library, so its modules are `Stdio`, `Fiber` and, later, `Bytes`, `Json` or `Http`, not `Nomi.Stdio`. What `Nomi.Task` added to `Task` is `Task`'s own. Packages keep the `nomi/` owner: the library is the package nomi/core.
+- **The first stage** is as small as a useful program allows, so that the native target is built on a small surface: `Basics`, `Bitwise`, `Char`, `String`, `List`, `Maybe`, `Result`, `Tuple` and `Debug`; `Task` and `Fiber` (fork, join, interrupt, sleep), which the runtime is built around; `Program`, with the `Program` type every `main` has, imported by default as Elm imported `Platform`'s, and the program's arguments and exit code; and `Stdio`, which reads and writes text on the standard streams.
 - **Later**, natively and each with its own tests (plan F5): `Dict`, `Set` and `Array`, `Array` being a reference-counted vector an update changes in place when nothing else holds it (§15); bytes and streams; time; `Ref` and `Queue`, the only mutable cells, touched only by tasks; JSON; files and processes; a test library; sockets, TLS and HTTP; SQL. Each comes back designed for the native runtime, taking what still holds from the Bun platform at `elm-compat-final`.
 
 ## 15. The native target
