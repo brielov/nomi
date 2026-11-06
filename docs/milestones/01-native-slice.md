@@ -81,10 +81,11 @@ The CLI rejects those three flags with a usage error naming the milestone (exit 
 
 ## 3. Current state
 
-- This repository: `Cargo.toml` (package `nomi`, no dependencies), `src/main.rs` (cargo
-  template), `.gitignore` (`/target`), `docs/direction.md`, `docs/architecture.md`
-  (blueprint final), this file, committed on `master` and pushed to
-github.com/brielov/nomi. No `docs/conventions.md` or logs.
+- This repository: `docs/direction.md`, `docs/architecture.md` (blueprint final) and this
+  file, committed on `master` and pushed to github.com/brielov/nomi; untracked leftovers
+  of `cargo init` (`Cargo.toml` package `nomi`, `src/main.rs`, `Cargo.lock`, `.gitignore`
+  `/target`), which CP1 replaces. CP1 commits `Cargo.lock` and a `.gitignore` of `/target`
+  and `/bench/**/build/`. No `docs/conventions.md` or logs.
 - POC (verified by reading): pipeline entry points `syntax::lex`/`parse`
   (`src/syntax/lexer.rs:18`, `parser.rs:702`), `ast::lower` (`ast/lower.rs:658`),
   `types::infer` (`types/infer.rs:683`), `matching::check::check` (`matching/check.rs:161`,
@@ -170,7 +171,9 @@ RT_HASH, LIB}`.
    the named variables.
 
 Foundation files ported from the POC:
-- `hash.rs`, `symbol.rs`, `alloc.rs`, `guard.rs` unchanged; `par.rs` with `AWC_JOBS`
+- `hash.rs` plus one addition, `pub fn fx_hash_bytes(b: &[u8]) -> u64 { let mut h =
+  FxHasher::default(); h.write(b); h.finish() }`; `symbol.rs`, `alloc.rs`, `guard.rs`
+  unchanged; `par.rs` with `AWC_JOBS`
   renamed `NOMI_JOBS` and `crate::driver::BIG_STACK` (defined in `driver/mod.rs` from CP1 as
   `1 << 30`). `main.rs` runs every command on a thread with a `BIG_STACK` stack after
   `guard::install_hook` and `guard::set_stack_base`; a `StackLimit` unwind becomes an ICE
@@ -417,6 +420,14 @@ Port `src/types/{mod,infer,unify}.rs`; changes:
   is E0404 (`the annotation says <annotation>, but the definition is only <inferred>`);
   otherwise mismatches are E0401 and constraint failures E0402. `f : a -> a; f x = x + 1`
   is E0404.
+- Type printing (diagnostics and `--emit types`), Elm's format: type names unqualified
+  as declared (`Maybe Int`, `Tree`); an argument that is itself an applied type or a
+  function is parenthesized (`List (Maybe Int)`, `(a -> b) -> List a -> List b`); `()`;
+  tuples `( a, b )`; flexible variables named `a`, `b`, … in order of first appearance in
+  the printed type, skipping names of rigid variables in scope; constrained ones `number`,
+  `comparable`, `appendable`, `compappend`, then `number1`, `number2`, … for further
+  distinct ones; rigid variables by their annotation names; no depth limit; an error type
+  prints as `?`. The POC's ML printer (`types/mod.rs:204-280`) is replaced.
 - `Neg e`: `infer` unifies `e`'s type with a fresh `Number` variable, which is the result
   type; `lower_core` lowers it at `Int` to `Bin Sub 0 x` with no `Basics.negate` lookup.
 - Kernel references: a fresh variable, constrained by the annotation (A§7.3). An alias
@@ -432,7 +443,11 @@ Port `src/types/{mod,infer,unify}.rs`; changes:
   interface is the slice `schemes[def_base[m]..def_base[m + 1]]`); `binder_scheme:
   Vec<Scheme>` by global `BinderId`; `scheme_vars: Vec<TyId>`; `ctor_fields: Vec<TyId>`
   with `ctor_field_start: Vec<u32>` by `CtorId` (declared field types over the type's
-  parameters `ctor_params`); and instantiations recorded during
+  parameters: `type_params: Vec<TyId>` with `type_param_start: Vec<u32>` by `TypeId`, the
+  generic variables standing for the parameters); `ast/` fills `ctor_base`, `ctor_arity`
+  and `type_arity` for the fixed types and `infer` synthesizes `ctor_fields` for the fixed
+  `CtorId`s 2–9 (`()` none; `[]` none; `::` `[a, List a]`; `Ok` `[a]`, `Err` `[x]`,
+  `Cancelled` none, over `TASKOUT x a`; tuples `[a, b]` and `[a, b, c]`); and instantiations recorded during
   inference as `(start, len)` per `ExprId` in visit order; at the end of `infer` one
   compaction pass writes the CSR `inst_start: Vec<u32>` (by global `ExprId`) and
   `inst_tys: Vec<TyId>` in `ExprId` order; the same pass resolves every entry of
@@ -458,10 +473,18 @@ lambda's `ExprId`; a declaration with arguments is a lambda after AST lowering
 (`ast/lower.rs:577-578`), so its slot is the lambda's, never its body's (Elm rejects
 `\(Just x) -> x`); `lower_core` uses `matching::compile` to build decision trees. Errors: E0501
 non-exhaustive (`missing pattern <witness>`), E0502 redundant pattern (warning).
+Witnesses print in Elm pattern syntax (replacing `matching/check.rs:114-130`): `_` for
+any value (an `Int` included), constructors with `_` arguments (`Node _ _ _`, `Just _`),
+`[]`, `_ :: _`, `True`, `False`, `()`; nested constructor arguments are parenthesized.
 
 ### 4.7 Kernel table (`kernel/table.rs`)
 
 Rows keyed by (kernel module, name); type rows keyed by (package, module, type name).
+A row is `pub struct KernelRowDef { module: &'static str, name: &'static str, class:
+Class /*Intrinsic|Leaf|System*/, scheme: &'static str /*Elm type syntax, parsed with the
+type-expression parser*/, params: &'static [Mode /*Borrow|Own*/], result: ResultMode
+/*Fresh|Scalar|Task*/, symbol: Option<&'static str>, lowering: Lowering }`; `KernelRow(u16)`
+is its index in `ROWS: &[KernelRowDef]`.
 Rust symbols are `k_<Module>_<name>` with the module name as written (`k_String_fromInt`).
 
 | Key | Class | Scheme or signature | Lowering |
@@ -576,8 +599,10 @@ and the new unit tests of §7 cover their behaviour. Changes:
   `==` at a function type.
 - **Task** (A§6.8): `Task x a` at a `CTy` is `Fun(UNIT, TaskOut(x, a))`. Templates:
   `succeed v = \() -> Ok v`; `fail e = \() -> Err e`; `andThen f t = \() -> case t () of
-  Ok a -> f a (); Err e -> Err e; Cancelled -> Cancelled`; `map`, `mapError`, `onError`
-  alike. `TaskOut` values may be let-bound, join parameters and results; the lint rejects
+  Ok a -> f a (); Err e -> Err e; Cancelled -> Cancelled`; `map f t = \() -> case t ()
+  of Ok a -> Ok (f a); Err e -> Err e; Cancelled -> Cancelled`; `mapError f t = \() ->
+  case t () of Ok a -> Ok a; Err e -> Err (f e); Cancelled -> Cancelled`; `onError f t =
+  \() -> case t () of Ok a -> Ok a; Err e -> f e (); Cancelled -> Cancelled`. `TaskOut` values may be let-bound, join parameters and results; the lint rejects
   a `TaskOut` stored in a constructor, closure capture or global.
 - **Optimizer passes and the new forms**: the simplifier treats `Con`, `Str` and `Kernel`
   of leaf kernels as pure, `Field` as pure but not total (it never floats out of its
@@ -603,9 +628,14 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
 - **Kinds**: `Scalar` (Int, unit), `Imm` (Bool and nullary-only types), `Tuple(LayoutId)`
   (single-layout products: Core tuples, single-constructor multi-field types), `Sum(TypeLayoutId)`
   (custom types with at least one constructor with fields, and lists), `Closure`, `Str`,
-  `Token`, `TaskPair` (a `TaskOut` value: two variables, status and payload). `Never` is
+  `Token`, `TaskPayload` (the payload of a `TaskOut` value, whose status is a separate
+  `Scalar` variable). `kind_of` of a `TaskOut` `CTy` is `TaskPair`, which no variable
+  carries: lowering splits such a value into its status and payload variables. `Never` is
   `Scalar` (it has no values). A field may hold a pointer when its kind is `Tuple`, `Sum`,
-  `Closure` or `Str`; `Scalar` and `Imm` fields are scalar fields. `Kind` is 8 bytes:
+  `Closure` or `Str`; `Scalar` and `Imm` fields are scalar fields. The full enum: `Scalar`,
+  `Imm`, `Tuple(LayoutId)`, `Sum { tl, has_nullary }`, `Closure(LayoutId)`, `Str`,
+  `Token(u16)`, `TaskPayload(CTy)`, `TaskPair` (only as a `kind_of` result), `Unknown` and
+  `Visiting` (memo only). `Kind` is 8 bytes:
   `Tuple(LayoutId)`, `Sum { tl: TypeLayoutId, has_nullary: bool }`, `Closure(LayoutId)`,
   `Token(u16 /*words*/)`, `TaskPayload(CTy)`; a `Closure` kind derived from a type carries
   `NO_LAYOUT = u32::MAX` (a `Fun` type has no single shape), and only `MkClosure` results
@@ -940,7 +970,8 @@ fiber's stack (class for `stack_initial + R`) and enter `w_main` with `rt_enter`
   under `--rc-check` at growth, release and exit (`stack canary overwritten`).
 - **rt_morestack**: pushes the 15 GPRs other than `rsp`, the flags and XMM0–15
   (384 bytes), stores `rsp` into the fiber record, switches to the system stack and calls
-  the slow path with F = `r11`. M1 has no preemption. When `rsp − F` is below the real
+  the slow path `rt_morestack_slow` (`#[no_mangle]`) with F = `r11`, which copies with
+  `rt_stack_copy` (`#[no_mangle]`, `#[inline(never)]`). M1 has no preemption. When `rsp − F` is below the real
   limit, or when `stack_move` is set and the used part is at most 64 KiB: allocate the smallest class ≥ used + F + R
   (stack regions of a class are kept on a per-class free list linked through each free
   region's lowest word; with `stack_move` the first listed region that is not one of the
@@ -1069,9 +1100,11 @@ Int`. `not b = if b then False else True` is Elm (elm/core's is a kernel referen
 `foldl`, `reverse`, `append`, `Maybe.withDefault`, `Maybe.map`, `identity`, `always`,
 `apL`, `apR`, `composeL`, `composeR` are copied from elm/core
 1.0.5 (`foldl` without its unrolling). Headers:
-`module Basics exposing (Int, Bool(..), Never, add, sub, mul, idiv, negate, eq, neq, lt,
-le, gt, ge, append, and, or, not, identity, always, apL, apR, composeL, composeR, (+), (-),
-(*), (//), (==), (/=), (<), (>), (<=), (>=), (++), (&&), (||), (|>), (<|), (<<), (>>))`;
+`module Basics exposing (Int, Bool(..), Never, negate, not, identity, always, (+), (-),
+(*), (//), (==), (/=), (<), (>), (<=), (>=), (++), (&&), (||), (|>), (<|), (<<), (>>))`
+(the kernel aliases `add` … `or` and `apL` … `composeR` stay unexposed, as in Elm, so
+Elm programs see Elm's unqualified names; an `infix` declaration needs no export of its
+function; M1-D30);
 `module List exposing (List, (::), cons, range, map, foldl, foldr, reverse, append)`;
 `module Maybe exposing (Maybe(..), withDefault, map)`; `module String exposing (String,
 fromInt, append, eq, compare)`; `module Task exposing (Task, succeed, fail, andThen, map,
@@ -1122,7 +1155,9 @@ mapError, onError)`; `module Stdio exposing (print)`.
 - Flags: `--symbols` (keep symbols and section headers, for crash triage), `--opt 0|1|2`,
   `--regalloc naive|irc`, `--rc-check`, `--stats`,
   `--stack-initial N` (256 ≤ N ≤ 2^30 − 512, multiple of 16), `--stack-move`; `--heap-audit`,
-  `--deterministic`, `--force-yield` give usage errors naming M4/M6.
+  `--deterministic`, `--force-yield` give usage errors `error: --heap-audit is available
+  from M4`, `error: --deterministic is available from M6`, `error: --force-yield is
+  available from M6`.
 - Usage errors print `error: <message>` and the synopsis to stderr, exit 2. `--help`
   prints the synopsis of A§5.9 and exits 0. ICEs print `error: internal compiler error:
   <text> at <location>` and exit 70.
@@ -1133,11 +1168,14 @@ mapError, onError)`; `module Stdio exposing (print)`.
 snapshot test `R/tests/diagnostics/<code>/` run by `crates/nomi/tests/diagnostics.rs`:
 files `elm.json`, sources, `command` (`check` or `build`), `expected.stderr`,
 `expected.status`, and optional `args` (extra arguments, one per line) and `env`
-(`NAME=value` lines). E0902 uses `NOMI_AS` pointing at the fixture script
-`R/tests/diagnostics/E0902/fail-as.sh`, which prints `as: fixture failure` and exits 1;
-E0901 uses a nonexistent `NOMI_AS`; the harness runs each test with the test directory as
-working directory, and relative paths in `env` and `args` resolve against it; E0903 uses `-o` with a path under a regular file
-(`ENOTDIR`, independent of the user's privileges).
+(`NAME=value` lines, passed through unchanged). The harness runs `nomi` with the test
+directory as working directory; `nomi` runs the tools with that inherited working
+directory and absolute file arguments (as the POC's `driver.rs:556-600`). E0902 uses
+`env` `NOMI_AS=./fail-as.sh` (the fixture prints `as: fixture failure` and exits 1, and
+the message shows `./fail-as.sh`); E0901 uses `NOMI_AS=./missing-as`; E0903 uses `args`
+`-o f/sub/prog` with `f` a regular file in the fixture (`create_dir_all` fails with
+`ENOTDIR`, independent of the user's privileges), and the printed path is the directory
+being created, `f/sub`.
 Templates (`<x>` are fills):
 
 | Code | Message | Primary label (and secondary labels, notes) |
@@ -1160,7 +1198,7 @@ Templates (`<x>` are fills):
 | E0204 | `this line is indented less than the <construct> it continues` | the token: `indented too little` |
 | E0205 | `<port|effect> modules are not supported by nomi` | the header keyword: `not supported` |
 | E0206 | `the integer <text> does not fit in 64 bits` | the literal: `out of range` |
-| E0207 | `<construct> is not supported by nomi build in M1` (records, characters, floats, tuples) | the construct's first token: `not supported` |
+| E0207 | `<construct> is not supported by nomi build in M1` (`<construct>` is `records`, `record access`, `characters`, `floats` or `tuples`) | the construct's first token: `not supported` |
 | E0208 | `unexpected character <c>` | the character: `here` |
 | E0209 | `tab characters are not allowed in indentation` | the tab: `tab character` |
 | E0301 | `<name> is already defined in this scope` (secondary: the earlier definition) | the new binding: `shadows the earlier definition`; secondary: `first defined here` |
@@ -1209,7 +1247,7 @@ named `Main.elm` in the source directory (`EISDIR`; it holds a `.keep` file for 
 |---|---|---|---|
 | Tokens, CST | the POC's, no `parent` | parser, AST lowering | A§6.15 |
 | Instantiations | CSR by global `ExprId` | `lower_core` once per occurrence | dense ids, one allocation |
-| Mono instances | FxHash map (`TopGroup` index, interned `ListId`) → `VarId`s; per-`let`-group `GroupInstances` | each polymorphic reference | no cap, fixed-size keys |
+| Mono instances | FxHash map (`DefId`, interned `ListId`) → `VarId`; per-`let`-group `GroupInstances` keyed by (`BinderId`, `ListId`) | each polymorphic reference | no cap, fixed-size keys |
 | Generated eq/compare | `Vec<VarId>` per family by `CTy`, `NO_VAR` | `==`, `compare` lowering | dense ids |
 | Layouts | `Vec<Layout>`, `Vec<TypeLayout>`, `ctor_layouts: Vec<u32>`, `layout_kinds`, `layout_phys`, memo `kind_of: Vec<Kind>` by `CTy` | Flat lowering, LIR offsets | dense ids |
 | Allocation sites | `Vec<Span>` plus `site_of: Vec<u32>` by `EId`, carried into Flat and LIR | reuse report, `nomi_sites`, checked builds | one table for all three uses |
@@ -1267,7 +1305,8 @@ directory under `tests/programs/` that contains `elm.json`, named by its relativ
 - flags (A§9.3): `native_only` (no effect in M1, which has no interpreters), `skip_naive` (not built with `naive0`),
   `skip_stack_move`, `tail_bounded`.
 
-**Programs**: every `Main.elm` is `module Main exposing (main)` with the imports it uses
+**Programs** (in the rows, `;` between `case` arms or `let` bindings stands for a new line
+at the same indentation): every `Main.elm` is `module Main exposing (main)` with the imports it uses
 (`Stdio`, `Task exposing (Task)`, plus nothing else: `List`, `Maybe`, `String` are in the
 prelude); in the rows, unqualified `range`, `map`, `foldl`, `foldr`, `append` stand for
 `List.range`, `List.map`, `List.foldl`, `List.foldr`, `List.append`, and `fromInt` for
@@ -1291,7 +1330,7 @@ from §1, and programs that use `b2s` define `b2s : Bool -> String` as `b2s b = 
 | `bigdrop` | print `(let xs = List.range 1 1000000 in case xs of [] -> "empty"; x :: _ -> String.fromInt x) ++ "\n"` (the head is read, the whole list is then dropped by one `Dec` whose `rt_free` walks 10^6 cells), then `(let t = build 20 in String.fromInt (sumTree t)) ++ "\n"` (`t` borrowed by `sumTree`, then dropped whole); flag `skip_stack_move` | `1\n2097130\n` / 0 |
 | `args` | `f8` with 8 parameters returning `Σ k·aₖ`, `f12` with 12; print `f8 1 2 3 4 5 6 7 8` and `f12 1 … 12`; `f8 a1 a2 a3 a4 a5 a6 a7 a8` and `f12 a1 … a12` name their parameters so; `apply8 h b1 b2 b3 b4 b5 b6 b7 b8 = h b1 b2 b3 b4 b5 b6 b7 b8` (an unknown call through `apply_8`), print `apply8 f8 1 2 3 4 5 6 7 8`; `partial12 = f12 1 2 3 4 5` at top level (a partial application), print `partial12 6 7 8 9 10 11 12`; `flag = True` at top level, `pick b = if b then f8 else \_ _ _ _ _ _ _ _ -> 0`, `callIt h = h 1 2 3 4 5 6 7 8` (an indirect tail call), print `callIt (pick flag)`; `applyPart h = h 1 2 3 4` (an unknown call with fewer arguments than the arity), print `applyPart f8 5 6 7 8` | `204\n650\n204\n650\n204\n204\n` / 0 |
 | `sums` | `type Shape = Circle Int \| Rect Int Int \| Tri Int Int Int \| Empty \| Dot`; `area`: `Circle r` → `r * r`, `Rect w h` → `w * h`, `Tri a b c` → `a + b + c`, `Empty` → 0, `Dot` → 1; `morph`: `Circle r` → `Rect r r`, `Rect w h` → `Circle (w + h)`, `Tri a b c` → `Tri c b a`, `Empty` → `Dot`, `Dot` → `Empty`; `shapes = [ Circle 1, Rect 2 3, Tri 4 5 6, Empty, Dot, Circle 7 ]`; print `foldl (+) 0 (map area shapes)`, `foldl (+) 0 (map (\x -> area (morph x)) shapes)`, `foldl (+) 0 (map area (map (\n -> Rect n 1) (range 1 10)))`; `type Big = Big Int … Int` (70 `Int` fields, an object above 64 words), `big = Big 1 2 … 70`, print the sum of its fields by one `case` | `72\n91\n55\n2485\n` / 0 |
-| `crossreuse` | `ms = List.map (\x -> Just (3 * x)) (List.range 1 100)` (cells `[hdr][head][tail]` with pointer heads); print `foldl (+) 0 (map (Maybe.withDefault 0) ms)`; then `ys = List.map (\m -> Maybe.withDefault 0 m // 3 + 1) ms` (cells `[hdr][tail][head]` with scalar heads, reusing the `Maybe Int` list's cells), print `foldl (+) 0 ys` | `15150\n5150\n` / 0 |
+| `crossreuse` | `cross : Int -> String`, `cross n = let ms = List.map (\x -> Just (3 * x)) (List.range 1 n)` (cells `[hdr][head][tail]` with pointer heads)`; a = foldl (+) 0 (map (Maybe.withDefault 0) ms); ys = List.map (\m -> Maybe.withDefault 0 m // 3 + 1) ms` (the last, unique use of `ms`: cells `[hdr][tail][head]` with scalar heads reuse its cells at run time) `in String.fromInt a ++ "\n" ++ String.fromInt (foldl (+) 0 ys) ++ "\n"`; `main = Stdio.print (cross 100)` | `15150\n5150\n` / 0 |
 | `loop` | `loop n acc = if n == 0 then acc else loop (n - 1) (acc + 1)`; print `loop 100000000 0`; flags `tail_bounded`, `skip_stack_move` (10^8 polls would each relocate under `move2`; `tailcycle` and `tloop` cover tail calls under stack moves) | `100000000\n` / 0 |
 | `tailcycle` | `tailcalls`' `keep`, `t7`, `t10`, `t12`; print `t7 3000000 1 2 3 4 5 6`; flag `tail_bounded` | `15000021\n` / 0 |
 | `tloop` | `tloop : Int -> Task Never ()`, `tloop n = if n == 0 then Task.succeed () else Task.succeed () \|> Task.andThen (\_ -> tloop (n - 1))`; `main = tloop 1000000 \|> Task.andThen (\_ -> Stdio.print "ok\n")`; flag `tail_bounded` | `ok\n` / 0 |
@@ -1310,7 +1349,8 @@ The harness additionally builds `andthen/chain` and `andthen/base` at `--opt 2 -
 asserts `allocations(chain) − allocations(base) ≤ 1`; and builds `hello` with `--opt 2
 --report reuse` and requires a `hit` line whose position lies inside the definition of
 `mapTree` in `src/Main.elm` and one inside `map` in `nomi:lib/nomi/core/1.0.0/src/List.elm`
-(definition ranges found by name in the sources); `crossreuse` at `--opt 2 --report reuse`
+(a definition's range: from the column-1 line that starts with `<name> ` and is not its
+annotation, up to the next column-1 token); `crossreuse` at `--opt 2 --report reuse`
 has no `miss` line inside `List.map`. Reuse and the `andthen` property are
 checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 
@@ -1319,7 +1359,13 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 - Unit tests: lexer, parser, layout rule cases; name resolution and fixity; constraint
   table; defaulting; mono and E0603; layout computation per §4.9 row; LIR verifier; x86
   verifier rules; calling-convention cases; `nomi-rt` allocator, span, pending-stack and
-  quarantine logic under `cfg(test)`; `nomi_algo::fmt_i64` against `i64::to_string` for
+  quarantine logic under `cfg(test)`: that logic takes `&mut Tcb` (the free-list heads
+  and counts) and `&mut HeapState` and, for checked code, the site count as parameters;
+  the `fs:`-based accessors and the extern statics `nomi_config`, `nomi_globals`,
+  `nomi_sites` live in `cfg(not(test))` modules (`tcb.rs`'s `current()`, `globals.rs`'s
+  externs). Unit tests call `heap::refill`, `heap::alloc_mid`, `heap::free_one`,
+  `span::alloc`/`span::free`, `pending::push`/`pop`, `check::alloc`/`check::free`/
+  `check::evict` on a `Tcb` and `HeapState` they own, over memory from `std::alloc`; `nomi_algo::fmt_i64` against `i64::to_string` for
   10^6 random and boundary values.
 - `crates/nomi/tests/layout.rs`: for strings of byte lengths 0, 1, 7, 8, 9, 255, 256,
   32,720 (4,093 words), 32,728 (4,094 words, the last mid-size object), 32,736 (large)
@@ -1397,7 +1443,9 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 - **Deep map** (`bench/slice/deepmap/`): `List.foldl (+) 0 (List.map (\x -> x + 1)
   (List.range 1 10000000))`, with `deepmap.c` as its C reference; `cargo xtask scoreboard`
   also runs `perf record` and `perf report --sort symbol` on a `--symbols` build and
-  appends `| date | commit | slice/deepmap | rt_morestack_pct |` to `docs/perf-log.md`; it
+  appends `| date | commit | slice/deepmap | rt_morestack_pct |` to `docs/perf-log.md`
+  (created with its header row when missing), where the percentage is the self time of
+  `rt_morestack`, `rt_morestack_slow` and `rt_stack_copy` together; it
   is the input to M1-D10's M4 decision rule. Workload names are `slice/tree`,
   `slice/lists`, `slice/deepmap`.
 - Budgets: lexing and parsing O(n); new Flat and LIR passes linear; `rt_free` O(objects
@@ -1436,6 +1484,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | M1-D27 | Checked `DecSeq` frees through `rt_free`; `rt_free_checked` only for known layouts | an `r10` = 0 walking mode | one walk implementation; A§6.6 unchanged | OPEN |
 | M1-D28 | `Reset`, reuse and drop specialization only for layouts of at most 64 words | an exact-free shim for larger objects | no M1 workload reuses objects above 64 words; no new shim | OPEN |
 | M1-D29 | `rust-toolchain.toml` pinning 1.99.0 and a Linux-only GitHub Actions job from CP1 | local checks only; pinning only | the previous project's CI went red unnoticed; the user's choice | LOCKED |
+| M1-D30 | `Basics` exposes only Elm's unqualified names; kernel aliases stay internal | exposing the aliases | an Elm program's `append` after `import List exposing (..)` must not become ambiguous | OPEN |
 
 ## 10. Risks & mitigations
 
@@ -1453,7 +1502,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 
 ## 11. Checkpoints
 
-Until CP10, `crates/nomi/src/lib.rs` carries `#![cfg_attr(not(test), allow(dead_code))]`
+Until CP10, `crates/nomi/src/lib.rs` carries `#![allow(dead_code)]`
 for ported code that later checkpoints use; CP10 removes it. Every checkpoint ends with `cargo build`, `cargo test`, `cargo clippy --workspace
 --all-targets -- -D warnings`, and `cargo test` and `cargo clippy -- -D warnings` of
 `crates/nomi-rt` with `--target-dir R/target/rt-test` green.
@@ -1474,8 +1523,10 @@ remote exists, the CI run of the pushed commit is green.
 CP2 assembly programs of §7.
 
 **CP3 — Allocator, RC and checking.** `nomi-rt/src/{shims,heap,check,stats,globals}.rs`.
-Tests: unit tests and the CP3 assembly programs of §7. Acceptance also: a minimal
-assembly `w_main` printing once links to ≤ 16 KiB stripped (§10).
+Tests: unit tests and the CP3 assembly programs of §7. Acceptance also: the `tests/rt.rs`
+case `size_min` (`size_min.s`: a `w_main` calling `k_Stdio_print` on a `.rodata` string
+through the kernel sequence, then returning) links, prints, and its stripped file is
+≤ 16,384 bytes (§10).
 
 **CP4 — Tracer bullet.** Minimal versions of every compiler stage for
 `main = Stdio.print "hi\n"`: module header, imports, string literals (small layout),
@@ -1497,7 +1548,7 @@ the `andthen` allocation check holds; the `nopanic` and `jobs` harness cases run
 here on.
 
 **CP5 — Integers, functions and control.** Literals, arithmetic intrinsics, `negate`,
-comparison, `if`, `let`, recursion, the calling convention with stack arguments and tail
+comparison, `Bool` as `Imm` with `if`, `let`, recursion, the calling convention with stack arguments and tail
 calls (including indirect tail calls), polls, `rt_crash` with `RawAddr`, `&&`/`||`;
 `String.fromInt` and `++` on small strings; programs `fib`, `divzero`, `minint`, `deep`, `deep7`,
 `args`, `tailcalls`, `operators`, `loop`, `tailcycle`, `tloop` (with the `stack_peak`
@@ -1505,7 +1556,7 @@ report line), and `stackmove` with only its `count` line (its list line is added
 CP7). Acceptance: those programs pass.
 
 **CP6 — Custom types and case.** Constructor lowering (reuse runs on the new layouts
-from here on; CP7 adds lists and the reuse report), case with decision trees, argument-pattern checks, layouts and dispatch for `Imm`, `Tuple`, `Sum`, RC with
+from here on; CP7 adds lists and the reuse report), case with decision trees, argument-pattern checks, layouts and dispatch for custom `Imm` types, `Tuple`, `Sum`, RC with
 `imm_guard` for `Sum`, drop specialization; program `tree`. Acceptance: `tree` passes;
 layout unit tests pass.
 
@@ -1681,3 +1732,15 @@ example); `TaskPayload` kind, `FRhs::Cast` rebinding in status arms, dead-pair d
 lists; scalar `borrow` modes and the kernel-use test from CP7; `loop` skips `move2`;
 smaller fixes (diagnostic dedup key, naive scratch line, `has_nullary` test, harness
 cases from CP4). Rejected: none.
+
+### Final dry-run 6
+DRY-RUN critic. Changes: the §5 mono row matches §4.8; Elm type and witness printing
+rules; a test seam for the runtime logic; `#![allow(dead_code)]` until CP10; the full
+`Kind` enum with `TaskPair` as a `kind_of` result only; type parameters and the field
+types of the fixed constructors; `fx_hash_bytes`; E0902/E0903 fixtures and the tools'
+working directory; `crossreuse` inside a function so reuse happens at run time;
+`KernelRowDef`; the `size_min` runtime test; `rt_morestack_slow`/`rt_stack_copy` for the
+perf percentage; `Basics` exposes only Elm's names (M1-D30, the critic's direction
+question, decided because the user's rule is that Elm programs must type-check); smaller
+fixes (repository state, `;` notation, written-out task templates, usage texts, E0207
+spellings, the definition-range rule, `Bool` in CP5, ignored bench builds).

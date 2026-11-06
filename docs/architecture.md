@@ -1410,3 +1410,6 @@ report prints the runtime entry's leak line as `leak <runtime> <count>`; `rt_cra
 `(msg: *const u8, len: usize)`.
 Final dry-run 3 of the M1 plan: `rt_rc_slow_inc` also receives the increment n in `r10`
 (§6.6); closure reuse is not part of M1 (reuse covers constructor and list layouts).
+Final dry-runs 4–6 of the M1 plan: `Diagnostic.primary` is `Option<(Span, String)>`
+(§7.2; project-level errors such as a missing `Main` have no location); `nomi/core`'s
+`Basics` exposes only Elm's unqualified names.
