@@ -144,8 +144,8 @@ RT_HASH, LIB}`.
    nonexistent `build.rustc-wrapper`: neither reaches `rustc`); the archive is
    `target/rt/x86_64-unknown-linux-gnu/release/libnomi_rt.a`; panics on failure.
 2. Writes `$OUT_DIR/rt_archive.rs`: `pub static RT_ARCHIVE: &[u8] =
-   include_bytes!("<abs path of libnomi_rt.a>"); pub const RT_HASH: u64 = 0x…;` (FxHash
-   of the bytes, `hash.rs` included by `#[path = "src/hash.rs"] #[allow(dead_code)] mod
+   include_bytes!("<abs path of libnomi_rt.a>"); pub const RT_HASH: u64 = 0x…;` (`hash::fx_hash_bytes(&[u8]) -> u64`, one call over the whole archive, also used by
+   `tests/archive.rs`; `hash.rs` included by `#[path = "src/hash.rs"] #[allow(dead_code)] mod
    hash;`).
 3. Walks `$CARGO_MANIFEST_DIR/../../lib` in sorted path order and writes
    `$OUT_DIR/lib_files.rs`: `pub static LIB: &[(&str, &[u8])] = &[("nomi:lib/<rel>",
@@ -168,7 +168,8 @@ Foundation files ported from the POC:
 - `diag.rs`: `Diagnostic { code: u16, severity: Severity, primary: (Span, String),
   secondary: Vec<(Span, String)>, message: String, notes: Vec<String> }` (A§7.2 with a
   primary label and the POC's notes; amendment recorded in A); warnings never change the
-  exit status;
+  exit status; `Severity { Error, Warning }`, rendered as `error[E…]:` and
+  `warning[E…]:`;
   the renderer is the POC's, with paths relative to the project directory (`nomi:lib/…`
   for embedded files), 1-based lines and columns counted in Unicode scalars. Example:
   ```
@@ -188,9 +189,12 @@ pub struct Project { pub modules: Vec<ModuleSource>, pub packages: Vec<Package>,
 pub struct ModuleSource { pub name: ModuleName, pub file: FileId, pub package: PackageId, pub cst: Cst, pub imports: Vec<Import> }
 pub struct Package { pub name: String, pub version: String, pub exposed: Vec<ModuleName>, pub prelude: Option<Vec<PreludeItem>>, pub deps: Vec<PackageId> }
 pub struct ModuleName(pub Symbol); // the dotted name interned once by `load`
+pub struct Import { pub module: ModuleName, pub alias: Option<Symbol>, pub exposing: Option<Exposing>, pub span: TextRange }
 pub fn load(dir: &Path, sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<Project>;
 ```
-`Project` also holds `module_by_name: FxHashMap<Symbol, ModuleId>`.
+`Project` also holds `module_by_name: FxHashMap<Symbol, ModuleId>`. The application is
+`PackageId(0)` (`Package` with name `""`, its direct dependencies as `deps`); packages
+follow in load order.
 
 - `PreludeItem { module: ModuleName, alias: Option<Symbol>, exposing: Exposing }`,
   `Exposing { All, Items(Vec<ExposedItem>) }`, `ExposedItem { Value(Symbol),
@@ -210,8 +214,8 @@ pub fn load(dir: &Path, sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<P
 - Dependencies resolve to embedded packages `nomi:lib/<author>/<name>/<version>/`.
 - Module discovery from module `Main`: parse each file once (the CST is kept in
   `ModuleSource`), follow its imports; `import Elm.Kernel.X` is allowed only in `nomi/*`
-  modules and names no file. Prelude modules count as imports of every application
-  module. Modules are stored in depth-first post-order, visiting the prelude modules in
+  modules and names no file. Every module outside `nomi/core` (application and `nomi/platform`
+  modules) gets the prelude, and prelude modules count as its imports. Modules are stored in depth-first post-order, visiting the prelude modules in
   `prelude` order first, then `Main`, and each module's imports in source order; `ModuleId`
   is the index (deterministic, for I10).
 - Prelude (A§5.1): from the `nomi/core` dependency's `prelude` field; modules of
@@ -222,7 +226,7 @@ pub fn load(dir: &Path, sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<P
   dependency (I8); E0104 module not found; E0105 import cycle; E0106 module name does not
   match its path; E0107 module defined in two places; E0108 import of a module the
   package does not expose; E0109 malformed `elm.json` (with the JSON error position);
-  E0110 no `Main` module.
+  E0110 no `Main` module; E0111 unreadable file; E0112 a source file that is not UTF-8.
 
 ### 4.3 Syntax (`syntax/`)
 
@@ -234,15 +238,19 @@ Port `src/syntax/{mod,kind,lexer,parser,cst}.rs`; changes:
   strings; operator symbols (maximal runs of `+-*/<>=!&|^%.:?`); the runs `=`, `|`, `:`,
   `->`, `..` and the `.` of qualified names are reserved punctuation, not operators;
   `(`, `)`, `[`, `]`, `,`, `\`, `_`; `{`, `}`, character literals and float literals are
-  lexed and rejected by the parser with E0207; any other character is E0208; a tab in
+  lexed and rejected by the parser with E0207, and so are a `,` directly inside `(`…`)` in
+  an expression, pattern or type (tuples) and a `.` operator token directly before or
+  after a lowercase name with no space (record access); any other character is E0208; a tab in
   leading whitespace is E0209; keywords
   `module exposing import as type alias port effect where if then else case of let in
   infix`; comments `--`, `{- -}` (nesting), `{-| -}`; whitespace and newlines. Tokens
   store `TextRange`; the lexer sets a `first_on_line` bit per token (bit 7 of the kind
   byte). Layout columns are counted in Unicode scalars, 1-based: a line-initial token's
-  column is `start − line_start + 1` (only spaces precede it; a tab before code is E0204
-  as in Elm); a block-opening token that is not line-initial (the first `let` binding or
+  column is `start − line_start + 1` (only spaces precede it; a tab there is E0209); a block-opening token that is not line-initial (the first `let` binding or
   the first `case` pattern on the line of `let`/`of`) counts scalars from the line start.
+- A `-` in pattern position is E0201 (Elm rejects `-1 ->`, verified with the oracle).
+- An `infix` declaration in a module outside `nomi/*` is E0313 (Elm's parser rejects it
+  outside its core packages, verified with the oracle).
 - **Unary minus** (Elm's rule): a `-` immediately followed by an expression-start token
   (no whitespace) and preceded by whitespace, `(`, `,`, `[`, an operator or the start of
   the line is negation of the following atom (`-f x` is `(negate f) x`, Elm 0.19); it
@@ -304,7 +312,8 @@ Port `src/ast/{mod,lower,dump}.rs` (not `eval.rs`):
   ```
   `ModuleAst` holds `exprs`, `expr_ranges`, `pats`, `pat_ranges`, `ints: Vec<i64>`,
   `strs: Vec<Box<[u8]>>`, `expr_list`, `pat_list`, `arms`, `groups`, `group_bindings`,
-  `binders`, `defs: Vec<DefInfo>`, `type_exprs`, `type_decls` (parameters and
+  `binders`, `defs: Vec<DefInfo>`, `fixities: Vec<(Symbol, Assoc, u8, DefId)>` (the
+  module's `infix` declarations, consulted by importers), `type_exprs`, `type_decls` (parameters and
   constructors with field `TypeExprId`s), `aliases`, and `top_groups: Vec<GroupId>`
   (top-level binding groups in dependency order, each a `Group` over `DefId`s).
   A re-associated operator becomes `App { func: Ref(<its definition>), args: [lhs, rhs]
@@ -372,7 +381,14 @@ Port `src/types/{mod,infer,unify}.rs`; changes:
   is E0404 (`the annotation says <annotation>, but the definition is only <inferred>`);
   otherwise mismatches are E0401 and constraint failures E0402. `f : a -> a; f x = x + 1`
   is E0404.
-- Kernel references: a fresh variable, constrained by the annotation (A§7.3).
+- Kernel references: a fresh variable, constrained by the annotation (A§7.3). An alias
+  definition (`add = Elm.Kernel.Basics.add`, §4.7) is an ordinary `Ref::Def` for `ast/`
+  and `infer`, which use its annotated scheme; only `lower_core` resolves an alias
+  `DefId` to its kernel, through `alias_kernel: Vec<Option<KernelId>>` by `DefId`.
+  `KernelId` indexes `kernel_refs: Vec<(Symbol /*module*/, Symbol /*name*/)>`, interned by
+  `ast/` in `Asts`; `lower_core` looks each reachable one up in the table by (module,
+  name) and reports E0601 when it has no row. Every kernel-reference definition in `lib/`
+  carries an annotation (§4.13).
 - `Typed`: the global arena; `expr_ty: Vec<TyId>` by global `ExprId`; `pat_ty:
   Vec<TyId>` by global `PatId`; `schemes: Vec<Scheme>` by global `DefId` (module m's
   interface is the slice `schemes[def_base[m]..def_base[m + 1]]`); `binder_scheme:
@@ -439,7 +455,9 @@ A reachable kernel reference without a row is E0601. A top-level definition whos
 is exactly a kernel reference (`add = Elm.Kernel.Basics.add`) is an alias: references to
 it resolve to the kernel. A saturated use (as many arguments as the row's arity) lowers
 directly; an unsaturated or first-class use is eta-expanded into a lambda, which is a
-static closure when it captures nothing. `Basics.idiv` lowers to: divisor 0 →
+static closure when it captures nothing. A constructor reference applied to fewer
+arguments than its arity (`List.map Just xs`) is eta-expanded the same way, taking the
+site of the reference. `Basics.idiv` lowers to: divisor 0 →
 `rt_crash`; divisor −1 → `0 − a` (wrapping, so `minInt // -1` = `minInt`, avoiding the
 `idiv` trap); else `idiv`. The guards are built by `lir::lower` (as the POC's
 `lir/lower.rs:150-215`), whose crash path is a `KernelCall` of `rt_crash(msg: *const
@@ -906,8 +924,8 @@ fiber's stack (class for `stack_initial + R`) and enter `w_main` with `rt_enter`
   counter and counts it as immortal. At exit: open `NOMI_REPORT_PATH` (failure → stderr
   `rc-check: cannot open report`, exit 105), write `live <sum>`, `immortal <n>`, one
   `leak <path>:<start>-<end> <count>` line per site with a nonzero counter in site order,
-  and exit 105 if the sum is nonzero; without `NOMI_REPORT_PATH` the summary goes to
-  stderr.
+  and exit 105 if the sum is nonzero; without `NOMI_REPORT_PATH` nothing is written
+  unless the check fails, when the summary and leak lines go to stderr.
 - **Reports**: one writer opens `NOMI_REPORT_PATH` once (`O_WRONLY|O_CREAT|O_TRUNC`,
   mode 0644) and writes, in order, `allocations N` (`--stats`), `live N`, `immortal N`,
   `saturated N`, `stack_peak N` (`--rc-check`; the counter `rt_saturated` lives in
@@ -933,8 +951,7 @@ fiber's stack (class for `stack_initial + R`) and enter `w_main` with `rt_enter`
   byte length rounded up to whole words. `k_String_fromInt(v)` formats with
   `nomi_algo::fmt_i64` into a fresh string; `k_String_append(a, b)`: needed = len(a) + len(b) (more than 2^32 − 1 →
   `string too large`); if `a` has rc = 1 and capacity ≥ needed, append in place (writing
-  index 1); otherwise allocate capacity `2 · needed` rounded up to words, or `2^32 − 8` when that
-  is larger
+  index 1); otherwise allocate capacity `min(2 · needed rounded up to words, 2^32 − 8)`
   (bounded by the 2^32 − 1 cap above),
   copy `a` then `b`, then decrement `a` (correct when `a` and `b` are the same object);
   `scalar_len` adds the count of non-continuation bytes appended. `k_String_eq` compares
@@ -960,7 +977,15 @@ of `Basics`, `String`, `Task` only; CP7 switches to the full file above. Package
 `"exposed-modules": ["Stdio"]`, `"dependencies": {"nomi/core": "1.0.0 <= v < 2.0.0"}`, no
 `prelude`.
 
-Sources (each kernel-using module starts with `import Elm.Kernel.<M>`). Headers:
+Sources (each kernel-using module starts with `import Elm.Kernel.<M>`; `String.elm`,
+`List.elm`, `Maybe.elm` and `Task.elm` also start with `import Basics exposing (..)`;
+`Basics.elm` imports nothing else; `Stdio.elm` relies on the prelude). Every
+kernel-reference definition carries an annotation: Elm's (elm/core 1.0.5) where Elm has
+one, and `cons : a -> List a -> List a`, `and : Bool -> Bool -> Bool`, `or : Bool -> Bool
+-> Bool`, `String.eq : String -> String -> Bool`, `String.compare : String -> String ->
+Int`. Bodies of `foldl`, `reverse`, `append`, `Maybe.withDefault`, `Maybe.map`,
+`identity`, `always`, `not`, `apL`, `apR`, `composeL`, `composeR` are copied from elm/core
+1.0.5 (`foldl` without its unrolling). Headers:
 `module Basics exposing (Int, Bool(..), Never, add, sub, mul, idiv, negate, eq, neq, lt,
 le, gt, ge, append, and, or, not, identity, always, apL, apR, composeL, composeR, (+), (-),
 (*), (//), (==), (/=), (<), (>), (<=), (>=), (++), (&&), (||), (|>), (<|), (<<), (>>))`;
@@ -1066,6 +1091,7 @@ Templates (`<x>` are fills):
 | E0310 | `module Main does not define main` |
 | E0311 | `<name> has a type annotation but no definition` |
 | E0312 | `module <M> exposes <name>, which it does not define` |
+| E0313 | `infix declarations are only allowed in nomi packages` |
 | E0401 | `expected <t1>, found <t2>` |
 | E0402 | `<t> is not <class>` (`a number`, `comparable`, `appendable`, `comparable and appendable`) |
 | E0403 | `this would need the infinite type <t>` |
@@ -1182,7 +1208,7 @@ from §1, and programs that use `b2s` define `b2s : Bool -> String` as `b2s b = 
 | `equality` | print one line, `List.foldr (++) "" (List.map b2s [ … ])` over: `"abc" == "abc"`, `"abc" == "abd"`, `"" == ""`, `"ab" < "abc"`, `"b" > "abc"`, `"é" > "z"`, `range 1 3 == range 1 3`, `range 1 3 == range 1 4`, `range 1 3 < range 1 4`, `build 3 == build 3`, `build 3 == mapTree (\v -> v + 1) (build 3)`, `Leaf /= Leaf`, `True == False` | `TFTTTTTFTTFFF\n` / 0 |
 | `tasks` | `Task.fail 1 \|> Task.onError (\e -> Task.succeed (e + 1)) \|> Task.map (\v -> v * 10) \|> Task.andThen (\v -> Stdio.print (String.fromInt v ++ "\n"))`, then `Task.fail 7 \|> Task.mapError (\e -> e * 2) \|> Task.onError (\e -> Stdio.print (String.fromInt e ++ "\n"))`; with `flag = True` at top level, `p1 : Bool -> Task String Int`, `p1 b = if b then Task.succeed 3 else Task.fail "no"`, then `p1 flag \|> Task.map (\v -> v * 2) \|> Task.onError (\_ -> Task.succeed 0) \|> Task.andThen (\v -> Stdio.print (String.fromInt v ++ "\n"))`; `p2 : Bool -> Task Int String`, `p2 b = if b then Task.fail 9 else Task.succeed "x"`, then `p2 flag \|> Task.onError (\e -> Task.succeed (String.fromInt e)) \|> Task.andThen (\v -> Stdio.print (v ++ "\n"))` | `20\n14\n6\n9\n` / 0 |
 | `operators` | with `b2s b = if b then "T" else "F"` and `zero = 0`, print each (integers through `String.fromInt`) followed by `"\n"`: `5 \|> (\x -> x + 2)`, `(\x -> x + 2) <\| 5`, `((\x -> x + 1) >> (\x -> x * 2)) 5`, `((\x -> x + 1) << (\x -> x * 2)) 5`, `b2s (True \|\| (1 // zero == 0))`, `b2s (False && (1 // zero == 0))`, `b2s (not False)` | `7\n7\n12\n11\nT\nF\nT\n` / 0 |
-| `layouts` | print each followed by `"\n"`: `List.foldr (++) "" [ "a", "b" ]`; `String.fromInt (List.foldl (+) 0 (List.map sumTree [ build 1, build 2 ]))`; `List.foldr (++) "" (List.map b2s [ True, False ])`; for `type Box = Box Bool (Maybe Int) Tree` and `bx = Box True (Just 3) (build 2)`, `case bx of Box f m t -> b2s f ++ " " ++ String.fromInt (Maybe.withDefault 0 m) ++ " " ++ String.fromInt (sumTree t)`; with `ns = [ 1, 2, 3 ]`, `List.foldr (++) "" (List.map String.fromInt ns)` and `String.fromInt (List.foldl (+) 0 (List.map (\x -> x + 1) ns))` | `ab\n5\nTF\nT 3 4\n123\n9\n` / 0 |
+| `layouts` | print each followed by `"\n"`: `List.foldr (++) "" [ "a", "b" ]`; `String.fromInt (List.foldl (+) 0 (List.map sumTree [ build 1, build 2 ]))`; `List.foldr (++) "" (List.map b2s [ True, False ])`; for `type Box = Box Bool (Maybe Int) Tree` and `bx = Box True (Just 3) (build 2)`, `case bx of Box f m t -> b2s f ++ " " ++ String.fromInt (Maybe.withDefault 0 m) ++ " " ++ String.fromInt (sumTree t)`; with `ns = [ 1, 2, 3 ]`, `List.foldr (++) "" (List.map String.fromInt ns)` and `String.fromInt (List.foldl (+) 0 (List.map (\x -> x + 1) ns))`; `String.fromInt (List.foldl (+) 0 (List.map (Maybe.withDefault 0) (List.map Just [ 4, 5 ])))` | `ab\n5\nTF\nT 3 4\n123\n9\n9\n` / 0 |
 | `stackmove` | `count 500` (non-tail) and `List.map (\x -> x * 2) (List.range 1 500)` summed (both stay below the 64 KiB stack-move bound) | `500\n250500\n` / 0 |
 | `andthen/chain`, `andthen/base` | `chain`: `main = Task.succeed () \|> Task.andThen (\_ -> Task.succeed ())` repeated 100 times in the source, then `\|> Task.andThen (\_ -> Stdio.print "ok\n")`; `base`: `main = Stdio.print "ok\n"` | `ok\n` / 0 each |
 
@@ -1225,7 +1251,8 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   `shim_regs_<shim>`, `free_chain`. `alloc_classes_checked` and
   `shim_regs_rt_alloc_checked` cover n ∈ {2, 63, 64, 65, 4093, 4094, 4095}: allocate,
   free, force quarantine eviction with 65,537 further frees, allocate again, and require
-  `live 0`:
+  `live 0`, observed as status 0 with empty stderr (`tests/rt.rs` sets no
+  `NOMI_REPORT_PATH`):
   hand-written assembly programs defining `w_main`, `nomi_config` (16 bytes), `nomi_globals`
   and `nomi_sites` (count 0), linked against `RT_ARCHIVE` by `crates/nomi/tests/rt.rs`
   (CP2, CP3): 10^6 checked-prologue recursions; `rt_crash`; the system-stack guard page;
@@ -1267,7 +1294,8 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 - **Scoreboard** (`cargo xtask scoreboard`): builds `target/release/nomi` first, then for
   each workload appends one row to `docs/scoreboard.md`:
   `| date | commit | workload | nomi_ms | c_ms | ratio | size_bytes | allocations | nomi_rss_kib | c_rss_kib | compile_ms |`.
-  Times are the median of 5 runs after one warm-up; `allocations` from a `--stats` build;
+  `date` is `YYYY-MM-DD` (UTC), `commit` the 12-character short hash. Times are the
+  median of 5 runs after one warm-up; `allocations` from a `--stats` build;
   the RSS columns are `ru_maxrss` of the child (`wait4`) in the median run;
   `compile_ms` the median of 3 `nomi build --opt 2`.
 - **Deep map** (`bench/slice/deepmap/`): `List.foldl (+) 0 (List.map (\x -> x + 1)
@@ -1334,7 +1362,7 @@ Every checkpoint ends with `cargo build`, `cargo test`, `cargo clippy --workspac
 `fmt_i64` and its tests, `crates/nomi-rt` skeleton (`lib.rs`, `sys.rs`, `mem.rs`, a
 `_start` that writes `nomi-rt\n` and exits 0), `crates/xtask` skeleton,
 `crates/nomi/tests/archive.rs`, `docs/diagnostics.md`, empty `lib/`. Acceptance: `nomi
---help` prints the synopsis; a test links the skeleton archive per §4.11 and the output
+--help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`) links the skeleton archive per §4.11 and the output
 prints `nomi-rt` and exits 0; the archive test passes; clippy passes.
 
 **CP2 — Runtime boot and fibers.** `nomi-rt/src/{start,tcb,stack,io,crash}.rs`. Tests: the
@@ -1370,7 +1398,8 @@ calls (including indirect tail calls), polls, `rt_crash` with `RawAddr`, `&&`/`|
 report line), and `stackmove` with only its `count` line (its list line is added in
 CP7). Acceptance: those programs pass.
 
-**CP6 — Custom types and case.** Constructor lowering, case with decision trees, argument-pattern checks, layouts and dispatch for `Imm`, `Tuple`, `Sum`, RC with
+**CP6 — Custom types and case.** Constructor lowering (reuse runs on the new layouts
+from here on; CP7 adds lists and the reuse report), case with decision trees, argument-pattern checks, layouts and dispatch for `Imm`, `Tuple`, `Sum`, RC with
 `imm_guard` for `Sum`, drop specialization; program `tree`. Acceptance: `tree` passes;
 layout unit tests pass.
 
@@ -1501,3 +1530,14 @@ details (`PreludeItem`, JSON parser, ranges, module order); one environment scru
 lever, relocation never resumes, append cap, I10 wording, `--symbols` for perf, E0111
 fixture). Rejected: none. The spike S1 was already settled (archives byte-identical
 across target directories, verified twice).
+
+### Final dry-run 2
+DRY-RUN critic. Changes: alias definitions stay `Ref::Def` until `lower_core`;
+`KernelId` over interned `kernel_refs`; constructor eta-expansion and a `layouts` line
+mapping `Just`; the prelude for every module outside `nomi/core` and explicit `lib/`
+imports; `Import` and the application's `PackageId(0)`; annotations on every kernel
+reference; one code for tabs (E0209); tuples and record access as E0207; negative literal
+patterns rejected and `infix` outside `nomi/*` as E0313 (both verified with the oracle);
+checked-report stderr only on failure; smaller fixes (fixity table, bodies from elm/core
+1.0.5, `fx_hash_bytes`, scoreboard formats, `Severity`, append cap, CP1 test file).
+Rejected: none.
