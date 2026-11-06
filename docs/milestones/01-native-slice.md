@@ -83,7 +83,8 @@ The CLI rejects those three flags with a usage error naming the milestone (exit 
 
 - This repository: `Cargo.toml` (package `nomi`, no dependencies), `src/main.rs` (cargo
   template), `.gitignore` (`/target`), `docs/direction.md`, `docs/architecture.md`
-  (blueprint final), this file. No commits. No `docs/conventions.md` or logs.
+  (blueprint final), this file, committed on `master` and pushed to
+github.com/brielov/nomi. No `docs/conventions.md` or logs.
 - POC (verified by reading): pipeline entry points `syntax::lex`/`parse`
   (`src/syntax/lexer.rs:18`, `parser.rs:702`), `ast::lower` (`ast/lower.rs:658`),
   `types::infer` (`types/infer.rs:683`), `matching::check::check` (`matching/check.rs:161`,
@@ -119,18 +120,19 @@ Cargo.toml                 [workspace] members = ["crates/nomi", "crates/xtask",
 .cargo/config.toml         [alias] xtask = "run -p xtask --"
 crates/nomi/Cargo.toml     package nomi; [lib] path src/lib.rs; [[bin]] nomi src/main.rs; dependency nomi-algo (path)
 crates/nomi/build.rs       runtime archive and embedded lib/ (below); includes src/hash.rs by #[path]
-crates/nomi-algo/          #![no_std], no alloc, no panic handler: pub fn fmt_i64(v: i64, buf: &mut [u8; 20]) -> usize (index of the first byte, the sign included; the text is buf[i..20]); covered by the no-panic rule
+crates/nomi-algo/          #![cfg_attr(not(test), no_std)], no alloc, no panic handler: pub fn fmt_i64(v: i64, buf: &mut [u8; 20]) -> usize (index of the first byte, the sign included; the text is buf[i..20]); covered by the no-panic rule
 crates/nomi-rt/Cargo.toml  own [workspace]; [lib] crate-type = ["staticlib"]; profiles dev and release: panic = "abort", opt-level = 3, debug-assertions = false; dependency nomi-algo (path)
 crates/xtask/              subcommands scoreboard, size
 rust-toolchain.toml        [toolchain] channel = "1.99.0", components = ["clippy", "rustfmt"]
 .github/workflows/ci.yml   CI (M1-D29): one job on ubuntu-latest (Linux only, D35)
-lib/                       Elm packages (§4.13), present from CP1 (empty until CP4)
+lib/                       Elm packages (§4.13), present from CP1 (only `lib/.keep` until CP4)
 ```
 
 The root `src/main.rs` is deleted.
 
 `ci.yml` runs on every push and pull request: checkout; the toolchain from
-`rust-toolchain.toml` (`rustup show`); `as --version` and `ld --version` printed for the
+`rust-toolchain.toml` (`rustup toolchain install` of the pinned version with its
+components); `as --version` and `ld --version` printed for the
 log (the runner's binutils is used as is; the tests are the check); `cargo build`;
 `cargo test`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test` and
 `cargo clippy -- -D warnings` of `crates/nomi-rt` with `--target-dir target/rt-test`.
@@ -160,7 +162,8 @@ RT_HASH, LIB}`.
    `tests/archive.rs`; `hash.rs` included by `#[path = "src/hash.rs"] #[allow(dead_code)] mod
    hash;`).
 3. Walks `$CARGO_MANIFEST_DIR/../../lib` in sorted path order and writes
-   `$OUT_DIR/lib_files.rs`: `pub static LIB: &[(&str, &[u8])] = &[("nomi:lib/<rel>",
+   `$OUT_DIR/lib_files.rs`, skipping every file or directory whose name starts with `.`:
+   `pub static LIB: &[(&str, &[u8])] = &[("nomi:lib/<rel>",
    include_bytes!("<abs>")), …];`.
 4. `cargo:rerun-if-changed=` for `../nomi-rt/src`, `../nomi-rt/Cargo.toml`,
    `../nomi-algo/src`, `../nomi-algo/Cargo.toml`, `../../lib`; `rerun-if-env-changed=` for
@@ -177,10 +180,12 @@ Foundation files ported from the POC:
   and column are computed by binary search when needed. `Span { file: FileId, start, end }`
   (A§6.15) appears only in diagnostics and cross-file tables (`Program.sites`); embedded
   files get `FileId`s with paths `nomi:lib/…`.
-- `diag.rs`: `Diagnostic { code: u16, severity: Severity, primary: (Span, String),
+- `diag.rs`: `Diagnostic { code: u16, severity: Severity, primary: Option<(Span, String)>,
   secondary: Vec<(Span, String)>, message: String, notes: Vec<String> }` (A§7.2 with a
   primary label and the POC's notes; amendment recorded in A); warnings never change the
-  exit status; `Severity { Error, Warning }`, rendered as `error[E…]:` and
+  exit status; a diagnostic without a primary renders as its header line plus notes;
+  `elm.json` is registered in the `SourceMap` so project errors point into it;
+  `Severity { Error, Warning }`, rendered as `error[E…]:` and
   `warning[E…]:`;
   the renderer is the POC's, with paths relative to the project directory (`nomi:lib/…`
   for embedded files), 1-based lines and columns counted in Unicode scalars. Example:
@@ -202,7 +207,8 @@ pub struct ModuleSource { pub name: ModuleName, pub file: FileId, pub package: P
 pub struct Package { pub name: String, pub version: String, pub exposed: Vec<ModuleName>, pub prelude: Option<Vec<PreludeItem>>, pub deps: Vec<PackageId> }
 pub struct ModuleName(pub Symbol); // the dotted name interned once by `load`
 pub struct Import { pub module: ModuleName, pub alias: Option<Symbol>, pub exposing: Option<Exposing>, pub span: TextRange }
-pub fn load(dir: &Path, sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<Project>;
+pub fn load(dir: &Path, sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<Project>; // load_with(.., LIB, ..)
+pub fn load_with(dir: &Path, lib: &[(&str, &[u8])], sm: &mut SourceMap, diags: &mut Diagnostics) -> Option<Project>;
 ```
 `Project` also holds `module_by_name: FxHashMap<Symbol, ModuleId>`. The application is
 `PackageId(0)` (`Package` with name `""`, its direct dependencies as `deps`); packages
@@ -362,7 +368,8 @@ Port `src/ast/{mod,lower,dump}.rs` (not `eval.rs`):
   body is not a lambda is E0309 (`f = \_ -> f 1` is accepted; the oracle segfaults on
   top-level `x = x + 1`, which nomi rejects).
 - Operator chains re-associate by the fixities of `infix` declarations (Elm's algorithm);
-  equal precedence with conflicting associativity is E0305.
+  equal precedence with conflicting associativity is E0305, and so is a chain of two
+  non-associative operators at equal precedence (`a == b == c`).
 - Binding groups: Tarjan's SCC over top-level and `let` definitions, stored as above.
 
 ### 4.5 Types (`types/`)
@@ -470,7 +477,7 @@ Rust symbols are `k_<Module>_<name>` with the module name as written (`k_String_
 | `String.append` | leaf | `String -> String -> String`; `own, borrow`; result `fresh` | `k_String_append` |
 | `String.eq` | leaf | `String -> String -> Bool`; `borrow, borrow` | `k_String_eq` |
 | `String.compare` | leaf | `String -> String -> Int` (−1/0/1); `borrow, borrow` | `k_String_compare` |
-| `Stdio.print` | system | `String -> Task x ()`, `x` unconstrained and never produced; `borrow` | task closure capturing the string; `k_Stdio_print` |
+| `Stdio.print` | system | `String -> Task x ()`, `x` unconstrained and never produced; `borrow` | `lower_core` lowers a saturated use to the template lambda `\() -> Kernel(print, [s])`, whose `Rhs::Kernel` has type `TaskOut(x, ())` and whose lambda takes the site of the kernel reference; Flat closure-converts it like any lambda; `k_Stdio_print` |
 
 Runtime Rust entry points called with the kernel sequence: `rt_crash`,
 `rt_immortalize_globals`, `rt_rc_check_init`, `rt_stats_init`. Assembly fiber-control
@@ -528,8 +535,10 @@ and the new unit tests of §7 cover their behaviour. Changes:
   nullary constructor (no extra table). `Bool` constants are always `TRUE`/`FALSE`; the
   lint rejects `Bool` `CtorId`s in atoms. `AtomView` gains `Ctor(CtorId)`.
 - `Rhs` (12 bytes kept): `Con(CtorId, u32 /*start in atoms; count = arity*/)`,
-  `Field(Atom, u16 /*field*/)`, `Str(u32 /*string pool*/)`, `Kernel(KernelId, u32 /*start;
-  count from the row*/)` added.
+  `Field(Atom, u16 /*field*/)`, `Str(u32 /*string pool*/)`, `Kernel(KernelRow, u32 /*start;
+  count from the row*/)` added, where `KernelRow(u16)` indexes the static table of §4.7;
+  `lower_core` maps each reachable `KernelId` to its row and intrinsic lowerings name rows
+  directly (`Basics.eq` at `String` → the `String.eq` row).
 - Allocation sites: `Program.sites: Vec<Span>`; `site_of: Vec<u32>` indexed by `EId`
   for `Con`, `Lam`, `App` (it may build a partial application) and kernel calls,
   `NO_SITE = u32::MAX` elsewhere; the lint checks that every allocating form has a site.
@@ -543,7 +552,11 @@ and the new unit tests of §7 cover their behaviour. Changes:
 - `Case` arms are `CaseArm { key: u32, body }`: the constructor index for custom types,
   lists and `Bool`, the literal `Atom` bits for `Int` (the scrutinee's type decides);
   fields are bound by `Field` lets inside the arm.
-- Monomorphization: an FxHash map keyed by (definition, interned `CTy` list `ListId`); the
+- Monomorphization: top-level groups use an FxHash map keyed by (`TopGroup` index,
+  interned `CTy` list `ListId` of the group's generalized variables); generalized `let`
+  groups keep the POC's `GroupInstances` (`core/lower.rs:24-33`), reset for each instance
+  of the enclosing definition and keyed by the `ListId` of the group's generalized
+  variables; the polymorphic-recursion check below applies to both. The
   POC's caps and node budget (`core/lower.rs:182-194,351-357,972`) are removed.
   Polymorphic recursion check: a binding group G is instantiated as a whole, under one
   substitution σ of all of G's generalized variables. Inside the bodies of G, a reference
@@ -628,7 +641,8 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   `Dec`, whose zero path calls `rt_free`, which walks the children. So `FreeMem` and
   `FreeSeq` always have n ≤ 64.
 - **Allocation sites**: the allocating `FRhs` variants (`Tuple`, `Con`, `MkClosure`,
-  `Reuse`) carry `site: u32` (`FRhs` is 24 bytes, asserted).
+  `Reuse`) and `FRhs::Kernel { row: KernelRow, args: Range, site: u32 }` carry `site: u32`
+  (`FRhs` is 24 bytes, asserted).
 - **Static closures**: closures with no captures (top-level functions used as values,
   eta-expanded kernels) are `.rodata` objects `[hdr rc 0 size 2 scan 1 tag 0][info]`; the
   POC's `STATIC_RC` is replaced by rc 0.
@@ -652,7 +666,9 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   allocation's `words`; `live-after` — a token of the right size existed but its object is
   used after the allocation; `no-candidate` — no `Reset` token reaches the allocation.
   Sites whose only allocations are kernel calls are omitted from the report (kernels
-  allocate on their own). `--report reuse` writes
+  allocate on their own), and so are sites with outcome 0 (no allocation reached
+  `reuse.rs`: static closures, `App` sites that are plain calls); at `--opt 0` `reuse`
+  does not run and the file is written empty. `--report reuse` writes
   `<output>.reuse`, one line per site, `reuse <path>:<line>:<col> hit` or
   `reuse <path>:<line>:<col> miss <reason>`, sorted by (path, line, col, site id), paths
   project-relative or `nomi:lib/…`; the driver writes the file from `reuse_outcomes` and
@@ -840,17 +856,20 @@ the explicit-operand renaming of `naive.rs:61-65` uses these scratch registers.
 
 **Emission**: `.intel_syntax noprefix`; `.cfi_startproc`, `.cfi_def_cfa_offset`,
 `.cfi_offset`, `.cfi_endproc` per function; functions in `.text.<symbol>`; static objects
-in `.rodata.<symbol>` with rc 0; `nomi_config`, `nomi_globals`, `nomi_sites` in `.rodata`;
+in `.rodata.<symbol>` with rc 0; `nomi_config`, `nomi_globals`, `nomi_sites` in `.rodata` (`nomi_sites` has count 0 and
+no file table outside checked builds);
 global slots in `.bss`.
 
 Tool paths are `as` and `ld` unless `NOMI_AS`/`NOMI_LD` name others (used by the E0901 and
 E0902 snapshot tests).
 
-**Link** (`driver/link.rs`): create `$TMPDIR` (default `/tmp`) subdirectory
+**Link** (`driver/link.rs`, `pub fn link(asm: &str, out: &Path, symbols: bool) ->
+Result<(), Diagnostic>`, also used by `tests/rt.rs`): create `$TMPDIR` (default `/tmp`) subdirectory
 `nomi-<pid>-<nanos>-<counter>` with exclusive `mkdir` (mode 0700), removed by an RAII
 guard on every path; write `prog.s` and `libnomi_rt.a`; run `as --64
 -mx86-used-note=no -o prog.o prog.s` and `ld -static -nostdlib -z noseparate-code
---gc-sections -s -o prog prog.o libnomi_rt.a`; apply the POC's `drop_section_headers`
+--gc-sections -s -o prog prog.o libnomi_rt.a` (`--symbols` drops `-s` and the next step,
+as the POC's `driver.rs:612-621`); apply the POC's `drop_section_headers`
 (`driver.rs:628-658`); `create_dir_all` the output's directory; copy `prog` to
 `<out>.tmp-<pid>` there (unlinked first, then created with `O_CREAT|O_EXCL|O_NOFOLLOW`),
 set mode 0755, and `rename` it to `<out>` (same filesystem). The temporary directory's
@@ -1070,7 +1089,8 @@ mapError, onError)`; `module Stdio exposing (print)`.
   (no errors) or 1.
 - `nomi build [DIR] [-o PATH] [FLAGS]`: output `DIR/build/<directory name>` by default;
   `--emit tokens|cst|ast|types|core|core-opt|flat|flat-rc|lir|lir-opt|asm` prints that
-  stage to stdout (the POC's dump formats) and does not link; `--report reuse` writes `<output>.reuse`.
+  stage to stdout (the POC's dump formats; per-module stages print every module in
+  `ModuleId` order) and does not link; `--report reuse` writes `<output>.reuse`.
 - `nomi run [DIR] [FLAGS] [-- ARGS…]`: `build`, then executes the output with inherited
   stdio; exit status is the program's, or 128 + n when it was killed by signal n.
 - `nomi interp`: usage error `error: nomi interp is available from M3` (exit 2).
@@ -1095,60 +1115,63 @@ working directory, and relative paths in `env` and `args` resolve against it; E0
 (`ENOTDIR`, independent of the user's privileges).
 Templates (`<x>` are fills):
 
-| Code | Message |
-|---|---|
-| E0101 | `this application declares elm-version <v>; nomi applications declare 0.19.3` |
-| E0102 | `dependency <name> <version> was not found` |
-| E0103 | `elm/* packages cannot be used by nomi build (<name>)` |
-| E0104 | `module <M> was not found in the source directories or dependencies` |
-| E0105 | `modules import each other in a cycle: <A> -> <B> -> … -> <A>` |
-| E0106 | `module <M> is declared in <path>, which should declare <N>` |
-| E0107 | `module <M> is defined in two places: <path1> and <path2>` |
-| E0108 | `package <p> does not expose module <M>` |
-| E0109 | `elm.json is malformed: <reason>` |
-| E0110 | `no Main module in the source directories` |
-| E0111 | `cannot read <path>: <os error>` |
-| E0112 | `<path> is not valid UTF-8 (byte <offset>)` |
-| E0207 | `<construct> is not supported by nomi build in M1` (records, characters, floats, tuples) |
-| E0208 | `unexpected character <c>` |
-| E0209 | `tab characters are not allowed in indentation` |
-| E0201 | `expected <what>, found <token>` |
-| E0202 | `this string is not terminated` |
-| E0203 | `invalid escape sequence <text>` |
-| E0204 | `this line is indented less than the <construct> it continues` |
-| E0205 | `<port|effect> modules are not supported by nomi` |
-| E0206 | `the integer <text> does not fit in 64 bits` |
-| E0301 | `<name> is already defined in this scope` (secondary: the earlier definition) |
-| E0302 | `<name> is defined twice` |
-| E0303 | `cannot find <name>` |
-| E0304 | `kernel references are only allowed in nomi packages` |
-| E0305 | `operators <op1> and <op2> have the same precedence and conflicting associativity` |
-| E0306 | `module <M> does not expose <name>` |
-| E0307 | `<T> expects <n> type arguments, but got <m>` |
-| E0308 | `type variable <a> is not declared by <T>` |
-| E0309 | `<name> is defined in terms of itself` |
-| E0310 | `module Main does not define main` |
-| E0311 | `<name> has a type annotation but no definition` |
-| E0312 | `module <M> exposes <name>, which it does not define` |
-| E0313 | `infix declarations are only allowed in nomi packages` |
-| E0314 | `<name> is ambiguous: <M1>.<name> or <M2>.<name>` |
-| E0401 | `expected <t1>, found <t2>` |
-| E0402 | `<t> is not <class>` (`a number`, `comparable`, `appendable`, `comparable and appendable`) |
-| E0403 | `this would need the infinite type <t>` |
-| E0404 | `the annotation says <t1>, but the definition is only <t2>` |
-| E0405 | `main must be a Task Never (), but it is <t>` |
-| E0501 | `this case does not cover <witness>` |
-| E0502 | warning: `this pattern is never reached` |
-| E0601 | `the kernel function <M>.<name> is not available` |
-| E0602 | `== cannot compare functions (<t>)` |
-| E0603 | `<name> is used at a growing type (<t>); polymorphic recursion is not supported by nomi build` |
-| E0701 | `<ctor> has <n> fields; at most 4094 are supported` |
-| E0703 | `<type> has <n> constructors; at most 248 are supported` |
-| E0901 | `cannot run <tool>: <os error>` (`<tool>` is the configured path) |
-| E0902 | `<tool> failed with status <n>` (notes: up to 20 stderr lines) |
-| E0903 | `cannot write <path>: <os error>` |
+| Code | Message | Primary label (and secondary labels, notes) |
+|---|---|---|
+| E0101 | `this application declares elm-version <v>; nomi applications declare 0.19.3` | the `elm-version` value in `elm.json`: `declared here` |
+| E0102 | `dependency <name> <version> was not found` | the dependency key in `elm.json`: `not available` |
+| E0103 | `elm/* packages cannot be used by nomi build (<name>)` | the dependency key: `an elm/* package` |
+| E0104 | `module <M> was not found in the source directories or dependencies` | the import: `imported here` |
+| E0105 | `modules import each other in a cycle: <A> -> <B> -> … -> <A>` | the import in the first module of the cycle: `this import closes the cycle` |
+| E0106 | `module <M> is declared in <path>, which should declare <N>` | the module name in the header: `declared here` |
+| E0107 | `module <M> is defined in two places: <path1> and <path2>` | the second header: `second definition`; secondary, the first header: `first definition` |
+| E0108 | `package <p> does not expose module <M>` | the import: `imported here` |
+| E0109 | `elm.json is malformed: <reason>` | the byte position in `elm.json`: `here` |
+| E0110 | `no Main module in the source directories` | none |
+| E0111 | `cannot read <path>: <os error>` | none |
+| E0112 | `<path> is not valid UTF-8 (byte <offset>)` | none |
+| E0201 | `expected <what>, found <token>` | the token: `expected <what> here` |
+| E0202 | `this string is not terminated` | the opening quote: `string starts here` |
+| E0203 | `invalid escape sequence <text>` | the escape: `invalid escape` |
+| E0204 | `this line is indented less than the <construct> it continues` | the token: `indented too little` |
+| E0205 | `<port|effect> modules are not supported by nomi` | the header keyword: `not supported` |
+| E0206 | `the integer <text> does not fit in 64 bits` | the literal: `out of range` |
+| E0207 | `<construct> is not supported by nomi build in M1` (records, characters, floats, tuples) | the construct's first token: `not supported` |
+| E0208 | `unexpected character <c>` | the character: `here` |
+| E0209 | `tab characters are not allowed in indentation` | the tab: `tab character` |
+| E0301 | `<name> is already defined in this scope` (secondary: the earlier definition) | the new binding: `shadows the earlier definition`; secondary: `first defined here` |
+| E0302 | `<name> is defined twice` | the second definition's name: `defined again here`; secondary: `first defined here` |
+| E0303 | `cannot find <name>` | the name: `not found` |
+| E0304 | `kernel references are only allowed in nomi packages` | the kernel reference: `kernel reference` |
+| E0305 | `operators <op1> and <op2> have the same precedence and conflicting associativity` | the second operator: `conflicts with <op1>` |
+| E0306 | `module <M> does not expose <name>` | the name: `not exposed` |
+| E0307 | `<T> expects <n> type arguments, but got <m>` | the type reference: `<m> arguments` |
+| E0308 | `type variable <a> is not declared by <T>` | the variable: `not declared` |
+| E0309 | `<name> is defined in terms of itself` | the first member's name: `refers to itself`; note: the cycle `<a> -> <b> -> <a>` |
+| E0310 | `module Main does not define main` | the module header: `no main here` |
+| E0311 | `<name> has a type annotation but no definition` | the annotation: `annotation without a definition` |
+| E0312 | `module <M> exposes <name>, which it does not define` | the exposing item: `not defined` |
+| E0313 | `infix declarations are only allowed in nomi packages` | the `infix` declaration: `not allowed here` |
+| E0314 | `<name> is ambiguous: <M1>.<name> or <M2>.<name>` | the use: `ambiguous` |
+| E0401 | `expected <t1>, found <t2>` | the expression: `this is a <t2>`; note when it is the k-th argument of an application of a named function f: `the <k-th> argument of <f> is a <t1>`; when it is an `if` or `case` branch: `all branches must have the same type` |
+| E0402 | `<t> is not <class>` (`a number`, `comparable`, `appendable`, `comparable and appendable`) | the expression: `this is <t>` |
+| E0403 | `this would need the infinite type <t>` | the expression: `infinite type` |
+| E0404 | `the annotation says <t1>, but the definition is only <t2>` | the definition's name: `the definition`; secondary, the annotation: `the annotation` |
+| E0405 | `main must be a Task Never (), but it is <t>` | the definition of `main`: `main` |
+| E0501 | `this case does not cover <witness>` | the `case` keyword: `missing <witness>` |
+| E0502 | warning: `this pattern is never reached` | the pattern: `unreachable` |
+| E0601 | `the kernel function <M>.<name> is not available` | the kernel reference: `no kernel row` |
+| E0602 | `== cannot compare functions (<t>)` | the `==` operator: `compares <t>` |
+| E0603 | `<name> is used at a growing type (<t>); polymorphic recursion is not supported by nomi build` | the reference: `at <t>` |
+| E0701 | `<ctor> has <n> fields; at most 4094 are supported` | the constructor: `<n> fields` |
+| E0703 | `<type> has <n> constructors; at most 248 are supported` | the type name: `<n> constructors` |
+| E0901 | `cannot run <tool>: <os error>` (`<tool>` is the configured path) | none |
+| E0902 | `<tool> failed with status <n>` (notes: up to 20 stderr lines) | none |
+| E0903 | `cannot write <path>: <os error>` | none |
 
-E0601 is tested by a unit test of `lower_core` (no shipped kernel lacks a row). E0103 also
+E0601 is tested by a unit test of `lower_core` that calls `project::load_with` with `LIB`
+plus an extra package `nomi:lib/nomi/test/1.0.0/` whose module references
+`Elm.Kernel.Test.missing` from a definition reachable from `main` (no shipped kernel lacks
+a row). E0103 also
 applies to `nomi check` in M1; M2 lifts it for the parity harness. E0901 and E0902 are
 provoked with `NOMI_AS`, E0903 with `-o` under a regular file, E0111 with a directory
 named `Main.elm` in the source directory (`EISDIR`; it holds a `.keep` file for git).
@@ -1159,7 +1182,7 @@ named `Main.elm` in the source directory (`EISDIR`; it holds a `.keep` file for 
 |---|---|---|---|
 | Tokens, CST | the POC's, no `parent` | parser, AST lowering | A§6.15 |
 | Instantiations | CSR by global `ExprId` | `lower_core` once per occurrence | dense ids, one allocation |
-| Mono instances | FxHash map (DefId, interned `ListId`) → `VarId` | each polymorphic reference | no cap, fixed-size keys |
+| Mono instances | FxHash map (`TopGroup` index, interned `ListId`) → `VarId`s; per-`let`-group `GroupInstances` | each polymorphic reference | no cap, fixed-size keys |
 | Generated eq/compare | `Vec<VarId>` per family by `CTy`, `NO_VAR` | `==`, `compare` lowering | dense ids |
 | Layouts | `Vec<Layout>`, `Vec<TypeLayout>`, `ctor_layouts: Vec<u32>`, `layout_kinds`, `layout_phys`, memo `kind_of: Vec<Kind>` by `CTy` | Flat lowering, LIR offsets | dense ids |
 | Allocation sites | `Vec<Span>` plus `site_of: Vec<u32>` by `EId`, carried into Flat and LIR | reuse report, `nomi_sites`, checked builds | one table for all three uses |
@@ -1194,7 +1217,7 @@ directory under `tests/programs/` that contains `elm.json`, named by its relativ
 ["src"], "elm-version": "0.19.3", "dependencies": {"direct": {"nomi/core": "1.0.0",
 "nomi/platform": "1.0.0"}, "indirect": {}}, "test-dependencies": {"direct": {},
 "indirect": {}}}`), `src/Main.elm`, `expected.stdout`, `expected.stderr`,
-`expected.status`, optional `flags`:
+`expected.status`, optional `flags` (one flag name per line):
 - all paths are relative to the repository root `R = $CARGO_MANIFEST_DIR/../..`
   (`R/tests/programs`, `R/tests/diagnostics`, `R/target/programs`);
 - before each build deletes `prog`, `prog.reuse` and `report` in the configuration's
@@ -1214,7 +1237,7 @@ directory under `tests/programs/` that contains `elm.json`, named by its relativ
 - then the configuration `move2` (`--opt 2 --rc-check --stack-initial 256 --stack-move`)
   for programs
   without the flag `skip_stack_move`;
-- flags (A§9.3): `native_only`, `skip_naive` (not built with `naive0`),
+- flags (A§9.3): `native_only` (no effect in M1, which has no interpreters), `skip_naive` (not built with `naive0`),
   `skip_stack_move`, `tail_bounded`.
 
 **Programs**: every `Main.elm` is `module Main exposing (main)` with the imports it uses
@@ -1337,7 +1360,9 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 - **Scoreboard** (`cargo xtask scoreboard`): builds `target/release/nomi` first, then for
   each workload appends one row to `docs/scoreboard.md`:
   `| date | commit | workload | nomi_ms | c_ms | ratio | size_bytes | allocations | nomi_rss_kib | c_rss_kib | compile_ms |`.
-  `date` is `YYYY-MM-DD` (UTC), `commit` the 12-character short hash. Times are the
+  `date` is `YYYY-MM-DD` (UTC), `commit` the 12-character short hash; times are
+  milliseconds with one decimal, `ratio` with two; the file is created with its header row
+  when missing. Times are the
   median of 5 runs after one warm-up; `allocations` from a `--stats` build;
   the RSS columns are `ru_maxrss` of the child (`wait4`) in the median run;
   `compile_ms` the median of 3 `nomi build --opt 2`.
@@ -1393,6 +1418,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | Hello world above 16 KiB once the runtime is complete | the no-panic rule (§4.12, about 8 KB measured) and `xtask size`; CP3 links the runtime with a minimal `w_main` and measures; if over 16 KiB, nomi-rt's release profile gets `lto = "fat"` and `codegen-units = 1`, and if still over, the link adds a linker script discarding `.eh_frame` and `.comment` (`panic = "abort"` leaves `.eh_frame` unused) before CP4 |
 | `rt_morestack` misses a register | the `stack_move` assembly test (CP2) and the `--stack-move` pass |
 | `deep7`'s naive frames exceed 1 GiB | `skip_naive` on `deep7`; `deep` covers the naive configuration |
+| `slice/deepmap` exceeds 1 GiB | at CP10 read `List.map`'s frame F at `--opt 2`; if 10^7 · (F + 8) > 2^30, the workload's length becomes ⌊2^29 / (F + 8)⌋ rounded down to a power of ten |
 | `deep7` exceeds 1 GiB at `irc1`/`irc2` | read `count`'s frame F from `--emit asm` at CP5; if 10^7 · (F + 8) > 2^30, the depth becomes ⌊2^29 / (F + 8)⌋ rounded down to a power of ten and the expected output changes with it |
 | A lost tail call only grows the stack and passes every test | `loop`, `tailcycle` and `tloop` with `tail_bounded` (`stack_peak` ≤ 64 KiB in every checked configuration) |
 | The selective port leaves a dangling reference to a deferred pass | the ported `opt.rs` pipelines list only the passes of §4.8 and §4.10; `cargo build` fails on any reference to a file not ported |
@@ -1410,12 +1436,13 @@ for ported code that later checkpoints use; CP10 removes it. Every checkpoint en
 `_start` that writes `nomi-rt\n` and exits 0), `crates/xtask` skeleton,
 `crates/nomi/tests/archive.rs`, `docs/diagnostics.md`, empty `lib/`, `rust-toolchain.toml`,
 `.github/workflows/ci.yml`. Acceptance: `nomi
---help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`, with the empty `tests/rt/skeleton.s`) links the skeleton archive per §4.11 and the output
+--help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`, with the empty `tests/rt/skeleton.s` and `tests/rt/skeleton.expected`:
+`--- stdout` `nomi-rt`, `--- stderr` empty, `--- status` 0) links the skeleton archive per §4.11 and the output
 prints `nomi-rt` and exits 0; the archive test passes; clippy passes; once the GitHub
 remote exists, the CI run of the pushed commit is green.
 
 **CP2 — Runtime boot and fibers.** `nomi-rt/src/{start,tcb,stack,io,crash}.rs`; the
-`skeleton` case and `tests/rt/skeleton.s` are deleted (the real `_start` needs `w_main`). Tests: the
+`skeleton` case, `tests/rt/skeleton.s` and `skeleton.expected` are deleted (the real `_start` needs `w_main`). Tests: the
 CP2 assembly programs of §7.
 
 **CP3 — Allocator, RC and checking.** `nomi-rt/src/{shims,heap,check,stats,globals}.rs`.
@@ -1514,7 +1541,7 @@ flush without changing file flags; flush before exit hooks; `--stack-initial` bo
 E0703 added; lib module headers; new programs `minint`, `equality`, `tasks`, `operators`,
 `layouts`, `stackmove`, a wholesale `bigdrop`, exact `tailcalls` and `divzero`; shim and
 `rt_free`-chain runtime tests; repository-root paths; I10 with `NOMI_JOBS`; the hash seed
-moves to M4. The license stays open (`docs/plan-questions.md`).
+moves to M4. The license was then open (answered later: MIT, M1-D24).
 
 ### Round 3
 Five critics. Changes: checkpoint order so every checkpoint's programs use only what it
@@ -1601,6 +1628,17 @@ in `ast/`; `Neg` typing and lowering; `SiteTable` through `LirConfig` and
 `deepmap.c`, the perf-log row and workload names; CP2 deletes the skeleton case; the
 `move2` and `nopanic` configurations; `str_object` with rc and A§6.1's prefix order;
 dead-code allowance until CP10; smaller fixes. Rejected: none. This was the last of the
-three dry-run passes; see `docs/plan-questions.md`.
+three dry-run passes; the two questions it raised were answered by the user (below).
 User answers after dry-run 3: run one more dry-run pass; CI and toolchain pinning in CP1
 (M1-D29, LOCKED).
+
+### Final dry-run 4
+DRY-RUN critic. Changes: `lib/.keep` and dot-files skipped; optional primary span with
+`elm.json` in the `SourceMap`; a primary-label column for every code; outcome-0 sites
+omitted from the reuse report; system kernels lowered to template lambdas in
+`lower_core`; `KernelRow` in Core and `FRhs::Kernel` with its site; mono instances for
+top-level groups and the POC's `GroupInstances` for `let` groups; `load_with` for the
+E0601 test; the `link` entry point, `flags` syntax, `skeleton.expected`; smaller fixes
+(stale references, `deepmap` frame rule, explicit toolchain install, `nomi_sites` size,
+scoreboard number formats, non-associative chains, `nomi-algo` test cfg, `native_only`,
+`--emit` module order, `--symbols` link). Rejected: none.
