@@ -1790,3 +1790,7 @@ and access method; `tree`/`lists` reuse checks in the harness; the default outpu
 `--emit` line forms for every new construct; two project-loading codes; the `deep7`
 frame rule; smaller fixes (`BUILD_ARGS`, dedup of location-less diagnostics, the
 `strings` source). Rejected: none.
+
+User decision after dry-run 7: accept the plan as final; remaining detail gaps are decided during implementation under checkpoint review.
+
+blueprint final
