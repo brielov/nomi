@@ -1394,3 +1394,13 @@ status 141 means stdout was closed (`EPIPE`); `nomi_hash_seed` starts in M4 with
 reader; per-file spans are `TextRange` with `line_starts` (A§6.15's `Span` is used across
 files). Round 3 of the M1 plan: `Diagnostic` gains a primary label and notes (§7.2); the
 parser keeps operator chains flat and `ast/` resolves fixity (§5.2).
+Round 4 of the M1 plan: D24's nested build sets `CARGO_ENCODED_RUSTFLAGS` to the empty
+string, removes every `CARGO_BUILD_*`/`CARGO_PROFILE_*` variable, passes `--target
+x86_64-unknown-linux-gnu` and `--config build.rustc-wrapper=''` (verified against a
+config file that sets `build.rustflags` and a wrapper); Flat CPR moves to M4 with the
+other deferred passes; `Stdio.print : String -> Task x ()` is a system kernel with an
+unconstrained, never-produced error variable (an exception to §7.3's monomorphic
+signatures); `nomi_algo::fmt_i64` writes into a fixed 20-byte buffer instead of an output
+trait (fixed-size result); E0304 admits only `nomi/*` in M1, since E0103 rejects `elm/*`
+dependencies until M2; `AllocSeq` may target any register, and `IncSeq` adds n with one
+`add`.
