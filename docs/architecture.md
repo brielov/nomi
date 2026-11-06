@@ -560,8 +560,9 @@ Elm is strict and immutable; handles are integers; RC is complete, no cycle coll
   `r10` and `r11` reserved; arguments beyond registers on the stack, never in static
   memory; tail calls remain jumps with a callee-pops convention for stack arguments.
 - **Shims** `rt_alloc_slow`, `rt_alloc_checked`, `rt_free`, `rt_free_checked`,
-  `rt_rc_slow_inc`, `rt_rc_slow_dec`: assembly in `nomi-rt`; argument in `r11` (and
-  `r10` for the second), result in `rax`. `rt_alloc_checked` has `rt_alloc_slow`'s
+  `rt_rc_slow_inc`, `rt_rc_slow_dec`, `rt_saturate_checked` (checked builds): assembly in
+  `nomi-rt`; argument in `r11` (and `r10` for the second; `rt_rc_slow_inc` takes the
+  increment in `r10`), result in `rax`. `rt_alloc_checked` has `rt_alloc_slow`'s
   contract for every n, small n included (`r11` = n, `r10` = scan for large objects, site
   id in `fs:[0x40]`), places the prefix word itself and returns `p` past it; the caller
   writes the header of a small object as in production. `rt_free_checked` (`r11` = p)
@@ -806,7 +807,7 @@ pass in debug builds and in all tests (I2). `Typed` keeps per-module scheme tabl
 
 ### 7.2 Diagnostics
 
-`Diagnostic { code: u16, severity, primary: (Span, String), secondary: Vec<(Span, String)>, message: String, notes: Vec<String> }`;
+`Diagnostic { code: u16, severity, primary: Option<(Span, String)>, secondary: Vec<(Span, String)>, message: String, notes: Vec<String> }`;
 codes in `docs/diagnostics.md`, snapshot-tested.
 
 ### 7.3 Kernel table
