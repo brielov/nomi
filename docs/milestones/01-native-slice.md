@@ -183,7 +183,8 @@ Foundation files ported from the POC:
 - `diag.rs`: `Diagnostic { code: u16, severity: Severity, primary: Option<(Span, String)>,
   secondary: Vec<(Span, String)>, message: String, notes: Vec<String> }` (A§7.2 with a
   primary label and the POC's notes; amendment recorded in A); warnings never change the
-  exit status; a diagnostic without a primary renders as its header line plus notes;
+  exit status; `Diagnostics::push` deduplicates on (code, `FileId`, start) (the POC's key
+  lacks the file, `diag.rs:121-125`); a diagnostic without a primary renders as its header line plus notes;
   `elm.json` is registered in the `SourceMap` so project errors point into it;
   `Severity { Error, Warning }`, rendered as `error[E…]:` and
   `warning[E…]:`;
@@ -226,6 +227,8 @@ follow in load order.
   them (one version per package exists in M1); none → E0102. The application may import
   modules of its direct dependencies only (an import from an indirect one is E0104);
   every listed package must exist (E0102).
+- A `"type"` other than `"application"` is E0109; an application module with the same
+  name as a module of a dependency is E0107.
 - Reads `dir/elm.json`: `"type": "application"`, `"elm-version": "0.19.3"`,
   `"source-directories"`, `"dependencies": {"direct": {…}, "indirect": {…}}`; unknown
   fields ignored.
@@ -473,7 +476,7 @@ Rust symbols are `k_<Module>_<name>` with the module name as written (`k_String_
 | `Basics.and`, `or` | intrinsic | `Bool -> Bool -> Bool` | short-circuit: `a && b` lowers to `if a then b else False`, `a \|\| b` to `if a then True else b` |
 | `List.cons` | intrinsic | `a -> List a -> List a` | constructor `::` |
 | `Task.succeed`, `fail`, `andThen`, `map`, `mapError`, `onError` | intrinsic | Elm's `Task` types | Core templates (§4.8) |
-| `String.fromInt` | leaf | `Int -> String`; result `fresh` | `k_String_fromInt` |
+| `String.fromInt` | leaf | `Int -> String`; `borrow` (scalar); result `fresh` | `k_String_fromInt` |
 | `String.append` | leaf | `String -> String -> String`; `own, borrow`; result `fresh` | `k_String_append` |
 | `String.eq` | leaf | `String -> String -> Bool`; `borrow, borrow` | `k_String_eq` |
 | `String.compare` | leaf | `String -> String -> Int` (−1/0/1); `borrow, borrow` | `k_String_compare` |
@@ -552,18 +555,22 @@ and the new unit tests of §7 cover their behaviour. Changes:
 - `Case` arms are `CaseArm { key: u32, body }`: the constructor index for custom types,
   lists and `Bool`, the literal `Atom` bits for `Int` (the scrutinee's type decides);
   fields are bound by `Field` lets inside the arm.
-- Monomorphization: top-level groups use an FxHash map keyed by (`TopGroup` index,
-  interned `CTy` list `ListId` of the group's generalized variables); generalized `let`
-  groups keep the POC's `GroupInstances` (`core/lower.rs:24-33`), reset for each instance
-  of the enclosing definition and keyed by the `ListId` of the group's generalized
-  variables; the polymorphic-recursion check below applies to both. The
+- Monomorphization: instances are keyed per member: top-level definitions by (global
+  `DefId`, interned `CTy` list `ListId` of that member's own scheme variables) in an
+  FxHash map; generalized `let` bindings keep the POC's `GroupInstances`
+  (`core/lower.rs:24-33`), reset for each instance of the enclosing definition and keyed
+  by (`BinderId`, the member's `ListId`). The
   POC's caps and node budget (`core/lower.rs:182-194,351-357,972`) are removed.
-  Polymorphic recursion check: a binding group G is instantiated as a whole, under one
-  substitution σ of all of G's generalized variables. Inside the bodies of G, a reference
-  to a member of G must instantiate that member's scheme with σ itself (identity on G's
-  variables); any other instantiation is E0603. Mutual recursion (`isEven`/`isOdd`), and
-  annotated groups such as `f : a -> Int; f x = g x True` with `g : c -> d -> Int; g y z
-  = f y`, are accepted; `f x = f [x]` is E0603.
+  Polymorphic recursion check (the expanding-cycle test of ECMA-335 II.9.2), run on every
+  recursive group, top-level or `let`, before monomorphization: nodes are (member,
+  quantified variable); each reference inside the group to member h with instantiation
+  θ adds, for each variable v of h and each quantified variable u of the referencing
+  member occurring in θ(v), an edge u → v, marked expanding when θ(v) ≠ u. E0603 iff some
+  cycle contains an expanding edge; then monomorphization terminates. Mutual recursion
+  (`isEven`/`isOdd`), the annotated group `f : a -> Int; f x = g x True` with `g : c -> d
+  -> Int; g y z = f y` (edges a → c and c → a, none expanding; `d ↦ Bool` contains no
+  variable), and a program using that `g` at `d = String` are accepted; `f x = f [x]`
+  (a → a, expanding) is E0603.
 - Generated equality and comparison: `Vec<VarId>` per family indexed by `CTy` (sentinel
   `NO_VAR`), grown as types are interned (replaces `eq_fns`, `core/lower.rs:53`). E0602 for
   `==` at a function type.
@@ -600,7 +607,10 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   `Scalar` (it has no values). A field may hold a pointer when its kind is `Tuple`, `Sum`,
   `Closure` or `Str`; `Scalar` and `Imm` fields are scalar fields. `Kind` is 8 bytes:
   `Tuple(LayoutId)`, `Sum { tl: TypeLayoutId, has_nullary: bool }`, `Closure(LayoutId)`,
-  `Token(u16 /*words*/)`; two internal variants `Unknown` and `Visiting` exist only in the
+  `Token(u16 /*words*/)`, `TaskPayload(CTy)`; a `Closure` kind derived from a type carries
+  `NO_LAYOUT = u32::MAX` (a `Fun` type has no single shape), and only `MkClosure` results
+  and a lambda's own closure parameter carry a real layout, which the lint requires for
+  every capture load; two internal variants `Unknown` and `Visiting` exist only in the
   memo below.
 - **Layouts** (A§6.1–6.2): `Layout { fields: Range, phys: Range, scan: u32, words: u32,
   tag: u8 }` per constructor, pointer fields first in declaration order; `TypeLayout {
@@ -631,8 +641,17 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   /*result vars*/, FVar /*closure*/, Range /*args*/, FEId)`, lowered to an LIR indirect
   call with result count 2; `apply_k` helpers are shared between one- and two-result
   callers because they reach `fast` by a tail call (so `rdx` passes through). Case on it
-  is a switch on the status variable. Inc/Dec of a `TaskPair` payload branches on the
-  status when `x` and `a` have different kinds.
+  is a switch on the status variable. The status `FVar` is `Scalar`; the payload `FVar` has
+  kind `TaskPayload(CTy /*the TaskOut type*/)` and `value_flags` 0. A payload is never
+  `Inc`'d, borrowed or stored: the lint allows it only as a two-value `Ret`/`Jump`/call
+  argument (ownership moves) or as the payload of a `case` on its status, whose arm
+  rebinds it as a fresh `FVar` of kind `kind_of(x)` (status 1) or `kind_of(a)` (status 0)
+  by `FRhs::Cast`. When a pair is dead (`w_main` ignores `main`'s result), lowering inserts
+  that `case` with a `Dec` of the rebound payload in each arm whose kind is a heap kind.
+  A kernel returning a `TaskOut` is `FExpr::LetMultiKernel(Range /*result vars*/,
+  KernelRow, Range /*args*/, u32 /*site*/, FEId)`, lowered to a `KernelCall` with result
+  count 2; the Rust signature returns `#[repr(C)] struct TaskOut { status: u64, payload:
+  u64 }` in `rax:rdx`.
 - **Free and Reset** carry the layout of the enclosing arm: `FExpr::Free(FVar, LayoutId,
   FEId)`,
   `FRhs::Reset(FVar, LayoutId, kept)` (`kept` marks fields 0–31; higher fields are never
@@ -714,7 +733,7 @@ Port `src/lir/{mod,lower,verify,cfg,dce,compact,dom,pretty,opt}.rs`; `basecall`,
 - `RtFn`: `AllocSlow` and `Free` kept; `AllocChecked`, `FreeChecked`, `RcSlowInc`,
   `RcSlowDec`, `SaturateChecked` added; `PrintInt`, `PrintStr`, `Flush`, `AllocLarge`, `FreeLarge`,
   `FreeNoChildren`, `RcFreedObject`, `DivZero` removed. `rt_crash` is a kernel callee.
-- **Case on a `Sum`**: (1) `Bin And v, 1`; branch; (2) immediate side: one nullary
+- **Case on a `Sum`**: (1) only when `has_nullary`: `Bin And v, 1`; branch; (2) immediate side: one nullary
   constructor → its arm, else `Switch` on `v >> 1`; (3) pointer side: one boxed
   constructor → its arm, else `Load8 [v + 7]` and `Switch`.
 - Field access `Load [v + 8·(1 + phys)]`; string literals `StrAddr { dst, str: u32 }` indexing
@@ -833,7 +852,8 @@ labels the header (`rc 0`, `size 0`). String literal words come from
 
 **Naive allocator** (debug): scratch registers `rbx` and `r12`; `naive.rs:131`
 (`f.saved = Vec::new()`) becomes `f.saved = vec![RBX, R12]` so the prologue saves them;
-the explicit-operand renaming of `naive.rs:61-65` uses these scratch registers.
+the scratch array `let scratch = [Reg::R10, Reg::R11];` (`naive.rs:95`) becomes `[Reg::RBX,
+Reg::R12]`.
 
 **Machine-IR verifier** (`x86/verify.rs`, after expansion):
 - I5: an `rsp`-derived value is a register other than `rsp` written by an instruction
@@ -922,7 +942,9 @@ fiber's stack (class for `stack_initial + R`) and enter `w_main` with `rt_enter`
   (384 bytes), stores `rsp` into the fiber record, switches to the system stack and calls
   the slow path with F = `r11`. M1 has no preemption. When `rsp − F` is below the real
   limit, or when `stack_move` is set and the used part is at most 64 KiB: allocate the smallest class ≥ used + F + R
-  (with `stack_move` a fresh region different from the last two, the released region
+  (stack regions of a class are kept on a per-class free list linked through each free
+  region's lowest word; with `stack_move` the first listed region that is not one of the
+  last two released is taken, else a new region is carved from the pool; the released region
   filled with `0xDE`), `memcpy` the used part, rebase the saved `rsp`, write the canary,
   release the old stack, and set `fs:[0x30]` to the new limit and `fs:[8]` to it (or to
   `u64::MAX` while `stack_move` relocates; once the used part exceeds 64 KiB, `fs:[8]`
@@ -944,13 +966,16 @@ fiber's stack (class for `stack_initial + R`) and enter `w_main` with `rt_enter`
   it, verified with a deliberate bounds check) (measured: panic machinery costs about
   8 KB of the 16 KiB budget).
 - **rt_alloc_slow(n)** (`r11` = n): n ≤ 64: refill the class by carving 64 objects of n
-  words from the current chunk, pop one (count += 63); 64 < n ≤ 4094: geometric classes
+  words from the current chunk (or as many as fit, at least one; when not even one fits,
+  the tail is abandoned and a new chunk is mapped), pop one (count += carved − 1); 64 < n ≤ 4094: geometric classes
   of sizes `2^k + j·2^(k−3)` words for k = 6..11 and j = 1..8 (72, 80, …, 128, 144, …,
   4096; 48 classes; at most 12.5% waste); the block is the smallest class ≥ n and the
   header keeps the exact `size`; pop that class's list (`HeapState.mid: [u64; 48]` in
-  `.bss`), else bump the class size from the chunk;
+  `.bss`), else bump the class size from the chunk (a tail smaller than the block is
+  abandoned and a new chunk mapped);
   n > 4094: the span allocator (pages from regions of max(64 MiB, rounded size),
-  address-sorted free-span list with coalescing), writing the large prefix and header
+  address-sorted free-span list with coalescing; each free span stores its node `[next,
+  pages]` in its first two words, and insertion is a linear scan), writing the large prefix and header
   (`rc 1`, size 0, scan 0, `tag` from `r10 >> 56`, scan prefix from `r10`'s low 32 bits).
   Chunks are 64 MiB `MAP_NORESERVE`. `mmap` failure → `out of memory`.
 - **rt_free(p)** (`r11` = p): the POC's walk (`runtime.s:502-596`) in Rust: decrement the
@@ -1168,7 +1193,9 @@ Templates (`<x>` are fills):
 | E0902 | `<tool> failed with status <n>` (notes: up to 20 stderr lines) | none |
 | E0903 | `cannot write <path>: <os error>` | none |
 
-E0601 is tested by a unit test of `lower_core` that calls `project::load_with` with `LIB`
+E0108 is tested by a unit test of `project::load_with` with an extra package that does
+not expose one of its modules (no shipped package has one). E0601 is tested by a unit
+test of `lower_core` that calls `project::load_with` with `LIB`
 plus an extra package `nomi:lib/nomi/test/1.0.0/` whose module references
 `Elm.Kernel.Test.missing` from a definition reachable from `main` (no shipped kernel lacks
 a row). E0103 also
@@ -1265,7 +1292,7 @@ from §1, and programs that use `b2s` define `b2s : Bool -> String` as `b2s b = 
 | `args` | `f8` with 8 parameters returning `Σ k·aₖ`, `f12` with 12; print `f8 1 2 3 4 5 6 7 8` and `f12 1 … 12`; `f8 a1 a2 a3 a4 a5 a6 a7 a8` and `f12 a1 … a12` name their parameters so; `apply8 h b1 b2 b3 b4 b5 b6 b7 b8 = h b1 b2 b3 b4 b5 b6 b7 b8` (an unknown call through `apply_8`), print `apply8 f8 1 2 3 4 5 6 7 8`; `partial12 = f12 1 2 3 4 5` at top level (a partial application), print `partial12 6 7 8 9 10 11 12`; `flag = True` at top level, `pick b = if b then f8 else \_ _ _ _ _ _ _ _ -> 0`, `callIt h = h 1 2 3 4 5 6 7 8` (an indirect tail call), print `callIt (pick flag)`; `applyPart h = h 1 2 3 4` (an unknown call with fewer arguments than the arity), print `applyPart f8 5 6 7 8` | `204\n650\n204\n650\n204\n204\n` / 0 |
 | `sums` | `type Shape = Circle Int \| Rect Int Int \| Tri Int Int Int \| Empty \| Dot`; `area`: `Circle r` → `r * r`, `Rect w h` → `w * h`, `Tri a b c` → `a + b + c`, `Empty` → 0, `Dot` → 1; `morph`: `Circle r` → `Rect r r`, `Rect w h` → `Circle (w + h)`, `Tri a b c` → `Tri c b a`, `Empty` → `Dot`, `Dot` → `Empty`; `shapes = [ Circle 1, Rect 2 3, Tri 4 5 6, Empty, Dot, Circle 7 ]`; print `foldl (+) 0 (map area shapes)`, `foldl (+) 0 (map (\x -> area (morph x)) shapes)`, `foldl (+) 0 (map area (map (\n -> Rect n 1) (range 1 10)))`; `type Big = Big Int … Int` (70 `Int` fields, an object above 64 words), `big = Big 1 2 … 70`, print the sum of its fields by one `case` | `72\n91\n55\n2485\n` / 0 |
 | `crossreuse` | `ms = List.map (\x -> Just (3 * x)) (List.range 1 100)` (cells `[hdr][head][tail]` with pointer heads); print `foldl (+) 0 (map (Maybe.withDefault 0) ms)`; then `ys = List.map (\m -> Maybe.withDefault 0 m // 3 + 1) ms` (cells `[hdr][tail][head]` with scalar heads, reusing the `Maybe Int` list's cells), print `foldl (+) 0 ys` | `15150\n5150\n` / 0 |
-| `loop` | `loop n acc = if n == 0 then acc else loop (n - 1) (acc + 1)`; print `loop 100000000 0`; flag `tail_bounded` | `100000000\n` / 0 |
+| `loop` | `loop n acc = if n == 0 then acc else loop (n - 1) (acc + 1)`; print `loop 100000000 0`; flags `tail_bounded`, `skip_stack_move` (10^8 polls would each relocate under `move2`; `tailcycle` and `tloop` cover tail calls under stack moves) | `100000000\n` / 0 |
 | `tailcycle` | `tailcalls`' `keep`, `t7`, `t10`, `t12`; print `t7 3000000 1 2 3 4 5 6`; flag `tail_bounded` | `15000021\n` / 0 |
 | `tloop` | `tloop : Int -> Task Never ()`, `tloop n = if n == 0 then Task.succeed () else Task.succeed () \|> Task.andThen (\_ -> tloop (n - 1))`; `main = tloop 1000000 \|> Task.andThen (\_ -> Stdio.print "ok\n")`; flag `tail_bounded` | `ok\n` / 0 |
 | `tailcalls` | `keep n = if n == 0 then 0 else 1 + keep (n - 1)`; `t7 n a b c d e g = if n == 0 then a+b+c+d+e+g else let k = keep 2 in t10 (n - 1) (a + k) b c d e g 1 2 3`; `t10 n a b c d e g x y z = if n == 0 then a+b+c+d+e+g+x+y+z else let k = keep 2 in t12 (n - 1) a (b + k) c d e g x y z 4 5`; `t12 n a b c d e g x y z p q = if n == 0 then a+…+q else if n - (n // 3) * 3 == 0 then t12 (n - 1) a b (c + 1) d e g x y z p q else let k = keep 2 in t7 (n - 1) (a + p) (b + q) c (d + k) e g`; print `t7 3000 1 2 3 4 5 6` | `15021\n` / 0 |
@@ -1304,7 +1331,8 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   and compares the words.
 - Kernel-use type test (`kernel/table.rs` unit test): for every row, the declaration in
   the embedded `lib/` is inferred and its scheme must equal the row's type; the row's
-  ownership modes must have one entry per parameter.
+  ownership modes must have one entry per parameter (scalar parameters are `borrow`).
+  It runs from CP7, when every row's declaration ships.
 - Jobs equality: every program in `tests/programs/` is compiled with `--emit core-opt` and
   `--emit asm` at `NOMI_JOBS` = 1, 2 and 4; the outputs must be identical.
 - `R/tests/rt/<name>.s` plus `<name>.expected` (three sections `--- stdout`, `--- stderr`,
@@ -1345,8 +1373,8 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 - The I10 test and jobs equality live in `tests/programs.rs` (cases `i10` and `jobs`).
 - `cargo xtask size`: `hello` built at `--opt 2` must be ≤ 16,384 bytes.
 - `nomi_algo::fmt_i64` random values come from SplitMix64 with seed 0x6E6F6D69.
-- E0603 unit tests: `isEven`/`isOdd`, the annotated two-variable group of §4.8, and
-  `f x = f [x]`.
+- E0603 unit tests: `isEven`/`isOdd`, the annotated two-variable group of §4.8 (also with
+  `g` used at `d = String`), and `f x = f [x]`.
 
 ## 8. Performance workloads
 
@@ -1403,7 +1431,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | M1-D22 | One report file writer for `--stats` and `--rc-check` with a fixed key order | one file per hook | one open, deterministic output for tests | OPEN |
 | M1-D23 | `Diagnostic.primary` carries a label | a bare span | every snapshot shows what the caret means (A amendment) | OPEN |
 | M1-D24 | License MIT, with elm/core's BSD-3-Clause notice kept for adopted code | BSD-3-Clause; MIT OR Apache-2.0; copyleft | the user's choice | LOCKED |
-| M1-D25 | Polymorphic recursion check by group substitution (§4.8) | key comparison | accepts mutual recursion; rejects only growing instantiations | OPEN |
+| M1-D25 | Polymorphic recursion check by expanding cycles (§4.8), instances keyed per member | key comparison; one substitution per group | accepts every finite instantiation; guarantees termination | OPEN |
 | M1-D26 | `stack_peak` in the checked report and the `tail_bounded` flag | a 1 GiB overflow as the only signal | a lost tail call is otherwise invisible on growable stacks | OPEN |
 | M1-D27 | Checked `DecSeq` frees through `rt_free`; `rt_free_checked` only for known layouts | an `r10` = 0 walking mode | one walk implementation; A§6.6 unchanged | OPEN |
 | M1-D28 | `Reset`, reuse and drop specialization only for layouts of at most 64 words | an exact-free shim for larger objects | no M1 workload reuses objects above 64 words; no new shim | OPEN |
@@ -1465,7 +1493,8 @@ names, fixity, inference, pattern checks), so CP4 ships `Basics.elm`, `String.el
 `Task.elm` as in §4.13; `lower_core` lowers only definitions reachable from `main`, so
 constructs whose lowering arrives later may appear in unreached library code.
 Acceptance: the three programs pass the four configurations and the stack-move pass;
-the `andthen` allocation check holds.
+the `andthen` allocation check holds; the `nopanic` and `jobs` harness cases run from
+here on.
 
 **CP5 — Integers, functions and control.** Literals, arithmetic intrinsics, `negate`,
 comparison, `if`, `let`, recursion, the calling convention with stack arguments and tail
@@ -1642,3 +1671,13 @@ E0601 test; the `link` entry point, `flags` syntax, `skeleton.expected`; smaller
 (stale references, `deepmap` frame rule, explicit toolchain install, `nomi_sites` size,
 scoreboard number formats, non-associative chains, `nomi-algo` test cfg, `native_only`,
 `--emit` module order, `--symbols` link). Rejected: none.
+
+### Final dry-run 5
+DRY-RUN critic. Changes: the polymorphic-recursion check is the expanding-cycle test with
+instances keyed per member (M1-D25; the group-substitution rule rejected its own
+example); `TaskPayload` kind, `FRhs::Cast` rebinding in status arms, dead-pair drops and
+`LetMultiKernel`; `Closure(NO_LAYOUT)` for type-derived kinds; E0108 by unit test, wrong
+`type` E0109, app/dependency module clash E0107; chunk tails, span nodes and stack-region
+lists; scalar `borrow` modes and the kernel-use test from CP7; `loop` skips `move2`;
+smaller fixes (diagnostic dedup key, naive scratch line, `has_nullary` test, harness
+cases from CP4). Rejected: none.
