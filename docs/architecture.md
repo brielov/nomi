@@ -1404,3 +1404,7 @@ signatures); `nomi_algo::fmt_i64` writes into a fixed 20-byte buffer instead of 
 trait (fixed-size result); E0304 admits only `nomi/*` in M1, since E0103 rejects `elm/*`
 dependencies until M2; `AllocSeq` may target any register, and `IncSeq` adds n with one
 `add`.
+Final dry-run of the M1 plan: the shim list (§6.6) gains `rt_saturate_checked` (checked
+builds; makes a saturated object immortal and settles its site counter); the checked
+report prints the runtime entry's leak line as `leak <runtime> <count>`; `rt_crash` takes
+`(msg: *const u8, len: usize)`.
