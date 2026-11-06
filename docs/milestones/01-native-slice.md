@@ -1519,7 +1519,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | M1-D26 | `stack_peak` in the checked report and the `tail_bounded` flag | a 1 GiB overflow as the only signal | a lost tail call is otherwise invisible on growable stacks | OPEN |
 | M1-D27 | Checked `DecSeq` frees through `rt_free`; `rt_free_checked` only for known layouts | an `r10` = 0 walking mode | one walk implementation; A§6.6 unchanged | OPEN |
 | M1-D28 | `Reset`, reuse and drop specialization only for layouts of at most 64 words | an exact-free shim for larger objects | no M1 workload reuses objects above 64 words; no new shim | OPEN |
-| M1-D29 | `rust-toolchain.toml` pinning 1.99.0 and a Linux-only GitHub Actions job from CP1 | local checks only; pinning only | the previous project's CI went red unnoticed; the user's choice | LOCKED |
+| M1-D29 | `rust-toolchain.toml` pinning 1.99.0 and a Linux-only GitHub Actions job from CP1 | local checks only; pinning only | a red CI must never go unnoticed; the user's choice | LOCKED |
 | M1-D30 | `Basics` exposes only Elm's unqualified names; kernel aliases stay internal | exposing the aliases | an Elm program's `append` after `import List exposing (..)` must not become ambiguous | OPEN |
 
 ## 10. Risks & mitigations
