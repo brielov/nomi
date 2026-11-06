@@ -122,10 +122,20 @@ crates/nomi/build.rs       runtime archive and embedded lib/ (below); includes s
 crates/nomi-algo/          #![no_std], no alloc, no panic handler: pub fn fmt_i64(v: i64, buf: &mut [u8; 20]) -> usize (index of the first byte, the sign included; the text is buf[i..20]); covered by the no-panic rule
 crates/nomi-rt/Cargo.toml  own [workspace]; [lib] crate-type = ["staticlib"]; profiles dev and release: panic = "abort", opt-level = 3, debug-assertions = false; dependency nomi-algo (path)
 crates/xtask/              subcommands scoreboard, size
+rust-toolchain.toml        [toolchain] channel = "1.99.0", components = ["clippy", "rustfmt"]
+.github/workflows/ci.yml   CI (M1-D29): one job on ubuntu-latest (Linux only, D35)
 lib/                       Elm packages (§4.13), present from CP1 (empty until CP4)
 ```
 
 The root `src/main.rs` is deleted.
+
+`ci.yml` runs on every push and pull request: checkout; the toolchain from
+`rust-toolchain.toml` (`rustup show`); `as --version` and `ld --version` printed for the
+log (the runner's binutils is used as is; the tests are the check); `cargo build`;
+`cargo test`; `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test` and
+`cargo clippy -- -D warnings` of `crates/nomi-rt` with `--target-dir target/rt-test`.
+After every push the result is checked; a red run is fixed before the next checkpoint
+starts.
 
 `crates/nomi/build.rs`:
 The environment scrubbing below lives in `crates/nomi/scrub_env.rs` (`pub fn
@@ -1372,6 +1382,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | M1-D26 | `stack_peak` in the checked report and the `tail_bounded` flag | a 1 GiB overflow as the only signal | a lost tail call is otherwise invisible on growable stacks | OPEN |
 | M1-D27 | Checked `DecSeq` frees through `rt_free`; `rt_free_checked` only for known layouts | an `r10` = 0 walking mode | one walk implementation; A§6.6 unchanged | OPEN |
 | M1-D28 | `Reset`, reuse and drop specialization only for layouts of at most 64 words | an exact-free shim for larger objects | no M1 workload reuses objects above 64 words; no new shim | OPEN |
+| M1-D29 | `rust-toolchain.toml` pinning 1.99.0 and a Linux-only GitHub Actions job from CP1 | local checks only; pinning only | the previous project's CI went red unnoticed; the user's choice | LOCKED |
 
 ## 10. Risks & mitigations
 
@@ -1397,9 +1408,11 @@ for ported code that later checkpoints use; CP10 removes it. Every checkpoint en
 (CLI skeleton with `--help`), the ported foundation files, `crates/nomi-algo` with
 `fmt_i64` and its tests, `crates/nomi-rt` skeleton (`lib.rs`, `sys.rs`, `mem.rs`, a
 `_start` that writes `nomi-rt\n` and exits 0), `crates/xtask` skeleton,
-`crates/nomi/tests/archive.rs`, `docs/diagnostics.md`, empty `lib/`. Acceptance: `nomi
+`crates/nomi/tests/archive.rs`, `docs/diagnostics.md`, empty `lib/`, `rust-toolchain.toml`,
+`.github/workflows/ci.yml`. Acceptance: `nomi
 --help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`, with the empty `tests/rt/skeleton.s`) links the skeleton archive per §4.11 and the output
-prints `nomi-rt` and exits 0; the archive test passes; clippy passes.
+prints `nomi-rt` and exits 0; the archive test passes; clippy passes; once the GitHub
+remote exists, the CI run of the pushed commit is green.
 
 **CP2 — Runtime boot and fibers.** `nomi-rt/src/{start,tcb,stack,io,crash}.rs`; the
 `skeleton` case and `tests/rt/skeleton.s` are deleted (the real `_start` needs `w_main`). Tests: the
@@ -1589,3 +1602,5 @@ in `ast/`; `Neg` typing and lowering; `SiteTable` through `LirConfig` and
 `move2` and `nopanic` configurations; `str_object` with rc and A§6.1's prefix order;
 dead-code allowance until CP10; smaller fixes. Rejected: none. This was the last of the
 three dry-run passes; see `docs/plan-questions.md`.
+User answers after dry-run 3: run one more dry-run pass; CI and toolchain pinning in CP1
+(M1-D29, LOCKED).
