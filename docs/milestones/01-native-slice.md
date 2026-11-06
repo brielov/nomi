@@ -63,7 +63,8 @@ Expected stdout `4194260\n15000150000\n`, exit status 0.
 **Builds** (A§14 M1): workspace and D24 build; project loading with the embedded `lib/`;
 syntax, names, types, patterns for the subset of §4.3; Core with monomorphization,
 direct-style `Task` and allocation sites; Flat with closure conversion, Perceus, borrow
-inference and reuse for constructors, lists and closures; LIR; the x86 backend with the
+inference and reuse for constructors and lists (closure reuse arrives with M4's
+optimizer work); LIR; the x86 backend with the
 M1 calling convention, stack checks, polls, the kernel, shim and inline sequences and the
 machine-IR verifier; `nomi-rt` (§4.12); `nomi_config`, `nomi_globals`, `nomi_sites`
 (`nomi_hash_seed` arrives with its first reader in M4); the M1 modules of A§5.11a; both `String` layouts and the leaf kernels
@@ -128,7 +129,8 @@ The root `src/main.rs` is deleted.
 
 `crates/nomi/build.rs`:
 The environment scrubbing below lives in `crates/nomi/scrub_env.rs` (`pub fn
-scrub(cmd: &mut std::process::Command)`), included by `build.rs` and by
+scrub(cmd: &mut std::process::Command)` and `pub const BUILD_ARGS: &[&str]`, the cargo
+arguments below), included by `build.rs` and by
 `tests/archive.rs` through `#[path]`, so both builds see the same environment. The
 generated files are included by `crates/nomi/src/embedded.rs` as `nomi::embedded::{RT_ARCHIVE,
 RT_HASH, LIB}`.
@@ -253,8 +255,8 @@ Port `src/syntax/{mod,kind,lexer,parser,cst}.rs`; changes:
   outside its core packages, verified with the oracle).
 - **Unary minus** (Elm's rule): a `-` immediately followed by an expression-start token
   (no whitespace) and preceded by whitespace, `(`, `,`, `[`, an operator or the start of
-  the line is negation of the following atom (`-f x` is `(negate f) x`, Elm 0.19); it
-  lowers to the intrinsic `Basics.negate`.
+  the line is negation of the following atom (`-f x` is `(negate f) x`, Elm 0.19), the AST's
+  `Neg` (§4.5).
 - **CST**: the POC's preorder struct of arrays without `parent`. Binary operators are kept
   as flat operand/operator chains; `ast/` re-associates them by fixity (§4.4), so the
   parser needs no fixities (amendment of A§5.2's Pratt wording, recorded in A).
@@ -271,7 +273,7 @@ Port `src/syntax/{mod,kind,lexer,parser,cst}.rs`; changes:
   - module header `module M exposing (…)`; `port module` and `effect module` headers are
     E0205;
   - imports with `as` and `exposing (…)`;
-  - `type T a … = C1 t… | C2 t…`; `type alias A a = t` (expanded by `types/`);
+  - `type T a … = C1 t… | C2 t…`; `type alias A a = t` (expanded by `ast/`);
   - type expressions: `type := btype ("->" type)?`, `btype := UpperName atype* | atype`,
     `atype := lowerName | UpperName | "(" ")" | "(" type ")"`;
   - annotations `name : type`; declarations `name pat* = expr`; `infix left|right|non N
@@ -291,7 +293,10 @@ Port `src/syntax/{mod,kind,lexer,parser,cst}.rs`; changes:
 
 Port `src/ast/{mod,lower,dump}.rs` (not `eval.rs`):
 - `pub struct Asts { pub modules: Vec<ModuleAst>, pub expr_base: Vec<u32>, pub pat_base:
-  Vec<u32>, pub binder_base: Vec<u32>, pub def_base: Vec<u32> }`; per-module arenas with
+  Vec<u32>, pub binder_base: Vec<u32>, pub def_base: Vec<u32>, pub type_base: Vec<u32>,
+  pub ctor_base: Vec<u32> /*by TypeId*/, pub type_arity: Vec<u16> /*by TypeId*/, pub
+  ctor_type: Vec<TypeId>, pub ctor_arity: Vec<u16> /*by CtorId*/, pub kernel_refs:
+  Vec<(Symbol, Symbol)>, pub alias_kernel: Vec<Option<KernelId>> /*by DefId*/ }`; per-module arenas with
   local ids; global `ExprId`, `PatId`, `BinderId`, `DefId` (all `u32`) = base + local
   (A§6.15). The interner lives in `Project`. `DefId`s number top-level values only (so a
   module's `DefId` slice is its interface); `let`-bound names, lambda parameters and
@@ -314,8 +319,12 @@ Port `src/ast/{mod,lower,dump}.rs` (not `eval.rs`):
   `strs: Vec<Box<[u8]>>`, `expr_list`, `pat_list`, `arms`, `groups`, `group_bindings`,
   `binders`, `defs: Vec<DefInfo>`, `fixities: Vec<(Symbol, Assoc, u8, DefId)>` (the
   module's `infix` declarations, consulted by importers), `type_exprs`, `type_decls` (parameters and
-  constructors with field `TypeExprId`s), `aliases`, and `top_groups: Vec<GroupId>`
-  (top-level binding groups in dependency order, each a `Group` over `DefId`s).
+  constructors with field `TypeExprId`s), `aliases`, `top_groups: Vec<TopGroup>` with
+  `TopGroup { is_rec: bool, defs: IdRange /*into top_group_defs: Vec<DefId>*/ }`
+  (top-level binding groups in dependency order), and `top_group_defs`. Type aliases are
+  expanded by `ast/` during resolution (a `TypeExpr` naming an alias becomes its body
+  with the arguments substituted); aliases take no `TypeId`, and `type_base[m] + local`
+  counts `type` declarations only.
   A re-associated operator becomes `App { func: Ref(<its definition>), args: [lhs, rhs]
   }`; an operator section `(+)` is `Ref`; `[]` and `p :: q` patterns are `Ctor` 3 and 4;
   `True`/`False` are `Ctor` 1/0; a `let` with several binding groups nests one `Let` per
@@ -330,7 +339,13 @@ Port `src/ast/{mod,lower,dump}.rs` (not `eval.rs`):
   `nomi/*`, E0306 name not exposed by its module, E0310 `Main` has no `main`, E0307 type
   constructor arity, E0308 unbound type variable in a `type`/`type alias` declaration,
   E0309 cyclic value, E0311 annotation without a definition, E0312 a module header
-  exposing a name it does not define.
+  exposing a name it does not define, E0313 `infix` outside `nomi/*`, E0314 ambiguous
+  name.
+- Precedence of unqualified names: local bindings, then the module's own top-level
+  definitions, then imported names (prelude included). The same entity reached through
+  several imports is one name (`Task` from the prelude and from `import Task exposing
+  (Task)`); different entities under one unqualified name are E0314 (`<name> is
+  ambiguous: <M1>.<name> or <M2>.<name>`) only where the name is used.
 - Cyclic values (Elm's rule, checked against the oracle): inside `let`, a member of a
   recursive group that is defined without arguments is E0309, even when its body is a
   lambda; at top level, a member of a recursive group defined without arguments whose
@@ -368,7 +383,8 @@ Port `src/types/{mod,infer,unify}.rs`; changes:
   checks membership: `Number` ∈ {Int}; `Comparable` ∈ {Int, String, List c, tuples of
   comparables}; `Appendable` ∈ {String, List a}; `CompAppend` ∈ {String, List c}.
 - Annotations: an annotation is instantiated with rigid variables (`Var` with bit 7 of
-  `constraint` set; their names in `rigid_names: Vec<(TyId, Symbol)>` for printing);
+  `constraint` set; the field is a raw `u8` with accessors for the `Constraint` in bits
+  0–2 and the rigid bit; their names in `rigid_names: Vec<(TyId, Symbol)>` for printing);
   names starting with `number`, `comparable`, `appendable`, `compappend` give
   constrained rigid variables. A type variable name already bound by an enclosing
   annotation refers to that rigid variable (Elm scopes them lexically: `f : a -> a; f x =
@@ -381,6 +397,8 @@ Port `src/types/{mod,infer,unify}.rs`; changes:
   is E0404 (`the annotation says <annotation>, but the definition is only <inferred>`);
   otherwise mismatches are E0401 and constraint failures E0402. `f : a -> a; f x = x + 1`
   is E0404.
+- `Neg e`: `infer` unifies `e`'s type with a fresh `Number` variable, which is the result
+  type; `lower_core` lowers it at `Int` to `Bin Sub 0 x` with no `Basics.negate` lookup.
 - Kernel references: a fresh variable, constrained by the annotation (A§7.3). An alias
   definition (`add = Elm.Kernel.Basics.add`, §4.7) is an ordinary `Ref::Def` for `ast/`
   and `infer`, which use its annotated scheme; only `lower_core` resolves an alias
@@ -579,8 +597,8 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   `Free` and `MkClosure` name a `LayoutId` like constructors; `info` is a `.rodata` object `[hdr rc 0 size 4 scan 0 tag 251][entry][arity]
   [fast]`; `entry` replaces the POC's `entry1` with the A§6.6 convention. A partial
   application is a closure capturing the applied closure and the arguments so far (the
-  POC's curry stubs). For a closure whose arity is above 1 or whose result is not a
-  `TaskOut`, `entry` is the one-argument apply stub (the POC's `entry1`) returning in
+  POC's curry stubs). A task closure (arity 1, `TaskOut` result) has `entry` = `fast`. For any other closure,
+  `entry` is the one-argument apply stub (the POC's `entry1`) returning in
   `rax`. Unknown calls (`FExpr::Apply`/`TailApply`) lose the POC's 1..=5 bound
   (`flat/mod.rs:78`, `flat/lint.rs:151,319`); `apply_fns` (`flat/lower.rs:1312`,
   `lir/lower.rs:765`) becomes a `Vec` grown to the largest k used.
@@ -612,10 +630,12 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   the POC's rule 3 (`flat/borrow.rs:151-163`): an owned variable passed to a parameter in
   a tail call makes that parameter owned, so no `Dec` follows a tail call; `TailApply`
   consumes its closure and arguments.
-- **Reuse** (`reuse.rs`): tokens from `Reset` of any constructor or closure layout may
-  serve any allocation of the same `words`; the token's kind is `Token(words)`, and
+- **Reuse** (`reuse.rs`): tokens from `Reset` of any constructor or list layout (a
+  `Reset` follows a `case` that destructures the object; closures are never reset in M1)
+  may serve any allocation of the same `words`, a closure allocation included; the token's kind is `Token(words)`, and
   `Reuse` writes the new header and fields.
-- **Reuse report**: `reuse.rs` records an outcome per allocation into `outcomes: Vec<u8>`
+- **Reuse report**: `reuse.rs` records an outcome per allocation into
+  `flat::Program.reuse_outcomes: Vec<u8>`
   indexed by site (0 none yet, 1 hit, 2 `size`, 3 `live-after`, 4 `no-candidate`); a new
   outcome merges by keeping the larger code except that 1 never overrides a miss.
   Reasons: `size` — a `Reset` token was available in the function but none of the
@@ -625,7 +645,8 @@ O1 `reuse`, `borrow`, `rc`, `rcopt`; O2 `simplify`, then `reuse`, `borrow`, `rc`
   allocate on their own). `--report reuse` writes
   `<output>.reuse`, one line per site, `reuse <path>:<line>:<col> hit` or
   `reuse <path>:<line>:<col> miss <reason>`, sorted by (path, line, col, site id), paths
-  project-relative or `nomi:lib/…`.
+  project-relative or `nomi:lib/…`; the driver writes the file from `reuse_outcomes` and
+  the `SourceMap`.
 - **w_init and w_main**: `lower_flat` synthesizes `w_init` (the POC's `FuncKind::Init`)
   and `w_main` (`FuncKind::Main`); `FuncKind::PrintMain`, `FuncKind::Release` and
   `FExpr::PrintInt`/`PrintStr` are removed. `w_main` calls, in order:
@@ -648,10 +669,11 @@ Port `src/lir/{mod,lower,verify,cfg,dce,compact,dom,pretty,opt}.rs`; `basecall`,
 - `lir::Func` gains `value_flags: Vec<u8>` indexed by `Value` (bit 0 may be a heap
   pointer, bit 1 may be an immediate), filled by `lower_lir` from each `FVar`'s kind and
   renumbered by `compact` and `dce` with `values`.
-- `lir::Program` carries `sites: Vec<(u32 /*file index*/, u32 /*start*/, u32 /*end*/)>`
-  (byte offsets of the `TextRange`, A§6.13) and `site_files: Vec<String>`
-  (project-relative paths or `nomi:lib/…`, in order of first use) so emission needs no
-  `SourceMap`. Core and Flat use `RUNTIME_SITE = u32::MAX − 1` for the runtime entry
+- The driver converts `Program.sites` with the `SourceMap` into `SiteTable { sites:
+  Vec<(u32 /*file index*/, u32 /*start*/, u32 /*end*/)>, files: Vec<String> }` (byte
+  offsets of the `TextRange`, A§6.13; project-relative paths or `nomi:lib/…`, in order of
+  first use) and passes it in `LirConfig.sites`; `lower_lir` stores it in `lir::Program`
+  so emission needs no `SourceMap`. Core and Flat use `RUNTIME_SITE = u32::MAX − 1` for the runtime entry
   (helpers, curry stubs, `w_main`'s runtime calls); emission replaces it by
   `nomi_sites.count`. The checked report prints the runtime entry's leak line as `leak
   <runtime> <count>`.
@@ -659,7 +681,9 @@ Port `src/lir/{mod,lower,verify,cfg,dce,compact,dom,pretty,opt}.rs`; `basecall`,
   u32, hdr_idx: u32 /*64-bit header in imms*/ }`; `Load8 { dst, base, offset: i32 }`;
 `RcInc { v, n, imm_guard: bool }`,
   `RcDec { v, imm_guard: bool }`; `FreeMem { v, words }` (children already decremented,
-  words ≤ 64); calls carry a result count (1 or 2) and gain `CalleeKind::Kernel` with the kernel symbol in `Callee.id` and a
+  words ≤ 64); calls carry a result count (1 or 2) and gain `CalleeKind::Kernel` with `Callee.id`
+  indexing `lir::Program.kernel_syms: Vec<&'static str>` (the `k_*` rows used and the
+  four `rt_*` entry points) and a
   `site` in `CallData`.
 - `RtFn`: `AllocSlow` and `Free` kept; `AllocChecked`, `FreeChecked`, `RcSlowInc`,
   `RcSlowDec`, `SaturateChecked` added; `PrintInt`, `PrintStr`, `Flush`, `AllocLarge`, `FreeLarge`,
@@ -667,8 +691,9 @@ Port `src/lir/{mod,lower,verify,cfg,dce,compact,dom,pretty,opt}.rs`; `basecall`,
 - **Case on a `Sum`**: (1) `Bin And v, 1`; branch; (2) immediate side: one nullary
   constructor → its arm, else `Switch` on `v >> 1`; (3) pointer side: one boxed
   constructor → its arm, else `Load8 [v + 7]` and `Switch`.
-- Field access `Load [v + 8·(1 + phys)]`; string literals `StrAddr` of a `.rodata` string
-  object; `TaskPair` returns are two-value `Return`.
+- Field access `Load [v + 8·(1 + phys)]`; string literals `StrAddr { dst, str: u32 }` indexing
+  `lir::Program.strs: Vec<Box<[u8]>>` (each a `.rodata` string object); `RawAddr { dst,
+  sym: u32 }` indexes `lir::Program.msgs: Vec<Box<[u8]>>`, emitted as `nomi_msg_<k>`; `TaskPair` returns are two-value `Return`.
 - Verifier: port `verify.rs`, plus: `Alloc` header `size` equals `words`, and the header
   store of a reuse equals the layout's `words`; `imm_guard` set exactly when the value's
   `value_flags` has both bits; kernel calls name a symbol of the §4.7 Rust-symbol set.
@@ -760,17 +785,20 @@ caller-saved registers plus `r10`, `r11`, flags; `StackCheck`, `Poll` {r11, flag
 - Unknown calls with k arguments go through the POC's `apply_k` helpers
   (`lir/lower.rs:673-761`), generated for every k used: `apply_k(closure, a1..ak)` loads
   `info` and its `arity`; arity = k → tail-call `fast` (closure in `rdi`, arguments after
-  it, stack arguments per the convention); arity > k → allocate a partial application
-  closure; arity < k → call `fast` with the first `arity` arguments, then tail-call
-  `apply_{k−arity}` on the result. There is no argument limit: `apply_k` with k > 5 (the
+  it, stack arguments per the convention); otherwise (the POC's scheme,
+  `lir/lower.rs:671-761`) call `entry` with `a1` (the closure's typed one-argument stub,
+  which builds a correctly laid-out partial application when the arity is above 1) and,
+  for k > 1, tail-call `apply_{k−1}` on the result with `a2..ak`. The helpers never
+  allocate. There is no argument limit: `apply_k` with k > 5 (the
   closure takes `rdi`) receives arguments 6.. on the stack per the convention and passes
-  them on with the tail-call copy. Allocations inside the helpers and curry stubs use
+  them on with the tail-call copy. Allocations inside the curry stubs use
   `RUNTIME_SITE`. Inside the helpers the
   indirect call is `mov r11, [rdi + 8]; call [r11 + 24]` (or `jmp` for tail calls).
 
 Every static object (strings, closure `info`, static closures) is emitted with
 `.p2align 3`. A static object above 4094 words (a string literal of more than 32,728
-bytes) is emitted large: its two prefix words (`scan`, `size`) precede the symbol, which
+bytes) is emitted large: its two prefix words precede the symbol, `size` at `p − 16` then `scan` at `p − 8`
+  (A§6.1), which
 labels the header (`rc 0`, `size 0`). String literal words come from
 `x86::emit::str_literal_words(bytes: &[u8]) -> Vec<u64>`, which the emitter prints as
 `.quad`s. `Sym::ExtraArgs` (`x86/mod.rs:353`, `emit.rs:39`, the callee side at
@@ -983,8 +1011,9 @@ Sources (each kernel-using module starts with `import Elm.Kernel.<M>`; `String.e
 kernel-reference definition carries an annotation: Elm's (elm/core 1.0.5) where Elm has
 one, and `cons : a -> List a -> List a`, `and : Bool -> Bool -> Bool`, `or : Bool -> Bool
 -> Bool`, `String.eq : String -> String -> Bool`, `String.compare : String -> String ->
-Int`. Bodies of `foldl`, `reverse`, `append`, `Maybe.withDefault`, `Maybe.map`,
-`identity`, `always`, `not`, `apL`, `apR`, `composeL`, `composeR` are copied from elm/core
+Int`. `not b = if b then False else True` is Elm (elm/core's is a kernel reference). Bodies of
+`foldl`, `reverse`, `append`, `Maybe.withDefault`, `Maybe.map`, `identity`, `always`,
+`apL`, `apR`, `composeL`, `composeR` are copied from elm/core
 1.0.5 (`foldl` without its unrolling). Headers:
 `module Basics exposing (Int, Bool(..), Never, add, sub, mul, idiv, negate, eq, neq, lt,
 le, gt, ge, append, and, or, not, identity, always, apL, apR, composeL, composeR, (+), (-),
@@ -1031,7 +1060,7 @@ mapError, onError)`; `module Stdio exposing (print)`.
   (no errors) or 1.
 - `nomi build [DIR] [-o PATH] [FLAGS]`: output `DIR/build/<directory name>` by default;
   `--emit tokens|cst|ast|types|core|core-opt|flat|flat-rc|lir|lir-opt|asm` prints that
-  stage to stdout and does not link; `--report reuse` writes `<output>.reuse`.
+  stage to stdout (the POC's dump formats) and does not link; `--report reuse` writes `<output>.reuse`.
 - `nomi run [DIR] [FLAGS] [-- ARGS…]`: `build`, then executes the output with inherited
   stdio; exit status is the program's, or 128 + n when it was killed by signal n.
 - `nomi interp`: usage error `error: nomi interp is available from M3` (exit 2).
@@ -1092,6 +1121,7 @@ Templates (`<x>` are fills):
 | E0311 | `<name> has a type annotation but no definition` |
 | E0312 | `module <M> exposes <name>, which it does not define` |
 | E0313 | `infix declarations are only allowed in nomi packages` |
+| E0314 | `<name> is ambiguous: <M1>.<name> or <M2>.<name>` |
 | E0401 | `expected <t1>, found <t2>` |
 | E0402 | `<t> is not <class>` (`a number`, `comparable`, `appendable`, `comparable and appendable`) |
 | E0403 | `this would need the infinite type <t>` |
@@ -1104,14 +1134,14 @@ Templates (`<x>` are fills):
 | E0603 | `<name> is used at a growing type (<t>); polymorphic recursion is not supported by nomi build` |
 | E0701 | `<ctor> has <n> fields; at most 4094 are supported` |
 | E0703 | `<type> has <n> constructors; at most 248 are supported` |
-| E0901 | `cannot run <tool>: <os error>` |
+| E0901 | `cannot run <tool>: <os error>` (`<tool>` is the configured path) |
 | E0902 | `<tool> failed with status <n>` (notes: up to 20 stderr lines) |
 | E0903 | `cannot write <path>: <os error>` |
 
 E0601 is tested by a unit test of `lower_core` (no shipped kernel lacks a row). E0103 also
 applies to `nomi check` in M1; M2 lifts it for the parity harness. E0901 and E0902 are
 provoked with `NOMI_AS`, E0903 with `-o` under a regular file, E0111 with a directory
-named `Main.elm` in the source directory (`EISDIR`).
+named `Main.elm` in the source directory (`EISDIR`; it holds a `.keep` file for git).
 
 ## 5. Data layout
 
@@ -1171,7 +1201,8 @@ directory under `tests/programs/` that contains `elm.json`, named by its relativ
   `live 0`, and for programs with the flag `tail_bounded` it must say `stack_peak N` with
   N ≤ 65,536; programs run on `available_parallelism` threads, except `deep7`, which runs
   alone;
-- then one `--stack-move` pass at `--opt 2 --rc-check --stack-initial 256` for programs
+- then the configuration `move2` (`--opt 2 --rc-check --stack-initial 256 --stack-move`)
+  for programs
   without the flag `skip_stack_move`;
 - flags (A§9.3): `native_only`, `skip_naive` (not built with `naive0`),
   `skip_stack_move`, `tail_bounded`.
@@ -1198,7 +1229,7 @@ from §1, and programs that use `b2s` define `b2s : Bool -> String` as `b2s b = 
 | `deep` | `count n = if n == 0 then 0 else 1 + count (n - 1)`; print `count 1000000` | `1000000\n` / 0 |
 | `deep7` | the same with `count 10000000`; flags `native_only`, `skip_naive`, `skip_stack_move` | `10000000\n` / 0 |
 | `bigdrop` | print `(let xs = List.range 1 1000000 in case xs of [] -> "empty"; x :: _ -> String.fromInt x) ++ "\n"` (the head is read, the whole list is then dropped by one `Dec` whose `rt_free` walks 10^6 cells), then `(let t = build 20 in String.fromInt (sumTree t)) ++ "\n"` (`t` borrowed by `sumTree`, then dropped whole); flag `skip_stack_move` | `1\n2097130\n` / 0 |
-| `args` | `f8` with 8 parameters returning `Σ k·aₖ`, `f12` with 12; print `f8 1 2 3 4 5 6 7 8` and `f12 1 … 12`; `f8 a1 a2 a3 a4 a5 a6 a7 a8` and `f12 a1 … a12` name their parameters so; `apply8 h b1 b2 b3 b4 b5 b6 b7 b8 = h b1 b2 b3 b4 b5 b6 b7 b8` (an unknown call through `apply_8`), print `apply8 f8 1 2 3 4 5 6 7 8`; `partial12 = f12 1 2 3 4 5` at top level (a partial application), print `partial12 6 7 8 9 10 11 12`; `flag = True` at top level, `pick b = if b then f8 else \_ _ _ _ _ _ _ _ -> 0`, `callIt h = h 1 2 3 4 5 6 7 8` (an indirect tail call), print `callIt (pick flag)` | `204\n650\n204\n650\n204\n` / 0 |
+| `args` | `f8` with 8 parameters returning `Σ k·aₖ`, `f12` with 12; print `f8 1 2 3 4 5 6 7 8` and `f12 1 … 12`; `f8 a1 a2 a3 a4 a5 a6 a7 a8` and `f12 a1 … a12` name their parameters so; `apply8 h b1 b2 b3 b4 b5 b6 b7 b8 = h b1 b2 b3 b4 b5 b6 b7 b8` (an unknown call through `apply_8`), print `apply8 f8 1 2 3 4 5 6 7 8`; `partial12 = f12 1 2 3 4 5` at top level (a partial application), print `partial12 6 7 8 9 10 11 12`; `flag = True` at top level, `pick b = if b then f8 else \_ _ _ _ _ _ _ _ -> 0`, `callIt h = h 1 2 3 4 5 6 7 8` (an indirect tail call), print `callIt (pick flag)`; `applyPart h = h 1 2 3 4` (an unknown call with fewer arguments than the arity), print `applyPart f8 5 6 7 8` | `204\n650\n204\n650\n204\n204\n` / 0 |
 | `sums` | `type Shape = Circle Int \| Rect Int Int \| Tri Int Int Int \| Empty \| Dot`; `area`: `Circle r` → `r * r`, `Rect w h` → `w * h`, `Tri a b c` → `a + b + c`, `Empty` → 0, `Dot` → 1; `morph`: `Circle r` → `Rect r r`, `Rect w h` → `Circle (w + h)`, `Tri a b c` → `Tri c b a`, `Empty` → `Dot`, `Dot` → `Empty`; `shapes = [ Circle 1, Rect 2 3, Tri 4 5 6, Empty, Dot, Circle 7 ]`; print `foldl (+) 0 (map area shapes)`, `foldl (+) 0 (map (\x -> area (morph x)) shapes)`, `foldl (+) 0 (map area (map (\n -> Rect n 1) (range 1 10)))`; `type Big = Big Int … Int` (70 `Int` fields, an object above 64 words), `big = Big 1 2 … 70`, print the sum of its fields by one `case` | `72\n91\n55\n2485\n` / 0 |
 | `crossreuse` | `ms = List.map (\x -> Just (3 * x)) (List.range 1 100)` (cells `[hdr][head][tail]` with pointer heads); print `foldl (+) 0 (map (Maybe.withDefault 0) ms)`; then `ys = List.map (\m -> Maybe.withDefault 0 m // 3 + 1) ms` (cells `[hdr][tail][head]` with scalar heads, reusing the `Maybe Int` list's cells), print `foldl (+) 0 ys` | `15150\n5150\n` / 0 |
 | `loop` | `loop n acc = if n == 0 then acc else loop (n - 1) (acc + 1)`; print `loop 100000000 0`; flag `tail_bounded` | `100000000\n` / 0 |
@@ -1234,8 +1265,9 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   32,720 (4,093 words), 32,728 (4,094 words, the last mid-size object), 32,736 (large)
   and 100,000, builds the value through `x86::emit::str_literal_words` and through
   `layout.rs` (`pub const STR_TAG: u8 = 250`; `pub fn str_words(capacity: u32) -> u32`;
-  `pub fn str_object(bytes: &[u8], out: &mut [u64]) -> usize`, words written, the large
-  prefix words first; the layout is the large-capacity one, `scan` 1, when capacity ≥ 256)
+  `pub fn str_object(bytes: &[u8], rc: i32, out: &mut [u64]) -> usize`, words written,
+  capacity = byte length rounded up to words, the large prefix words first (`size`, then
+  `scan`); the test passes rc 0; the layout is the large-capacity one, `scan` 1, when capacity ≥ 256)
   and compares the words.
 - Kernel-use type test (`kernel/table.rs` unit test): for every row, the declaration in
   the embedded `lib/` is inferred and its scheme must equal the row's type; the row's
@@ -1275,8 +1307,9 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   equality below covers it.
 - `cargo test` of the runtime: `cargo test --manifest-path crates/nomi-rt/Cargo.toml
   --target-dir R/target/rt-test`, and clippy on it with the same `--target-dir`.
-- No-panic test: `hello` linked with `--symbols` contains no symbol whose demangled name
-  starts with `core::fmt` or `core::panicking`.
+- No-panic test: the configuration `nopanic` in `tests/programs.rs` rebuilds every program
+  in `prod` and `irc2` with `--symbols` and runs `nm -C` on it (§4.12).
+- The I10 test and jobs equality live in `tests/programs.rs` (cases `i10` and `jobs`).
 - `cargo xtask size`: `hello` built at `--opt 2` must be ≤ 16,384 bytes.
 - `nomi_algo::fmt_i64` random values come from SplitMix64 with seed 0x6E6F6D69.
 - E0603 unit tests: `isEven`/`isOdd`, the annotated two-variable group of §4.8, and
@@ -1288,7 +1321,7 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   (build 20))`) and `bench/slice/lists/` (`foldl (+) 0 (map (\x -> x * 3) (range 1
   100000))`, repeated 100 times by `rep : Int -> Int -> Int`, `rep n acc = if n == 0 then
   acc else rep (n - 1) (acc + List.foldl (+) 0 (List.map (\x -> x * 3) (List.range 1
-  100000)))`, printing `rep 100 0`), with C references `bench/slice/{tree,lists}.c` that build
+  100000)))`, printing `rep 100 0`), with C references `bench/slice/{tree,lists,deepmap}.c` that build
   the same structures with `malloc`, compute the same values and `free` them
   (`gcc -O2 -static`).
 - **Scoreboard** (`cargo xtask scoreboard`): builds `target/release/nomi` first, then for
@@ -1299,9 +1332,11 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
   the RSS columns are `ru_maxrss` of the child (`wait4`) in the median run;
   `compile_ms` the median of 3 `nomi build --opt 2`.
 - **Deep map** (`bench/slice/deepmap/`): `List.foldl (+) 0 (List.map (\x -> x + 1)
-  (List.range 1 10000000))`, recorded on the scoreboard with time inside `rt_morestack`
-  (from `perf record` on a `--symbols` build) in `docs/perf-log.md`; it is the input to M1-D10's M4 decision
-  rule.
+  (List.range 1 10000000))`, with `deepmap.c` as its C reference; `cargo xtask scoreboard`
+  also runs `perf record` and `perf report --sort symbol` on a `--symbols` build and
+  appends `| date | commit | slice/deepmap | rt_morestack_pct |` to `docs/perf-log.md`; it
+  is the input to M1-D10's M4 decision rule. Workload names are `slice/tree`,
+  `slice/lists`, `slice/deepmap`.
 - Budgets: lexing and parsing O(n); new Flat and LIR passes linear; `rt_free` O(objects
   freed).
 
@@ -1332,11 +1367,11 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 | M1-D21 | No panicking operations in `nomi-rt`, checked by a symbol test | `#[cold]` panic paths | panic machinery costs about 8 KB of the 16 KiB budget (measured) | OPEN |
 | M1-D22 | One report file writer for `--stats` and `--rc-check` with a fixed key order | one file per hook | one open, deterministic output for tests | OPEN |
 | M1-D23 | `Diagnostic.primary` carries a label | a bare span | every snapshot shows what the caret means (A amendment) | OPEN |
+| M1-D24 | License MIT, with elm/core's BSD-3-Clause notice kept for adopted code | BSD-3-Clause; MIT OR Apache-2.0; copyleft | the user's choice | LOCKED |
 | M1-D25 | Polymorphic recursion check by group substitution (§4.8) | key comparison | accepts mutual recursion; rejects only growing instantiations | OPEN |
 | M1-D26 | `stack_peak` in the checked report and the `tail_bounded` flag | a 1 GiB overflow as the only signal | a lost tail call is otherwise invisible on growable stacks | OPEN |
 | M1-D27 | Checked `DecSeq` frees through `rt_free`; `rt_free_checked` only for known layouts | an `r10` = 0 walking mode | one walk implementation; A§6.6 unchanged | OPEN |
 | M1-D28 | `Reset`, reuse and drop specialization only for layouts of at most 64 words | an exact-free shim for larger objects | no M1 workload reuses objects above 64 words; no new shim | OPEN |
-| M1-D24 | License MIT, with elm/core's BSD-3-Clause notice kept for adopted code | BSD-3-Clause; MIT OR Apache-2.0; copyleft | the user's choice | LOCKED |
 
 ## 10. Risks & mitigations
 
@@ -1353,7 +1388,8 @@ checked at `--opt 2` only; `--opt 0` and `--opt 1` must produce the same output.
 
 ## 11. Checkpoints
 
-Every checkpoint ends with `cargo build`, `cargo test`, `cargo clippy --workspace
+Until CP10, `crates/nomi/src/lib.rs` carries `#![cfg_attr(not(test), allow(dead_code))]`
+for ported code that later checkpoints use; CP10 removes it. Every checkpoint ends with `cargo build`, `cargo test`, `cargo clippy --workspace
 --all-targets -- -D warnings`, and `cargo test` and `cargo clippy -- -D warnings` of
 `crates/nomi-rt` with `--target-dir R/target/rt-test` green.
 
@@ -1362,10 +1398,11 @@ Every checkpoint ends with `cargo build`, `cargo test`, `cargo clippy --workspac
 `fmt_i64` and its tests, `crates/nomi-rt` skeleton (`lib.rs`, `sys.rs`, `mem.rs`, a
 `_start` that writes `nomi-rt\n` and exits 0), `crates/xtask` skeleton,
 `crates/nomi/tests/archive.rs`, `docs/diagnostics.md`, empty `lib/`. Acceptance: `nomi
---help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`) links the skeleton archive per §4.11 and the output
+--help` prints the synopsis; `crates/nomi/tests/rt.rs` (case `skeleton`, with the empty `tests/rt/skeleton.s`) links the skeleton archive per §4.11 and the output
 prints `nomi-rt` and exits 0; the archive test passes; clippy passes.
 
-**CP2 — Runtime boot and fibers.** `nomi-rt/src/{start,tcb,stack,io,crash}.rs`. Tests: the
+**CP2 — Runtime boot and fibers.** `nomi-rt/src/{start,tcb,stack,io,crash}.rs`; the
+`skeleton` case and `tests/rt/skeleton.s` are deleted (the real `_start` needs `w_main`). Tests: the
 CP2 assembly programs of §7.
 
 **CP3 — Allocator, RC and checking.** `nomi-rt/src/{shims,heap,check,stats,globals}.rs`.
@@ -1541,3 +1578,14 @@ patterns rejected and `infix` outside `nomi/*` as E0313 (both verified with the 
 checked-report stderr only on failure; smaller fixes (fixity table, bodies from elm/core
 1.0.5, `fx_hash_bytes`, scoreboard formats, `Severity`, append cap, CP1 test file).
 Rejected: none.
+
+### Final dry-run 3
+DRY-RUN critic. Changes: `apply_k` follows the POC (typed `entry` for arity ≠ k, no
+allocation in helpers) with a new under-saturated line in `args`; `not` written in Elm;
+name precedence and E0314; `Asts` type/constructor tables, `TopGroup`, aliases expanded
+in `ast/`; `Neg` typing and lowering; `SiteTable` through `LirConfig` and
+`reuse_outcomes`; LIR symbol, string and message tables; closures removed from M1 reuse;
+`deepmap.c`, the perf-log row and workload names; CP2 deletes the skeleton case; the
+`move2` and `nopanic` configurations; `str_object` with rc and A§6.1's prefix order;
+dead-code allowance until CP10; smaller fixes. Rejected: none. This was the last of the
+three dry-run passes; see `docs/plan-questions.md`.

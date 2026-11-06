@@ -1408,3 +1408,5 @@ Final dry-run of the M1 plan: the shim list (§6.6) gains `rt_saturate_checked` 
 builds; makes a saturated object immortal and settles its site counter); the checked
 report prints the runtime entry's leak line as `leak <runtime> <count>`; `rt_crash` takes
 `(msg: *const u8, len: usize)`.
+Final dry-run 3 of the M1 plan: `rt_rc_slow_inc` also receives the increment n in `r10`
+(§6.6); closure reuse is not part of M1 (reuse covers constructor and list layouts).
